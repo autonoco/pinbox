@@ -17,7 +17,25 @@
       },
       {
         "group": "CLI",
-        "pages": ["cli/overview", "cli/commands"]
+        "pages": [
+          "cli/overview",
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/commands/overview",
+              "cli/commands/pin",
+              "cli/commands/init",
+              "cli/commands/list",
+              "cli/commands/show",
+              "cli/commands/reply",
+              "cli/commands/resolve",
+              "cli/commands/summary",
+              "cli/commands/link",
+              "cli/commands/export",
+              "cli/commands/doctor"
+            ]
+          }
+        ]
       },
       {
         "group": "Concepts",

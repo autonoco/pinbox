@@ -1,0 +1,127 @@
+---
+title: "pinbox link"
+description: "Link a pin to an external tracker, and mirror the thread both ways."
+---
+
+`pinbox link` creates an item in an external tracker and stores a persistent two-way
+link. From then on, thread messages are mirrored in both directions. Reach for it when a
+pin needs to live where the rest of your team already works.
+
+## Usage
+
+```console
+$ pinbox link --help
+Usage: pinbox link [options] <id> [connector]
+
+Link a pin to an external tracker: creates the remote item and mirrors the thread both ways from
+then on.
+
+Arguments:
+  id          pin id (pin_xxxxxxxxxx)
+  connector   tracker connector (default: "github")
+
+Options:
+  --json      machine output
+  -h, --help  display help for command
+```
+
+## Arguments
+
+<ParamField path="id" type="string" required>
+  Pin id (`pin_xxxxxxxxxx`). Ids are exact — prefixes do not match.
+</ParamField>
+
+<ParamField path="connector" type="string" default="github">
+  Tracker connector. See the table below for what ships and what each one needs.
+</ParamField>
+
+## Options
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+## Connectors
+
+Two connectors ship today. The hub only offers one when its requirements are met.
+
+| Connector | Creates | Requires |
+| --- | --- | --- |
+| `github` (default) | a GitHub issue | `gh` installed and authenticated, and a git remote |
+| `slack` | a Slack message thread | `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` in the environment |
+
+[`pinbox doctor`](/cli/commands/doctor) reports the `gh` half.
+
+## Examples
+
+On success, stdout carries the created item as `<connector>#<ref>` followed by its URL,
+and stderr confirms the link. For a GitHub issue #41 in `acme/storefront`:
+
+```console
+$ pinbox link pin_6dzjtpax70
+github#41  https://github.com/acme/storefront/issues/41
+linked pin_6dzjtpax70 to github#41
+```
+
+### JSON
+
+`data` is the full updated pin — the same shape [`pinbox show`](/cli/commands/show)
+returns — with the new link appended to `links[]`:
+
+```json
+"links": [
+  {
+    "connector": "github",
+    "ref": "41",
+    "url": "https://github.com/acme/storefront/issues/41"
+  }
+]
+```
+
+Failures follow the same envelope. `hint` is absent when the connector's own error
+message is already the whole story:
+
+```console
+$ pinbox link pin_kgoksic8rz --json
+{
+  "ok": false,
+  "error": {
+    "code": "E_CONNECTOR",
+    "message": "no git remotes found"
+  }
+}
+```
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | `id` is missing |
+| 3 | `E_NOT_FOUND` | no pin has that id |
+| 4 | `E_CONFLICT` | this pin is already linked to that item |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+| 10 | `E_CONNECTOR` | the connector is unavailable, or the remote call failed |
+
+```console
+$ pinbox link pin_kgoksic8rz
+pinbox: no git remotes found
+$ echo $?
+10
+```
+
+```console
+$ pinbox link pin_kgoksic8rz linear
+pinbox: no connector available: linear
+run `pinbox doctor` to see which connectors this hub can reach
+$ echo $?
+10
+```
+
+When `gh` is the problem, the hint names the fix directly: install GitHub CLI and run
+`gh auth login` if it is missing, or just `gh auth login` if it is installed but logged
+out.
+
+---
+
+Next: check `links[]` with [`pinbox show`](/cli/commands/show), or confirm `gh` is usable
+with [`pinbox doctor`](/cli/commands/doctor).

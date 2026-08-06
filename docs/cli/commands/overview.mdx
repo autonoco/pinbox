@@ -1,0 +1,90 @@
+---
+title: "Command reference"
+description: "Every pinbox command, one page each, grouped by what you are trying to do."
+---
+
+```console
+$ pinbox --help
+Usage: pinbox [options] [command]
+
+CLI-first feedback loop: pins dropped on a live app, fixed and resolved by agents.
+
+Options:
+  -V, --version                output the version number
+  --json                       machine output: {"ok":true,"data":…} envelope
+  -h, --help                   display help for command
+
+Commands:
+  init [options]               set up pinbox in this project
+  pin [options] <text>         create a pin from the terminal
+  summary                      counts and the event cursor, in one call
+  list [options]               list pins, newest first
+  show <id>                    one pin with its full thread
+  reply [options] <id> <text>  add a thread message to a pin
+  resolve [options] <id>       mark a pin resolved
+  link <id> [connector]        link a pin to an external tracker
+  export [options]             write pins to stdout as markdown or JSON
+  doctor                       probe this machine's capabilities
+  help [command]               display help for command
+```
+
+Every command accepts `--json`. Read the [output contract](/cli/overview) first — it
+explains the envelope, the automatic JSON switch when stdout is not a terminal, and the
+exit codes. The pages below do not repeat it.
+
+## Create
+
+<CardGroup cols={2}>
+  <Card title="pinbox init" icon="rocket" href="/cli/commands/init">
+    Set up pinbox in a project: `.pinbox/`, the git hook, and the agent skill.
+  </Card>
+  <Card title="pinbox pin" icon="thumbtack" href="/cli/commands/pin">
+    Create a pin from the terminal, with no browser involved.
+  </Card>
+</CardGroup>
+
+## Read
+
+<CardGroup cols={3}>
+  <Card title="pinbox summary" icon="gauge" href="/cli/commands/summary">
+    Counts and the event cursor, in one call.
+  </Card>
+  <Card title="pinbox list" icon="list" href="/cli/commands/list">
+    Every pin, newest first.
+  </Card>
+  <Card title="pinbox show" icon="eye" href="/cli/commands/show">
+    One pin with its full thread.
+  </Card>
+</CardGroup>
+
+## Act on
+
+<CardGroup cols={3}>
+  <Card title="pinbox reply" icon="comment" href="/cli/commands/reply">
+    Add a message to a pin's thread.
+  </Card>
+  <Card title="pinbox resolve" icon="check" href="/cli/commands/resolve">
+    Mark a pin resolved, with a note.
+  </Card>
+  <Card title="pinbox link" icon="link" href="/cli/commands/link">
+    Mirror a pin into an external tracker.
+  </Card>
+</CardGroup>
+
+## Inspect
+
+<CardGroup cols={2}>
+  <Card title="pinbox export" icon="file-export" href="/cli/commands/export">
+    Write pins to stdout as markdown or JSON.
+  </Card>
+  <Card title="pinbox doctor" icon="stethoscope" href="/cli/commands/doctor">
+    Probe this machine's capabilities.
+  </Card>
+</CardGroup>
+
+<Note>
+The hub that stores your pins starts itself on first use. Two commands are plumbing
+rather than surface: `serve` runs that hub in the foreground for debugging, and `session`
+is how agent hooks register with the hub and pull pin context. Both have `--help`;
+neither appears in `pinbox --help`.
+</Note>

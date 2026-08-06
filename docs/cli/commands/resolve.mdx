@@ -1,0 +1,197 @@
+---
+title: "pinbox resolve"
+description: "Mark a pin resolved."
+---
+
+`pinbox resolve` closes a pin. Run it once the change is made and verified. Resolving is
+once-only: a second resolve is a conflict, not a no-op.
+
+There is no separate "won't fix" state. A pin you decided not to change is resolved with
+a note saying so.
+
+## Usage
+
+```console
+$ pinbox resolve --help
+Usage: pinbox resolve [options] <id>
+
+Mark a pin resolved.
+
+Arguments:
+  id             pin id (pin_xxxxxxxxxx)
+
+Options:
+  --note <text>  resolution note (e.g. what changed, or why it won't)
+  --as <role>    resolver: human or agent (default: "human")
+  --json         machine output
+  -h, --help     display help for command
+```
+
+## Arguments
+
+<ParamField path="id" type="string" required>
+  Pin id (`pin_xxxxxxxxxx`). Ids are exact — prefixes do not match.
+</ParamField>
+
+## Options
+
+<ParamField path="--note" type="string">
+  Resolution note (e.g. what changed, or why it won't). Optional, but it is the thing the
+  next reader wants.
+</ParamField>
+
+<ParamField path="--as" type="string" default="human">
+  Resolver: `human` or `agent`.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+## Examples
+
+```console
+$ pinbox resolve pin_6dzjtpax70 --note "flex-shrink on the CTA; verified at 1024 and 1280" --as agent
+pin_6dzjtpax70 resolved
+by agent — flex-shrink on the CTA; verified at 1024 and 1280
+```
+
+The note then shows up on the pin, next to who wrote it:
+
+```console
+$ pinbox show pin_6dzjtpax70
+pin_6dzjtpax70  resolved  note
+text      button is cut off
+target    main > button.cta  <button>
+url       http://localhost:3000/
+rect      120,480 200x48
+nearby    "Get started free"
+env       1440x900@2x  Chrome 130  macOS  light
+git       main @ 40a4130
+author    ada
+created   2026-08-06T21:20:59.733Z (just now)
+resolved  by agent, just now — flex-shrink on the CTA; verified at 1024 and 1280
+
+human  just now  does this also happen at 1024px?
+agent  just now  Yes — same overflow at 1024. One fix covers both.
+```
+
+### JSON
+
+`data` is the full updated pin: `status` flipped, `resolution` present.
+
+```console
+$ pinbox resolve pin_jxf6qu4hpg --note "routed /terms to the new legal page" --as agent --json
+{
+  "ok": true,
+  "data": {
+    "text": "terms link 404s",
+    "kind": "note",
+    "target": {
+      "url": "http://localhost:3000/",
+      "selector": "footer a.terms",
+      "tag": "a",
+      "rect": {
+        "x": 310,
+        "y": 2044,
+        "width": 64,
+        "height": 18
+      },
+      "fixed": false
+    },
+    "env": {
+      "viewport": {
+        "w": 1440,
+        "h": 900,
+        "dpr": 2
+      },
+      "browser": "Chrome 130",
+      "os": "macOS",
+      "colorScheme": "light",
+      "branch": "main",
+      "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+    },
+    "author": {
+      "userId": "ada"
+    },
+    "id": "pin_jxf6qu4hpg",
+    "schemaVersion": 1,
+    "status": "resolved",
+    "createdAt": "2026-08-06T21:20:59.776Z",
+    "resolution": {
+      "by": "agent",
+      "note": "routed /terms to the new legal page",
+      "at": "2026-08-06T21:21:01.816Z"
+    }
+  }
+}
+```
+
+## Resolving from a commit message
+
+The `post-commit` hook that [`pinbox init`](/cli/commands/init) installs looks for
+`Fixes`, `Resolves`, or `Closes` followed by a pin id — with or without a colon,
+case-insensitive — and resolves those pins with the commit SHA attached.
+
+```console
+$ git commit -m "widen the CTA hit area
+
+Fixes pin_prpwsggh5r"
+resolved pin_prpwsggh5r (1ca3bbe)
+[main 1ca3bbe] widen the CTA hit area
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+```
+
+The resolution records the commit instead of a note:
+
+```console
+$ pinbox show pin_prpwsggh5r --json | jq .data.pin.resolution
+{
+  "by": "agent",
+  "commit": "1ca3bbe6b0baa1757fb8ebe5adeb906d29748c8f",
+  "at": "2026-08-06T21:24:53.435Z"
+}
+```
+
+The hook never blocks a commit. Unknown ids, already-resolved pins, and an unreachable
+hub all leave the commit alone.
+
+<Warning>
+Today the trailer path only resolves pins that carry a full browser target — the ones
+placed with the toolbar. A pin created with [`pinbox pin`](/cli/commands/pin) is left
+open and the hook prints an error next to your commit output. Resolve those with
+`pinbox resolve`.
+</Warning>
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | `id` is missing, or `--as` is outside `human`/`agent` |
+| 3 | `E_NOT_FOUND` | no pin has that id |
+| 4 | `E_CONFLICT` | the pin is already resolved |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+
+A second resolve is a conflict, not a no-op — an agent has to notice it raced another
+resolver.
+
+```console
+$ pinbox resolve pin_6dzjtpax70
+pinbox: pin_6dzjtpax70 is already resolved
+run `pinbox show pin_6dzjtpax70` to see who resolved it and why
+$ echo $?
+4
+```
+
+```console
+$ pinbox resolve pin_kgoksic8rz --as bot
+pinbox: invalid --as: "bot" (expected human or agent)
+run `pinbox resolve --help` for usage
+$ echo $?
+2
+```
+
+---
+
+Next: confirm it with [`pinbox show`](/cli/commands/show), or see what is still open with
+[`pinbox summary`](/cli/commands/summary).

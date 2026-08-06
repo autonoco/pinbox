@@ -1,0 +1,205 @@
+---
+title: "pinbox export"
+description: "Write pins to stdout as markdown or JSON."
+---
+
+`pinbox export` is the zero-setup way to move pins into something else: a chat window, an
+issue body, a file. Its stdout is the artifact.
+
+## Usage
+
+```console
+$ pinbox export --help
+Usage: pinbox export [options]
+
+Write pins to stdout as markdown or JSON.
+
+Options:
+  --format <format>  md or json (default: "md")
+  --detail <level>   compact, standard, or forensic (default: "standard")
+  --status <status>  filter: open or resolved (default: all)
+  --json             same as --format json
+  -h, --help         display help for command
+```
+
+## Options
+
+<ParamField path="--format" type="string" default="md">
+  `md` or `json`.
+</ParamField>
+
+<ParamField path="--detail" type="string" default="standard">
+  `compact`, `standard`, or `forensic`. Markdown only — JSON always carries everything.
+</ParamField>
+
+<ParamField path="--status" type="string">
+  Filter: `open` or `resolved`. Default: all.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Same as `--format json`.
+</ParamField>
+
+<Warning>
+`export` is the one command that does **not** switch to JSON when stdout is a pipe. Its
+stdout is the artifact, so wrapping markdown in an envelope would defeat the command.
+`--format` alone decides. `pinbox export > pins.md` writes markdown, as you would expect.
+</Warning>
+
+## Examples
+
+`--detail` is the token-budget control. `compact` is one line per pin:
+
+```console
+$ pinbox export --detail compact --status open
+- [open] src/app.tsx — the footer overlaps at 320px (pin_342q5tqwap)
+- [open] a.pricing — pricing page 404s (pin_7owz5vocwn)
+- [open] https://example.com/docs — docs page 404s (pin_gxm28b6kvh)
+- [open] shorten the onboarding copy (pin_kgoksic8rz)
+- [open] src/app.tsx:12 — the checkout button is dead on iOS (pin_ywhqc5wr6t)
+```
+
+`standard` adds indented context lines, each present only when the fact exists:
+
+```console
+$ pinbox export --status open
+- [open] src/app.tsx — the footer overlaps at 320px (pin_342q5tqwap)
+  - source: src/app.tsx
+- [open] a.pricing — pricing page 404s (pin_7owz5vocwn)
+  - url: https://example.com/pricing
+- [open] https://example.com/docs — docs page 404s (pin_gxm28b6kvh)
+  - url: https://example.com/docs
+- [open] shorten the onboarding copy (pin_kgoksic8rz)
+- [open] src/app.tsx:12 — the checkout button is dead on iOS (pin_ywhqc5wr6t)
+  - source: src/app.tsx:12
+```
+
+`forensic` adds a fenced JSON block per pin, carrying `target.context` and `env`:
+
+````console
+$ pinbox export --detail forensic --status resolved
+- [resolved] footer a.terms — terms link 404s (pin_jxf6qu4hpg)
+  - url: http://localhost:3000/
+  - rect: 310,2044 64x18
+
+  ```json
+  {
+    "env": {
+      "viewport": { "w": 1440, "h": 900, "dpr": 2 },
+      "browser": "Chrome 130",
+      "os": "macOS",
+      "colorScheme": "light",
+      "branch": "main",
+      "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+    }
+  }
+  ```
+- [resolved] main > button.cta — button is cut off (pin_6dzjtpax70)
+  - url: http://localhost:3000/
+  - rect: 120,480 200x48
+  - nearby: "Get started free"
+
+  ```json
+  {
+    "context": { "nearbyText": "Get started free" },
+    "env": {
+      "viewport": { "w": 1440, "h": 900, "dpr": 2 },
+      "browser": "Chrome 130",
+      "os": "macOS",
+      "colorScheme": "light",
+      "branch": "main",
+      "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+    }
+  }
+  ```
+````
+
+A pin with nothing to record — no git stamp, no context — gets no fence at all rather
+than an empty one.
+
+### JSON
+
+Byte-identical to `pinbox list --json` with the same `--status`. One contract, not two.
+
+```console
+$ pinbox export --format json --status resolved
+{
+  "ok": true,
+  "data": [
+    {
+      "text": "terms link 404s",
+      "kind": "note",
+      "target": {
+        "url": "http://localhost:3000/",
+        "selector": "footer a.terms",
+        "tag": "a",
+        "rect": {
+          "x": 310,
+          "y": 2044,
+          "width": 64,
+          "height": 18
+        },
+        "fixed": false
+      },
+      "env": {
+        "viewport": {
+          "w": 1440,
+          "h": 900,
+          "dpr": 2
+        },
+        "browser": "Chrome 130",
+        "os": "macOS",
+        "colorScheme": "light",
+        "branch": "main",
+        "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+      },
+      "author": {
+        "userId": "ada"
+      },
+      "id": "pin_jxf6qu4hpg",
+      "schemaVersion": 1,
+      "status": "resolved",
+      "createdAt": "2026-08-06T21:20:59.776Z",
+      "resolution": {
+        "by": "agent",
+        "note": "routed /terms to the new legal page",
+        "at": "2026-08-06T21:21:01.816Z"
+      }
+    }
+  ]
+}
+```
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | `--detail`, `--format`, or `--status` is outside its set |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+
+Errors follow the chosen format, so a piped `.md` is never polluted with an envelope:
+
+```console
+$ pinbox export --detail full
+pinbox: invalid --detail: "full" (expected compact, standard, or forensic)
+run `pinbox export --help` for usage
+$ echo $?
+2
+```
+
+```console
+$ pinbox export --detail full --format json
+{
+  "ok": false,
+  "error": {
+    "code": "E_INVALID_INPUT",
+    "message": "invalid --detail: \"full\" (expected compact, standard, or forensic)",
+    "hint": "run `pinbox export --help` for usage"
+  }
+}
+```
+
+---
+
+Next: the same data on screen with [`pinbox list`](/cli/commands/list), or one pin in full
+with [`pinbox show`](/cli/commands/show).

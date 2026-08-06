@@ -1,0 +1,186 @@
+---
+title: "pinbox pin"
+description: "Create a pin from the terminal, with no browser involved."
+---
+
+`pinbox pin` writes a pin straight from your shell. Reach for it when you want to try
+pinbox before wiring up the toolbar, or when the thing that needs changing is in the code
+rather than on a page.
+
+Because there is no browser, a terminal pin records nothing about one — no viewport, no
+screenshot, no element rectangle. It carries only what is true: your text, whatever place
+you named, your git identity, and the branch and commit the hub stamps on every pin.
+
+## Usage
+
+```console
+$ pinbox pin --help
+Usage: pinbox pin [options] <text>
+
+Create a pin from the terminal. No browser is involved, so nothing about one is recorded: anchor the
+pin to a source location with --file, or to a web surface with --url.
+
+Arguments:
+  text                  what needs to change, in your words
+
+Options:
+  --file <path[:line]>  anchor to a source location (recorded repo-relative)
+  --url <url>           the web surface this pin is about
+  --selector <sel>      CSS selector on that surface (needs --url)
+  --json                machine output
+  -h, --help            display help for command
+```
+
+## Arguments
+
+<ParamField path="text" type="string" required>
+  What needs to change, in your words. Quote it — it is one argument, not several.
+</ParamField>
+
+## Options
+
+<ParamField path="--file" type="path[:line]">
+  Anchor to a source location (recorded repo-relative). The path must exist. It is stored
+  relative to the repo root, so the anchor still resolves on another machine. `:line` is
+  optional.
+</ParamField>
+
+<ParamField path="--url" type="url">
+  The web surface this pin is about. Must be an absolute `http` or `https` URL.
+</ParamField>
+
+<ParamField path="--selector" type="string">
+  CSS selector on that surface. Requires `--url` — a selector with no page is not a
+  target.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+## Examples
+
+The new pin id goes to stdout. The confirmation goes to stderr, so `2>/dev/null` leaves
+you with just the id.
+
+```console
+$ pinbox pin "the checkout button is dead on iOS" --file src/app.tsx:12
+pin_ywhqc5wr6t
+pinned to src/app.tsx:12
+```
+
+With no anchor at all — a note about the product, not about a place:
+
+```console
+$ pinbox pin "shorten the onboarding copy"
+pin_kgoksic8rz
+pinned
+```
+
+About a page you never opened:
+
+```console
+$ pinbox pin "docs page 404s" --url https://example.com/docs
+pin_gxm28b6kvh
+pinned to https://example.com/docs
+```
+
+With a selector on that page. The confirmation names the page, and the selector is stored
+on the pin:
+
+```console
+$ pinbox pin "pricing page 404s" --url https://example.com/pricing --selector "a.pricing"
+pin_7owz5vocwn
+pinned to https://example.com/pricing
+```
+
+### JSON
+
+`data` is the created pin. Note what is absent: no `env.viewport`, no `target.rect`.
+Absent, not zeroed.
+
+```console
+$ pinbox pin "the footer overlaps at 320px" --file src/app.tsx --json
+{
+  "ok": true,
+  "data": {
+    "text": "the footer overlaps at 320px",
+    "kind": "note",
+    "target": {
+      "source": {
+        "file": "src/app.tsx",
+        "via": "none"
+      }
+    },
+    "env": {
+      "branch": "main",
+      "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+    },
+    "author": {
+      "userId": "ada@example.com",
+      "name": "Ada Lovelace",
+      "email": "ada@example.com"
+    },
+    "id": "pin_342q5tqwap",
+    "schemaVersion": 1,
+    "status": "open",
+    "createdAt": "2026-08-06T21:21:00.623Z"
+  }
+}
+```
+
+To capture the id in a script, parse the envelope rather than the human line — a pipe
+switches the command to JSON mode anyway:
+
+```bash
+id=$(pinbox pin "the footer overlaps at 320px" --json | jq -r .data.id)
+pinbox show "$id" --json
+```
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | `text` is missing or empty, `--file` points at nothing, `--url` is not absolute, or `--selector` has no `--url` |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+
+A `--file` that points at nothing is rejected before the pin is created. An agent sent to
+a path that does not exist is worse off than one with no anchor at all.
+
+```console
+$ pinbox pin "the footer overlaps on mobile" --file src/nope.tsx:42
+pinbox: no such file: "src/nope.tsx"
+--file takes a path that exists, optionally with :line
+$ echo $?
+2
+```
+
+```console
+$ pinbox pin "pricing page 404s" --selector "a.pricing"
+pinbox: --selector needs --url (a selector without a page is not a target)
+run `pinbox pin --help` for usage
+$ echo $?
+2
+```
+
+```console
+$ pinbox pin "docs page 404s" --url localhost:3000
+pinbox: invalid --url: "localhost:3000" (expected an absolute URL)
+run `pinbox pin --help` for usage
+$ echo $?
+2
+```
+
+```console
+$ pinbox pin ""
+pinbox: pin text must not be empty
+quote the text: pinbox pin "your text"
+$ echo $?
+2
+```
+
+---
+
+Next: read it back with [`pinbox show`](/cli/commands/show), find it again with
+[`pinbox list`](/cli/commands/list), or close it out with
+[`pinbox resolve`](/cli/commands/resolve).

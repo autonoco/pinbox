@@ -9,7 +9,7 @@ shape is a contract — the same command, run the same way, always produces the 
 structure.
 
 This page describes that contract. It applies to every command; the
-[command reference](/cli/commands) does not repeat it.
+[command reference](/cli/commands/overview) does not repeat it.
 
 ## Two modes
 
@@ -63,7 +63,7 @@ $ pinbox list | head -1
 
 <Note>
 `pinbox export` is the one exception, because its stdout **is** the artifact. See
-[export](/cli/commands#export).
+[export](/cli/commands/export).
 </Note>
 
 ## The envelope
@@ -154,7 +154,7 @@ path, the toolbar's WebSocket transport, attachment uploads, and hosted deployme
 surface through the same envelope when they do.
 
 `doctor` is a special case: it exits 1 when a check failed but still prints
-`"ok": true`, because doctor itself ran. See [doctor](/cli/commands#doctor).
+`"ok": true`, because doctor itself ran. See [doctor](/cli/commands/doctor).
 
 ## Every error names a next step
 

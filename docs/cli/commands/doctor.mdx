@@ -1,0 +1,155 @@
+---
+title: "pinbox doctor"
+description: "Probe this machine's capabilities: storage, state dir, hub spawn, agents on PATH."
+---
+
+`pinbox doctor` is the first thing to run when something is not working, and a reasonable
+thing to run right after [`pinbox init`](/cli/commands/init). Each check *does the thing*
+and reports what happened — this is not a version table.
+
+## Usage
+
+```console
+$ pinbox doctor --help
+Usage: pinbox doctor [options]
+
+Probe this machine's capabilities: storage, state dir, hub spawn, agents on PATH.
+
+Options:
+  --json      machine output
+  -h, --help  display help for command
+```
+
+## Options
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+`doctor` takes no arguments.
+
+## Examples
+
+```console
+$ pinbox doctor
+ok  sqlite       created and read a table in :memory:
+ok  fts5         MATCH query answered on a virtual table
+ok  state-dir    ~/.local/state/pinbox/111a663e5754 writable, mode 0700
+ok  db-writable  .pinbox/pinbox.db opens for writing
+ok  hub          spawned, healthy at http://127.0.0.1:60159 (schemaVersion 1)
+ok  agents       found: claude, codex, hermes
+ok  gh           gh 2.96.0, authenticated
+ok  delivery     round trip ok — pin_nho23vc7n6 reached the session through `session inject`
+8 checks, all ok
+$ echo $?
+0
+```
+
+| Check | What it proves |
+| --- | --- |
+| `sqlite` | SQLite works: a table is created and read back in memory. |
+| `fts5` | Full-text search is compiled in: a `MATCH` query is answered. |
+| `state-dir` | The private state directory exists, is writable, and is mode 0700. |
+| `db-writable` | `.pinbox/pinbox.db` opens for writing. |
+| `hub` | A hub can be spawned and answers `/health`. |
+| `agents` | Which agent CLIs are on `PATH`. Informational — never fails the run. |
+| `gh` | Whether GitHub CLI is installed and authenticated, which gates [`pinbox link`](/cli/commands/link). Informational. |
+| `delivery` | A pin actually reaches an agent session: a probe session is registered, a probe pin posted, pulled back through the session, and resolved. |
+
+The check lines are stdout; the count line is stderr. `agents` and `gh` are informational
+and always report `ok`. Any other failing check turns its line's `ok` into `no`, changes
+the count line to read `8 checks, 2 failing`, and exits 1. The detail on a failing line
+names the cause, not the symptom — `state-dir` reports the `EACCES` it hit, `hub` reports
+why the spawn failed.
+
+A machine with no GitHub CLI still passes. `gh` just reports what that costs you:
+
+```text
+ok  gh           not found — `pinbox link` unavailable until gh is installed and authed
+```
+
+<Note>
+`delivery` leaves its probe pins behind, resolved. They show up in
+[`pinbox list`](/cli/commands/list) as `pinbox doctor delivery probe …`.
+</Note>
+
+### JSON
+
+The envelope stays `ok: true` when doctor *ran*. Findings live in `data.checks`, and the
+exit code carries the verdict — branch on `checks[].ok`, not on a parse failure.
+
+```console
+$ pinbox doctor --json
+{
+  "ok": true,
+  "data": {
+    "checks": [
+      {
+        "name": "sqlite",
+        "ok": true,
+        "detail": "created and read a table in :memory:"
+      },
+      {
+        "name": "fts5",
+        "ok": true,
+        "detail": "MATCH query answered on a virtual table"
+      },
+      {
+        "name": "state-dir",
+        "ok": true,
+        "detail": "~/.local/state/pinbox/111a663e5754 writable, mode 0700"
+      },
+      {
+        "name": "db-writable",
+        "ok": true,
+        "detail": ".pinbox/pinbox.db opens for writing"
+      },
+      {
+        "name": "hub",
+        "ok": true,
+        "detail": "spawned, healthy at http://127.0.0.1:60159 (schemaVersion 1)"
+      },
+      {
+        "name": "agents",
+        "ok": true,
+        "detail": "found: claude, codex, hermes"
+      },
+      {
+        "name": "gh",
+        "ok": true,
+        "detail": "gh 2.96.0, authenticated"
+      },
+      {
+        "name": "delivery",
+        "ok": true,
+        "detail": "round trip ok — pin_q4fis156ql reached the session through `session inject`"
+      }
+    ]
+  }
+}
+```
+
+Check names are machine output and are stable.
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 1 | — | a required check failed. There is no error code: the envelope still says `"ok": true`, because doctor itself ran |
+| 2 | `E_INVALID_INPUT` | an unknown flag |
+
+Exit 1 is the only place in pinbox where a non-zero exit does not carry an error code.
+Read `data.checks` to find out which check failed.
+
+```console
+$ pinbox doctor --fix
+pinbox: unknown option '--fix'
+run `pinbox doctor --help` for usage
+$ echo $?
+2
+```
+
+---
+
+Next: fix what it found, then confirm with [`pinbox summary`](/cli/commands/summary). If
+the `hub` check is the one failing, start there — every other command needs it.

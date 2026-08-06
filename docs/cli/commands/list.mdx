@@ -1,0 +1,193 @@
+---
+title: "pinbox list"
+description: "List pins, newest first."
+---
+
+`pinbox list` is the inbox. Run it to see what is waiting, then pass an id to
+[`pinbox show`](/cli/commands/show) for the detail.
+
+## Usage
+
+```console
+$ pinbox list --help
+Usage: pinbox list [options]
+
+List pins, newest first.
+
+Options:
+  --status <status>  filter: open or resolved (default: all)
+  --json             machine output
+  -h, --help         display help for command
+```
+
+## Options
+
+<ParamField path="--status" type="string">
+  Filter: `open` or `resolved`. Default: all.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+## Examples
+
+One line per pin: id, status, age, place, text. The columns are space-aligned and
+greppable. The count line goes to stderr.
+
+```console
+$ pinbox list
+pin_342q5tqwap  open      just now  src/app.tsx               the footer overlaps at 320px
+pin_7owz5vocwn  open      just now  a.pricing                 pricing page 404s
+pin_gxm28b6kvh  open      just now  https://example.com/docs  docs page 404s
+pin_kgoksic8rz  open      just now  —                         shorten the onboarding copy
+pin_ywhqc5wr6t  open      just now  src/app.tsx:12            the checkout button is dead on iOS
+pin_jxf6qu4hpg  resolved  just now  footer a.terms            terms link 404s
+pin_6dzjtpax70  resolved  just now  main > button.cta         button is cut off
+7 pins (5 open, 2 resolved)
+```
+
+The fourth column is the most specific place the pin names: its CSS selector if it has
+one, else its source anchor, else its URL. A pin that names no place shows `—`.
+
+Filtering narrows the count line too:
+
+```console
+$ pinbox list --status resolved
+pin_jxf6qu4hpg  resolved  just now  footer a.terms     terms link 404s
+pin_6dzjtpax70  resolved  just now  main > button.cta  button is cut off
+2 pins (2 resolved)
+```
+
+An empty result prints nothing on stdout and `0 pins` on stderr, and exits 0. An empty
+list is a successful answer, not an error.
+
+```console
+$ pinbox list --status resolved
+0 pins
+$ echo $?
+0
+```
+
+### JSON
+
+`data` is an array of full pins — the same shape [`pinbox show`](/cli/commands/show)
+returns, nothing summarized away.
+
+```console
+$ pinbox list --status resolved --json
+{
+  "ok": true,
+  "data": [
+    {
+      "text": "terms link 404s",
+      "kind": "note",
+      "target": {
+        "url": "http://localhost:3000/",
+        "selector": "footer a.terms",
+        "tag": "a",
+        "rect": {
+          "x": 310,
+          "y": 2044,
+          "width": 64,
+          "height": 18
+        },
+        "fixed": false
+      },
+      "env": {
+        "viewport": {
+          "w": 1440,
+          "h": 900,
+          "dpr": 2
+        },
+        "browser": "Chrome 130",
+        "os": "macOS",
+        "colorScheme": "light",
+        "branch": "main",
+        "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+      },
+      "author": {
+        "userId": "ada"
+      },
+      "id": "pin_jxf6qu4hpg",
+      "schemaVersion": 1,
+      "status": "resolved",
+      "createdAt": "2026-08-06T21:20:59.776Z",
+      "resolution": {
+        "by": "agent",
+        "note": "routed /terms to the new legal page",
+        "at": "2026-08-06T21:21:01.816Z"
+      }
+    },
+    {
+      "text": "button is cut off",
+      "kind": "note",
+      "target": {
+        "url": "http://localhost:3000/",
+        "selector": "main > button.cta",
+        "tag": "button",
+        "rect": {
+          "x": 120,
+          "y": 480,
+          "width": 200,
+          "height": 48
+        },
+        "fixed": false,
+        "context": {
+          "nearbyText": "Get started free"
+        }
+      },
+      "env": {
+        "viewport": {
+          "w": 1440,
+          "h": 900,
+          "dpr": 2
+        },
+        "browser": "Chrome 130",
+        "os": "macOS",
+        "colorScheme": "light",
+        "branch": "main",
+        "commit": "40a41305d1d1f73aff9884493cfe72474b4c5cee"
+      },
+      "author": {
+        "userId": "ada"
+      },
+      "id": "pin_6dzjtpax70",
+      "schemaVersion": 1,
+      "status": "resolved",
+      "createdAt": "2026-08-06T21:20:59.733Z",
+      "resolution": {
+        "by": "agent",
+        "note": "flex-shrink on the CTA; verified at 1024 and 1280",
+        "at": "2026-08-06T21:21:01.733Z"
+      }
+    }
+  ]
+}
+```
+
+<Note>
+A pipe is not a terminal, so `pinbox list | …` produces the envelope, not the columns.
+That is the [output contract](/cli/overview), not a quirk of this command.
+</Note>
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | `--status` is anything other than `open` or `resolved` |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+
+```console
+$ pinbox list --status closed
+pinbox: invalid --status: "closed" (expected open or resolved)
+run `pinbox list --help` for usage
+$ echo $?
+2
+```
+
+---
+
+Next: open one with [`pinbox show`](/cli/commands/show), get the counts alone with
+[`pinbox summary`](/cli/commands/summary), or hand the whole set to something else with
+[`pinbox export`](/cli/commands/export).

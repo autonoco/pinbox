@@ -1,0 +1,87 @@
+---
+title: "pinbox summary"
+description: "Counts and the event cursor, in one call."
+---
+
+`pinbox summary` answers "is there anything to do?" without listing anything. It is the
+cheapest command in the set, and the one an agent polls.
+
+## Usage
+
+```console
+$ pinbox summary --help
+Usage: pinbox summary [options]
+
+Counts and the event cursor, in one call.
+
+Options:
+  --json      machine output
+  -h, --help  display help for command
+```
+
+## Options
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+`summary` takes no arguments.
+
+## Examples
+
+```console
+$ pinbox summary
+open        7
+resolved    0
+sessions    0
+last event  #7
+```
+
+### JSON
+
+```console
+$ pinbox summary --json
+{
+  "ok": true,
+  "data": {
+    "open": 7,
+    "resolved": 0,
+    "lastEventSeq": 7,
+    "sessions": 0,
+    "connectedToolbars": 0
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `open` | pins not yet resolved |
+| `resolved` | pins with a `resolution` |
+| `lastEventSeq` | the event cursor — poll it, and if it has not moved, nothing has happened |
+| `sessions` | agent sessions that have not ended |
+| `connectedToolbars` | live toolbar WebSocket connections |
+
+`lastEventSeq` is the field worth building on. Store it, call `summary` again, and only
+run [`pinbox list`](/cli/commands/list) when the number changed.
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+
+`summary` is usually the first command to touch the hub, so it is usually where a broken
+install shows up:
+
+```console
+$ pinbox summary
+pinbox: cannot reach the hub and could not start one
+run `pinbox doctor` to find out why
+$ echo $?
+5
+```
+
+---
+
+Next: see the pins behind the counts with [`pinbox list`](/cli/commands/list), or find out
+why the hub will not start with [`pinbox doctor`](/cli/commands/doctor).

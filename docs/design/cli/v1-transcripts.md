@@ -6,7 +6,7 @@ This is the CLI UX design artifact — literal terminal transcripts, the way a G
 would be mockups. Every transcript below is the exact output the implementation had to produce.
 Sources of truth: clig.dev and the shipped schema (`packages/core/src/schema.ts`) —
 every JSON example uses the real field names. For the surface as shipped, see
-`docs/cli/commands.mdx`; this file is a historical design artifact and has drifted.
+`docs/cli/commands/overview.mdx`; this file is a historical design artifact and has drifted.
 
 The verb set at the time this was written: `summary`, `list`, `show`, `reply`, `resolve`,
 `export`, `doctor`, and the hidden `serve`. No `init`, no `link`, no `--search`, no

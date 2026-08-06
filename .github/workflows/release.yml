@@ -1,0 +1,190 @@
+# Tag → compile → smoke → GitHub Release → npm, in ONE workflow.
+#
+# One workflow because a tag pushed with GITHUB_TOKEN does not trigger sibling workflows: a
+# split "tag" / "publish" pair would silently never fire. Everything here is credential wiring
+# and job ordering; the logic lives in tools/release/*.
+#
+# Gate order is the point: nothing is published until the pack-and-install e2e has installed
+# the very binaries this run compiled, on both OSes, with bun off PATH.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Dispatch is kept for re-running a release whose npm step failed after the tag was cut, but it
+  # is only ever legal from a *tag* ref (GitHub's "Run workflow" ref picker lists tags). Started
+  # from a branch, `github.ref_name` is the branch — an unguarded dispatch from `main` would cut a
+  # Release named `main` and fan it out to npm, and npm unpublish is heavily restricted. Hence the
+  # `guard` job below, which every other job waits on. Dispatching from a tag also means the
+  # checkout is the tagged tree, which an input-supplied tag could never guarantee.
+  workflow_dispatch:
+
+# Never cancel a release in flight — a half-published channel is worse than a slow one.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The one gate every other job hangs off. Cheap, first, and loud: a non-tag ref fails the run
+  # rather than skipping it silently, so a mis-aimed dispatch is visible instead of looking green.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      # The ref arrives through env, never interpolated into the shell: a ref name is
+      # attacker-shaped input the moment anyone can push a tag.
+      - name: refuse any ref that is not a v* release tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "release runs from a v* tag only (got $REF_TYPE $REF_NAME)" >&2
+            exit 1
+          fi
+          # Being a tag is not enough — every downstream job strips the leading `v` and treats the
+          # rest as the version it compiles, releases, and publishes.
+          if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "tag $REF_NAME is not a v<semver> release tag" >&2
+            exit 1
+          fi
+          echo "releasing $REF_NAME"
+
+  validate:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run ci:validate
+
+  compile:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # `bun build --compile` cross-compiles: one Linux job emits all four binaries.
+      #
+      # The tag is passed in, and that is the whole point: `pinbox --version` reads
+      # packages/cli/package.json, so compileAll asserts that manifest against the tag being
+      # released. Called with no argument it compares the manifest to itself and can never fail —
+      # tagging v1.2.3 over an unmerged changesets version PR would then ship 1.2.2 binaries under
+      # a Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
+      # ref name is attacker-shaped input the moment anyone can push a tag.
+      - name: compile every target at the tagged version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "release runs from a v* tag only (got $REF_TYPE $REF_NAME)" >&2
+            exit 1
+          fi
+          bun run release:build "${REF_NAME#v}"
+      - name: checksums
+        run: |
+          cd dist/release/bin
+          for asset in pinbox-*; do sha256sum "$asset" > "$asset.sha256"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: dist/release/bin
+          if-no-files-found: error
+
+  smoke:
+    needs: compile
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      # node + npm are what the launcher shim and the install test actually run on.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist/release/bin
+      - name: dogfood the artifact this run compiled
+        run: |
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64) asset=pinbox-linux-x64 ;;
+            Linux-ARM64) asset=pinbox-linux-arm64 ;;
+            macOS-X64) asset=pinbox-darwin-x64 ;;
+            macOS-ARM64) asset=pinbox-darwin-arm64 ;;
+            *) echo "unmapped runner ${{ runner.os }}-${{ runner.arch }}" >&2; exit 1 ;;
+          esac
+          chmod +x "dist/release/bin/$asset"
+          PINBOX_RELEASE_BINARY="$PWD/dist/release/bin/$asset" bun test tools/release/release.test.ts
+
+  github-release:
+    needs: smoke
+    # Belt and braces over `guard`: the two irreversible jobs re-check the ref themselves, so
+    # neither a single-job re-run nor a future edit to `needs` can hand them a branch.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist/release/bin
+      - name: publish the GitHub Release
+        # The tag arrives through env, never interpolated into the shell: a ref name is
+        # attacker-shaped input the moment anyone can push a tag.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/release/bin/pinbox-* \
+            tools/release/install.sh
+
+  publish:
+    needs: github-release
+    # See github-release: npm publishes cannot be taken back, so this ref check is duplicated
+    # rather than delegated.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # Trusted Publishing: npm mints its credential from this OIDC token, and --provenance
+    # binds every tarball to this repo, workflow, and commit. No npm token is stored.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # npm is CI publishing glue for the one flag `bun publish` lacks (--provenance).
+      - run: npm install -g npm@latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: dist/release/bin
+      - run: chmod +x dist/release/bin/pinbox-*
+      # Order is the contract: core → toolbar → mcp → platform packages → launcher LAST.
+      # The tag is passed here too, so the same manifest-vs-tag assertion guards the artifacts
+      # that actually reach the registry, not only the ones this run compiled.
+      - name: publish the tagged version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: bun run release:publish "${REF_NAME#v}"

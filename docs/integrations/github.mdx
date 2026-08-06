@@ -1,0 +1,207 @@
+---
+title: "GitHub"
+description: "Link a pin to a GitHub issue and keep the thread and status in sync both ways."
+---
+
+`pinbox link` turns a pin into a GitHub issue and keeps the two in sync from then
+on. Comments flow both directions. Closing either side closes the other.
+
+Use it when a pin needs to leave the loop — it is not a bug someone will fix in
+this session, and it belongs on the backlog where the rest of the team can see it.
+
+## Requirements
+
+Pinbox has no GitHub dependency, no OAuth app, and no token of its own. It shells
+out to **your** `gh`:
+
+```bash
+gh --version
+gh auth status
+```
+
+If those work, pinbox works. Your credentials, your GitHub host, your enterprise
+config — all of it is gh's, not ours.
+
+```bash
+brew install gh   # or see cli.github.com
+gh auth login
+```
+
+`gh` runs with your project directory as its working directory, so the issue
+lands in whatever repository gh resolves there. Check with `gh repo view` if you
+are unsure.
+
+`pinbox doctor` reports the state:
+
+```
+ok  gh           gh 2.96.0, authenticated
+```
+
+```
+ok  gh           not found — `pinbox link` unavailable until gh is installed and authed
+```
+
+```
+ok  gh           gh 2.96.0, not authenticated — run `gh auth login` before `pinbox link`
+```
+
+All three say `ok`, and that is deliberate: the `gh` check is informational. It
+gates `pinbox link` and nothing else, so a missing gh never fails a doctor run.
+Read the detail, not the prefix.
+
+## Link a pin
+
+```bash
+pinbox link pin_a1b2c3d4e5
+```
+
+```
+github#128  https://github.com/you/app/issues/128
+linked pin_a1b2c3d4e5 to github#128
+```
+
+`github` is the default connector, so `pinbox link pin_a1b2c3d4e5 github` is the
+same command.
+
+With `--json` you get the full updated pin back, links included:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "pin_a1b2c3d4e5",
+    "status": "open",
+    "text": "Footer terms link 404s",
+    "links": [
+      {
+        "connector": "github",
+        "ref": "128",
+        "url": "https://github.com/you/app/issues/128"
+      }
+    ]
+  }
+}
+```
+
+`ref` is the issue number. Links do not show up in the human `pinbox show` output
+— read them from `pinbox show <id> --json`.
+
+<Warning>
+Running `pinbox link` twice on the same pin creates a **second** issue. Nothing
+deduplicates for you — the conflict guard only fires on an identical connector
+and ref. Link a pin once.
+</Warning>
+
+## What lands on GitHub
+
+The issue title is the pin's first line, truncated to 72 characters. The body is
+the pin rendered as markdown, with a trailer identifying it:
+
+```
+- [open] footer a.terms — Footer terms link 404s (pin_a1b2c3d4e5)
+  - url: http://localhost:5173/pricing
+  - rect: 12,940 64x18
+
+— pinbox pin pin_a1b2c3d4e5
+```
+
+Mirrored comments carry a trailer too — `— pinbox <message-id>`. Those trailers
+are how pinbox recognizes its own writing and refuses to read it back in, so
+don't strip them.
+
+## Two-way mirroring
+
+Once a pin is linked, the pin thread and the issue conversation are the same
+conversation.
+
+<CardGroup cols={2}>
+<Card title="Pin → issue" icon="arrow-right">
+Every new thread message posts as an issue comment. That includes your
+`pinbox reply` and anything the agent writes.
+</Card>
+<Card title="Issue → pin" icon="arrow-left">
+Every new issue comment appears in the pin thread with the role `mirror` and
+an origin of `github:<username>`.
+</Card>
+</CardGroup>
+
+So a teammate who never opens your app can answer a pin from the GitHub UI, and
+the agent working the pin sees it in the thread:
+
+```
+$ pinbox show pin_a1b2c3d4e5
+...
+human   2h ago  Footer terms link 404s
+agent   1h ago  Which footer — the marketing one or the app shell?
+mirror  4m ago  Marketing. It should point at /legal/terms.
+```
+
+Echo is impossible by construction, not by heuristics: a message tagged with a
+connector's origin is never mirrored back to that connector, and pinbox skips its
+own trailer-marked comments on the remote side too. The one interesting case is
+cross-connector — a comment that arrived from one tracker *does* flow out to a
+different one.
+
+## Status sync
+
+Status moves both ways, and the rules are symmetric:
+
+| You do this | This happens |
+| --- | --- |
+| `pinbox resolve <id>` | The issue is closed. |
+| Reopen a resolved pin | The issue is reopened. |
+| Close the issue on GitHub | The pin is resolved. |
+| Reopen the issue on a resolved pin | The pin is reopened, with the original resolution kept as history. |
+
+A status change caused by the *other* side is never bounced back — closing an
+issue resolves the pin, and that resolution does not then re-close the issue.
+
+## When sync happens
+
+Mirroring reconciles on a poll, not a webhook. Nothing needs to be exposed to the
+internet.
+
+- Every **60 seconds** while the pin is open.
+- Every **10 minutes** once it is resolved.
+- Once at hub start, so a link that went stale while nothing was running catches
+up immediately.
+
+The hub runs on demand and exits when idle (30 minutes by default). Any `pinbox`
+command starts it again, and boot reconciliation is the first thing it does — so
+if you want to force a sync right now, run any pinbox command.
+
+Each reconcile flushes what pinbox owes the issue, in timestamp order, behind a
+resumable cursor. If the network drops halfway through, the cursor advances only
+over comments that actually landed — a retry resumes rather than reposting.
+You will not get duplicate comments on your issue.
+
+## Errors
+
+| Situation | What you see |
+| --- | --- |
+| `gh` not installed | `E_CONNECTOR` — hint: install GitHub CLI (gh) and run `gh auth login` |
+| `gh` installed, logged out | `E_CONNECTOR` — hint: run `gh auth login`, then retry — `pinbox doctor` shows the gh status |
+| gh failed for another reason | `E_CONNECTOR` carrying gh's own stderr |
+| Pin id does not exist | `E_NOT_FOUND` |
+| Identical link already recorded | `E_CONFLICT` — hint: run `pinbox show <id>` to see its links |
+
+`E_CONNECTOR` exits with code 10. Whether pinbox can reach GitHub is decided
+**at hub start**: if `gh` is on `PATH` at that moment, the connector is
+available for the life of that hub. If you install gh while a hub is already
+running, let it idle out (or stop it) so the next one picks gh up.
+
+Per-pin sync failures never take down the run. A failing link logs to stderr and
+stays due, so the next poll retries it.
+
+## Other trackers
+
+`link` takes a connector name because GitHub is not the only one. The connector
+interface is small — create an item, post a comment, read remote state, set
+remote status — and the anti-echo and status rules live in pinbox core rather
+than in each connector, so a new one inherits them.
+
+A Slack connector ships alongside GitHub and turns on when both `SLACK_BOT_TOKEN`
+and `SLACK_CHANNEL` are set in the hub's environment.
+
+Asking for a connector that is not available answers with `E_CONNECTOR` and a
+pointer to `pinbox doctor`, which lists what this hub can actually reach.

@@ -1,0 +1,412 @@
+---
+title: "Toolbar"
+description: "Put the pin toolbar on your app — script tag, bundler import, framework wrapper, or dev-server plugin."
+---
+
+The toolbar is the part your users touch. It is a single web component,
+`<pinbox-toolbar>`, published as `@autono/pinbox-toolbar`. It renders inside a
+shadow root, has no runtime dependencies, and ships two build artifacts: an ESM
+build for bundlers and a standalone IIFE bundle for a script tag.
+
+Pick one of the four routes below. They all end in the same place — one
+`<pinbox-toolbar>` element on the page, pointed at a hub URL.
+
+<CardGroup cols={2}>
+<Card title="Dev-server plugin" icon="plug" href="#vite">
+Vite. Zero config — finds or starts the hub, injects the toolbar in dev only.
+</Card>
+<Card title="Framework wrapper" icon="react" href="#framework-wrappers">
+React, Vue, Svelte. You control where and when it mounts.
+</Card>
+<Card title="Bundler import" icon="box" href="#esm-bundler">
+Any bundler. `Pinbox.init(...)` behind a dev-only guard.
+</Card>
+<Card title="Script tag" icon="code" href="#script-tag">
+No build step. Two tags on the page.
+</Card>
+</CardGroup>
+
+## Install
+
+<CodeGroup>
+
+```bash bun
+bun add -d @autono/pinbox-toolbar
+```
+
+```bash npm
+npm install -D @autono/pinbox-toolbar
+```
+
+```bash pnpm
+pnpm add -D @autono/pinbox-toolbar
+```
+
+```bash yarn
+yarn add -D @autono/pinbox-toolbar
+```
+
+</CodeGroup>
+
+Install it as a **dev dependency**. The toolbar is a feedback tool for people
+working on the app, not something to ship to production. Every route below has a
+way to keep it out of a production build; use it.
+
+<Note>
+This package deliberately declares no `engines` field, unlike the rest of
+pinbox. It is browser code — it installs into your toolchain, whatever that is.
+</Note>
+
+## Script tag
+
+The IIFE bundle is `dist/toolbar.iife.js` inside the package. Serve it from your
+own static path (or an npm CDN that mirrors the package) and call `init`:
+
+```html
+<script src="/static/toolbar.iife.js"></script>
+<script>
+  Pinbox.init({ endpoint: "http://127.0.0.1:4319" });
+</script>
+```
+
+The bundle assigns one global, `Pinbox`, and the API sits **flat on it**:
+
+| On `window.Pinbox` | What it is |
+| --- | --- |
+| `init(config)` | Creates, configures, and appends a `<pinbox-toolbar>`. Returns the element. |
+| `defineToolbarElement()` | Registers the custom element. `init` calls it for you. |
+| `PinboxToolbarElement` | The element class, if you want to construct one yourself. |
+
+<Warning>
+It is `Pinbox.init(...)`, **not** `Pinbox.Pinbox.init(...)`. If you find an
+older snippet with the doubled name, it is wrong — the bundle's shape is covered
+by a test precisely because changing it would break every script-tag embed.
+</Warning>
+
+Loading the bundle also registers the element, so you can skip `init` entirely
+and write the tag yourself with `hub` and `token` attributes:
+
+```html
+<script src="/static/toolbar.iife.js"></script>
+<pinbox-toolbar hub="http://127.0.0.1:4319"></pinbox-toolbar>
+```
+
+## ESM (bundler)
+
+Importing the package has a side effect: it registers `<pinbox-toolbar>`. That
+is intentional, and it is why the package sets `sideEffects` to a glob rather
+than `false` — a bundler that tree-shakes the import away would leave the
+element undefined and the toolbar would silently never mount.
+
+```js
+import { Pinbox } from "@autono/pinbox-toolbar";
+
+if (import.meta.env.DEV) {
+  Pinbox.init({ endpoint: "http://127.0.0.1:4319" });
+}
+```
+
+`Pinbox.init` creates the element, configures it, appends it to `document.body`,
+and returns it. Configuration is applied **before** insertion — the element opens
+its connection in `connectedCallback`, so anything configured after it is in the
+DOM arrives too late.
+
+### Config
+
+```ts
+interface PinboxConfig {
+  endpoint: string;                 // hub base URL — the only required field
+  token?: string;                   // static bearer token (dev)
+  getToken?: () => Promise<string>; // callback, for hosts with real auth
+  targeting?: "dom" | "anchor";
+  anchorAttribute?: string;
+  project?: string;
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `endpoint` | Base URL of the hub. Everything else is optional. |
+| `token` | Bearer token sent with every request. The dev plugins fill this in from local hub state. |
+| `getToken` | Called once on mount to fetch a token. Use this when the hub verifies a real credential. |
+
+The toolbar **never renders a login**. If your hub authenticates requests, the
+host app already knows who the user is — pass a callback that mints or fetches a
+token for them:
+
+```js
+Pinbox.init({
+  endpoint: "https://pinbox.example.com",
+  getToken: () => fetch("/api/pinbox-token").then((r) => r.text()),
+});
+```
+
+The token is used as an `Authorization: Bearer` header for HTTP requests and, at
+WebSocket upgrade, as a `pinbox.token.<token>` subprotocol — a browser cannot set
+headers on an upgrade, so the token rides the subprotocol instead. If `getToken`
+rejects, the toolbar falls back to an empty token rather than failing to mount.
+
+<Note>
+`targeting`, `anchorAttribute`, and `project` are accepted by the type but not
+yet wired to behavior. Element targeting is DOM hit-testing today. Don't build
+on those three.
+</Note>
+
+### Attributes
+
+The element reads two attributes when no config was passed programmatically:
+
+```html
+<pinbox-toolbar hub="http://127.0.0.1:4319" token="..."></pinbox-toolbar>
+```
+
+A programmatic `configure()` (which `Pinbox.init` does for you) wins over
+attributes. Config is read once, on mount — the element does not support live
+reconfiguration. To change endpoints, remove the element and create a new one.
+
+## Framework wrappers
+
+Each wrapper is a subpath export. They are thin: create the element, configure
+it, insert it, remove it on unmount. All three exist because refs and directives
+attach *after* insertion, which is too late for this element.
+
+<Tabs>
+<Tab title="React">
+```jsx
+import { PinboxToolbar } from "@autono/pinbox-toolbar/react";
+
+export function App() {
+  return (
+    <>
+      <YourApp />
+      {import.meta.env.DEV && <PinboxToolbar endpoint="http://127.0.0.1:4319" />}
+    </>
+  );
+}
+```
+
+The props *are* the config. The component renders a `display: contents` host div
+and mounts the element into it. Config forwards once on mount; pass a `key` to
+remount with a different endpoint.
+</Tab>
+<Tab title="Vue">
+```vue
+<script setup>
+import { PinboxToolbar } from "@autono/pinbox-toolbar/vue";
+</script>
+
+<template>
+  <PinboxToolbar :config="{ endpoint: 'http://127.0.0.1:4319' }" />
+</template>
+```
+
+The whole config goes in one `config` prop. For a single app-wide toolbar
+mounted outside Vue's tree, use the install helper instead — it appends to
+`document.body` and tears down when the app unmounts:
+
+```js
+import { createApp } from "vue";
+import { installPinbox } from "@autono/pinbox-toolbar/vue";
+
+const app = createApp(App);
+installPinbox(app, { endpoint: "http://127.0.0.1:4319" });
+app.mount("#app");
+```
+</Tab>
+<Tab title="Svelte">
+Custom elements are native to Svelte, so importing the subpath is enough to use
+the tag directly:
+
+```svelte
+<script>
+  import "@autono/pinbox-toolbar/svelte";
+</script>
+
+<pinbox-toolbar hub="http://127.0.0.1:4319" />
+```
+
+For the programmatic config that attributes cannot express — a `getToken`
+callback, for instance — use the action:
+
+```svelte
+<script>
+  import { pinbox } from "@autono/pinbox-toolbar/svelte";
+  const config = { endpoint: "http://127.0.0.1:4319" };
+</script>
+
+<div use:pinbox={config} />
+```
+
+The subpath re-exports the whole vanilla surface, so one import gets you both.
+</Tab>
+</Tabs>
+
+React, Vue, Svelte, and Vite are all **optional peer dependencies**. Importing
+the vanilla entry pulls in none of them.
+
+## Vite
+
+The Vite plugin is the least work: it finds a running hub or starts one, then
+injects the toolbar into every dev page.
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import { pinbox } from "@autono/pinbox-toolbar/vite";
+
+export default defineConfig({
+  plugins: [pinbox()],
+});
+```
+
+<Steps>
+<Step title="Hub discovery">
+On dev-server start the plugin looks for a healthy hub — an explicit `hub`
+option if you passed one, otherwise the port in `.pinbox/server.json`, probed
+with `GET /health`.
+</Step>
+<Step title="Daemon adoption">
+If nothing answers, it spawns `pinbox serve` detached and polls for up to 10
+seconds. The daemon is adopted, never owned: the plugin registers no teardown,
+and the daemon manages its own idle exit.
+</Step>
+<Step title="Injection">
+A module script is injected into the served HTML. It imports the toolbar,
+appends one `<pinbox-toolbar>`, and sets its `hub` and `token` attributes.
+Re-running after HMR reuses the existing element.
+</Step>
+</Steps>
+
+The plugin sets `apply: "serve"`, which is the single mechanism keeping it out of
+production. During `vite build` it fires no hooks and emits no pinbox references.
+
+### Plugin options
+
+```ts
+pinbox({
+  hub: "http://127.0.0.1:4319", // skip .pinbox/server.json discovery entirely
+  projectRoot: process.cwd(),   // directory holding .pinbox/server.json
+  spawnDaemon: true,            // start `pinbox serve` when no hub is found
+  disabled: false,              // hard off switch — the plugin becomes inert
+});
+```
+
+Every field is optional; the values above are the defaults. `disabled: true`
+returns a plugin with a name and no hooks, so `pinbox({ disabled: !dev })` is
+legal without juggling holes in the `plugins` array.
+
+If the hub never comes up, the plugin logs one `[pinbox]` warning and serves an
+empty module. A dead hub degrades the toolbar; it never breaks your dev server.
+
+Supported Vite majors: 5, 6, 7, and 8.
+
+<Note>
+The plugin bakes the local hub's bearer token into a dev-only module. The hub
+binds `127.0.0.1`, so a LAN peer who reads it (say, from `vite --host`) still
+cannot reach the hub, and any process on your machine could already read the hub
+state file directly. Never serve this from a production build.
+</Note>
+
+## Next.js
+
+```js
+// next.config.js
+import { withPinbox } from "@autono/pinbox-toolbar/next";
+
+export default withPinbox({ reactStrictMode: true });
+```
+
+<Warning>
+**`withPinbox` does half the job, and only half.** It makes sure the hub daemon
+is running during `next dev`. It does **not** mount the toolbar in the browser.
+You still have to render the component yourself.
+</Warning>
+
+This is a real limitation, not an oversight. Vite exposes a hook for injecting a
+script into every dev page; Next has no public equivalent reachable from
+`next.config`, and under the App Router the page shell is a server component with
+no client entry point to extend. Rather than guess at build internals, the
+wrapper does the part it can do honestly and leaves the rest to you.
+
+So: wrap the config *and* mount the component.
+
+```jsx
+// app/layout.tsx
+import { PinboxToolbar } from "@autono/pinbox-toolbar/react";
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        {process.env.NODE_ENV !== "production" && (
+          <PinboxToolbar endpoint="http://127.0.0.1:4319" />
+        )}
+      </body>
+    </html>
+  );
+}
+```
+
+`withPinbox` returns the same config object it was given, never a clone, so it
+composes with other `withX` wrappers in any order. It is a no-op when `NODE_ENV`
+is `production` or when you pass `disabled: true`. The hub check is
+fire-and-forget so it cannot stall `next dev`, and it never throws.
+
+It takes the same options as the Vite plugin:
+
+```js
+export default withPinbox({ reactStrictMode: true }, { spawnDaemon: false });
+```
+
+## Finding the hub URL
+
+The local hub binds `127.0.0.1` on an **ephemeral port**, so there is no fixed
+URL to hardcode. The port is written to `.pinbox/server.json` in your project:
+
+```json
+{ "port": 4319 }
+```
+
+The dev plugins read that file for you — which is the main reason to use them.
+If you are mounting manually, read the same file, or point `endpoint` at a hub
+you deploy yourself. The bearer token and pid are **not** in the repo; they live
+in your XDG state directory with mode `0600`.
+
+## Using the toolbar
+
+Once it is on the page:
+
+| Key | Action |
+| --- | --- |
+| `P` | Drop a pin |
+| `I` | Open the inbox |
+| `R` | Mark the active pin resolved |
+| `C` | Copy open pins as markdown |
+| `D` | Toggle light/dark |
+| `Esc` | Cancel |
+| `?` | Show the shortcut list |
+
+Keystrokes are ignored while a text field has focus. In placing mode, moving the
+cursor outlines the deepest element under it; clicking places a draft. Nothing
+reaches the hub until you submit the first comment — `Esc` or a click away
+discards the draft with nothing written.
+
+Screenshots are cropped and encoded to WebP in the browser, uploaded separately,
+and the pin carries the returned **path**, never image bytes. Capture is
+best-effort: where the browser cannot do it, the pin ships with its structured
+capture alone.
+
+## Offline behavior
+
+The toolbar keeps a mirror in `localStorage`, namespaced per endpoint: the event
+cursor, the last known pin list, and an outbox of pins drawn while disconnected.
+
+- A dropped socket costs no events. It reconnects with jittered backoff from 1s
+to 30s and replays from its stored cursor.
+- On reconnect, the **hub wins on status** and the **client wins on new pins**.
+- Storage failures — private mode, a full quota — degrade the mirror and never
+surface as an error.
+
+An offline reload still renders your existing threads read-only, with queued
+drafts marked as queued.

@@ -1,0 +1,25 @@
+# Local vars for `wrangler dev` — copy to .dev.vars (gitignored). In production every
+# secret goes through `wrangler secret put <NAME>`, never into wrangler.jsonc vars.
+
+# --- token strategy (the default: AUTH_STRATEGY=token in wrangler.jsonc) ------------
+# The bearer secret every hub request must present. Required under the token strategy.
+PINBOX_TOKEN=dev-only-token
+
+# --- jwt strategy (AUTH_STRATEGY=jwt) -----------------------------------------------
+# jose JWKS verification: EdDSA + RS256 only. All three are required for jwt.
+# JWT_ISSUER=https://your-idp.example.com/
+# JWT_JWKS_URL=https://your-idp.example.com/.well-known/jwks.json
+# JWT_AUDIENCE=pinbox-hub
+
+# --- none strategy (loopback/dev ONLY) ----------------------------------------------
+# AUTH_STRATEGY=none is refused unless this is set — no unauthenticated writes in any
+# configuration unless you opt in with both lines, explicitly.
+# ALLOW_UNAUTHENTICATED=1
+
+# --- R2 presigned uploads (POST /attachments) ---------------------------------------
+# The MEDIA binding serves reads; presigned PUTs need R2's S3 API credentials
+# (an "R2 API token" in the dashboard). Without them, attachment uploads 500 with a hint.
+# R2_ACCOUNT_ID=your-account-id
+# R2_BUCKET=your-bucket-name
+# R2_ACCESS_KEY_ID=...
+# R2_SECRET_ACCESS_KEY=...

@@ -1,0 +1,297 @@
+---
+title: "Run the hub on Cloudflare"
+description: "Deploy the pinbox hub as a Cloudflare Worker backed by a Durable Object, with the auth strategy you choose."
+---
+
+The pinbox hub is a plain `(Request) => Response` handler. Locally, `Bun.serve` runs it.
+In the cloud, a Cloudflare Worker runs the same handler inside a Durable Object, with DO
+SQLite for storage, hibernating WebSockets for realtime, and R2 for attachments.
+
+Deploy it when pins need to outlive one laptop: a shared staging URL, teammates or
+testers who file pins, or a browser that cannot reach your machine.
+
+<Note>
+The `pinbox` CLI always talks to the local hub on `127.0.0.1`. A cloud hub serves the
+toolbar in the browser. The two are the same code and the same routes, but the CLI has no
+flag to point at a remote hub.
+</Note>
+
+## Get the template
+
+The deployable template lives in the repo at `examples/worker/`. It is a byte-identical
+copy of `packages/cli/templates/worker/`, and CI fails if the two ever drift.
+
+```sh
+git clone https://github.com/autonoco/pinbox.git
+cp -R pinbox/examples/worker my-pinbox-hub
+cd my-pinbox-hub
+```
+
+Then set `@autono/pinbox-core` in `package.json` to the version you want (the template
+ships `^0.0.0`) and install:
+
+```sh
+bun install   # npm install / pnpm install also work
+```
+
+## What is in the template
+
+```
+wrangler.jsonc          bindings, vars, migrations, the bun:sqlite alias
+.dev.vars.example       local secrets for `wrangler dev`
+package.json            @autono/pinbox-core + wrangler
+src/index.ts            routing only: toolbar script, /_pinbox/* -> the DO, else inject
+src/inject.ts           HTMLRewriter proxy for zero-touch staging injection
+src/pinbox.iife.js      the toolbar bundle slot, served as text
+src/shims/bun-sqlite.ts build shim so the bundler can resolve `bun:sqlite`
+```
+
+`src/index.ts` re-exports the Durable Object class from the published package:
+
+```ts
+export { PinboxHubDO } from "@autono/pinbox-core/do";
+```
+
+Everything the hub does — routes, event log, threads, WebSocket protocol — comes from
+that package. The template is routing, configuration, and the injection proxy.
+
+<Warning>
+Do not remove the `"alias": { "bun:sqlite": "./src/shims/bun-sqlite.ts" }` line in
+`wrangler.jsonc`. The hub's local store imports `bun:sqlite` at module top level. The
+Worker never calls it, but the bundler still has to resolve the specifier. Without the
+alias, `wrangler deploy` fails.
+</Warning>
+
+## Deploy
+
+<Steps>
+<Step title="Create the R2 bucket">
+```sh
+wrangler r2 bucket create my-pinbox-media
+```
+
+Put the name in `wrangler.jsonc` under `r2_buckets[0].bucket_name`. The shipped
+placeholder is `pinbox-media-placeholder-provision-me`, which fails at deploy on purpose.
+</Step>
+
+<Step title="Set the hub secret">
+```sh
+wrangler secret put PINBOX_TOKEN
+```
+
+This is the default `token` strategy. Skip it if you are using `jwt` — see
+[Auth strategies](#auth-strategies) below.
+</Step>
+
+<Step title="Deploy">
+```sh
+wrangler deploy
+```
+</Step>
+
+<Step title="Check it">
+```sh
+curl https://<your-worker>.workers.dev/_pinbox/health
+```
+
+```json
+{"ok":true,"data":{"version":"0.0.0","schemaVersion":1,"wsProtocol":1}}
+```
+
+`GET /_pinbox/health` is the one route that needs no credential. Every other route
+requires one.
+</Step>
+</Steps>
+
+For a local loop, copy `.dev.vars.example` to `.dev.vars` (it is gitignored) and run
+`wrangler dev`.
+
+## Bindings and vars
+
+Set in `wrangler.jsonc`:
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `PINBOX_HUB` | Durable Object | The hub. Class `PinboxHubDO`, SQLite-backed (migration tag `v1`). |
+| `MEDIA` | R2 bucket | Serves attachment reads at `GET /_pinbox/media/:key`. |
+| `AUTH_STRATEGY` | var | `token` (default), `jwt`, or `none`. |
+| `PINBOX_PROJECT` | var | Names the Durable Object. One DO per name; default `"default"`. |
+| `ORIGIN_URL` | var | Staging origin to proxy and inject into. Empty disables injection. |
+
+Two more lines in `wrangler.jsonc` matter:
+
+- `compatibility_date` is pinned to a fixed date, not "today". Bump it deliberately.
+- The `rules` entry makes `**/*.iife.js` a text module, so the toolbar bundle can be
+  served verbatim.
+
+## Secrets
+
+Set with `wrangler secret put <NAME>`. Never put these in `wrangler.jsonc` vars.
+
+| Secret | Needed for |
+| --- | --- |
+| `PINBOX_TOKEN` | `AUTH_STRATEGY=token` |
+| `JWT_ISSUER`, `JWT_JWKS_URL`, `JWT_AUDIENCE` | `AUTH_STRATEGY=jwt` |
+| `ALLOW_UNAUTHENTICATED` | `AUTH_STRATEGY=none` (must be exactly `1`) |
+| `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Attachment uploads |
+
+## Auth strategies
+
+The Durable Object builds its verifier from the environment at construction. A
+misconfigured strategy fails closed: every route returns 500 with the reason, and
+`GET /_pinbox/health` returns 503 with the same reason so a monitor can tell a broken hub
+from a dead one. There is no configuration in which writes are accepted unverified by
+accident.
+
+<AccordionGroup>
+<Accordion title="token — the default">
+Set `AUTH_STRATEGY=token` and the `PINBOX_TOKEN` secret. Clients send
+`Authorization: Bearer <token>`.
+
+The compare is constant-time: both sides are SHA-256 hashed and the digests compared
+byte-wise, so neither length nor content leaks through timing.
+
+A successful request gets the identity `{ userId: "token" }`. This is a shared secret —
+it tells you a caller had the token, not who they are.
+
+If `AUTH_STRATEGY=token` and no `PINBOX_TOKEN` is set, the hub refuses every request.
+</Accordion>
+
+<Accordion title="jwt — verified against a JWKS">
+Set `AUTH_STRATEGY=jwt` and all three of:
+
+| Variable | Meaning | Example |
+| --- | --- | --- |
+| `JWT_ISSUER` | Expected `iss` claim | `https://auth.example.com/` |
+| `JWT_JWKS_URL` | Where the public keys live | `https://auth.example.com/.well-known/jwks.json` |
+| `JWT_AUDIENCE` | Expected `aud` claim | `pinbox-hub` |
+
+Any identity provider that publishes a JWKS works. Clients send the token as
+`Authorization: Bearer <jwt>`.
+
+Rules the verifier enforces:
+
+- Signature algorithms are limited to `EdDSA` and `RS256`. Nothing else is accepted.
+- `iss` and `aud` must match exactly.
+- Standard expiry and not-before checks apply.
+- `sub` must be a string. Without it, the token is rejected.
+
+Claims map to the hub's identity like this:
+
+| Claim | Identity field |
+| --- | --- |
+| `sub` | `userId` (required) |
+| `tenant` | `tenantId` (optional) |
+| `name` | `name` (optional) |
+| `email` | `email` (optional) |
+
+Key fetching, caching, and refresh are handled by `jose`. Verification failures of every
+kind — bad signature, wrong issuer, wrong audience, expired, disallowed algorithm,
+malformed — produce the same 401 `E_AUTH`.
+</Accordion>
+
+<Accordion title="none — loopback and dev only">
+`AUTH_STRATEGY=none` accepts every request as `{ userId: "anonymous" }`.
+
+It is refused unless you also set `ALLOW_UNAUTHENTICATED=1`. Two explicit settings, not
+one. If you set the strategy and forget the opt-in, the hub refuses everything rather
+than falling open.
+
+Do not deploy this on a reachable URL. Anyone who can load the page can create, reply to,
+and resolve pins.
+</Accordion>
+
+<Accordion title="custom — translate the credential in the Worker">
+The Durable Object picks its verifier from `AUTH_STRATEGY`. To accept a credential that
+does not arrive as an `Authorization` header, translate it in `src/index.ts` before
+forwarding to the DO, and let the configured strategy verify the result.
+
+A browser session cookie holding a JWT, for example:
+
+```ts
+function withCookieBearer(req: Request): Request {
+  const cookie = req.headers.get("cookie") ?? "";
+  const jwt = /(?:^|;\s*)session=([^;]+)/.exec(cookie)?.[1];
+  if (!jwt) return req;
+  const headers = new Headers(req.headers);
+  headers.set("authorization", `Bearer ${jwt}`);
+  return new Request(req, { headers });
+}
+```
+
+Then wrap the request where `src/index.ts` forwards to the stub:
+
+```ts
+return stub.fetch(stripPrefix(withCookieBearer(req)) as never) as unknown as Promise<Response>;
+```
+
+Keep `AUTH_STRATEGY=jwt` and point `JWT_ISSUER` / `JWT_JWKS_URL` / `JWT_AUDIENCE` at
+whoever signed the cookie. The translation decides what counts as the credential; the
+verifier still decides whether it is valid.
+
+If you want to embed the hub in something other than this template, build the handler
+yourself. `@autono/pinbox-core/auth` exports `verifyToken`, `verifyJwt`, `verifyNone`, and
+`verifyCustom`, and `@autono/pinbox-core/hub` takes any `verify` function of type
+`(req: Request) => Promise<Identity | null>`. Returning `null` produces a 401 `E_AUTH`.
+A verify function must never throw.
+</Accordion>
+</AccordionGroup>
+
+## Serving the toolbar
+
+Set `ORIGIN_URL` to your staging origin. Every request that is not under `/_pinbox` is
+then proxied to that origin, and HTML responses get the toolbar `<script>` injected by
+HTMLRewriter as they stream. No build change on the app side.
+
+The injected tag looks like this:
+
+```html
+<script src="/_pinbox/pinbox.js" data-pinbox-hub="/_pinbox" data-pinbox-origin="https://staging.example.com" defer></script>
+```
+
+Behavior worth knowing:
+
+- The snippet never carries a token. The page is untrusted; authentication is the hub's job.
+- A page that already mounts a pinbox script is left alone — no double mount.
+- Only `text/html` responses are rewritten. Everything else passes through untouched.
+- The proxy requests `accept-encoding: identity` upstream so it never rewrites compressed bytes.
+
+<Warning>
+`src/pinbox.iife.js` in the template is a slot, not the toolbar. It sets
+`window.__PINBOX__` from the script's data attributes and logs that the bundle is not
+embedded yet. Replace the file with the built `dist/toolbar.iife.js` from
+`@autono/pinbox-toolbar` to serve a working toolbar at `/_pinbox/pinbox.js`.
+</Warning>
+
+Leave `ORIGIN_URL` empty if you only want the hub. Requests outside `/_pinbox` then get a
+404 with a hint instead of being proxied.
+
+## Attachments
+
+Reads stream from the `MEDIA` binding. Uploads are presigned R2 `PUT` URLs, which the
+binding cannot mint — that needs R2's S3 API credentials. Create an R2 API token in the
+Cloudflare dashboard and set the four `R2_*` secrets.
+
+Without them, `POST /_pinbox/attachments` returns 500 with a hint saying exactly that.
+
+Attachments are capped at 5 MB. The cap is enforced twice: the request body is counted as
+it streams and the read aborted the moment it goes over, and the measured length is signed
+into the presigned PUT so R2 rejects an upload of any other size.
+
+## Projects
+
+`PINBOX_PROJECT` names the Durable Object, and one DO exists per name. Two Workers with
+different `PINBOX_PROJECT` values keep entirely separate pin sets. Changing the value
+points at a different — initially empty — hub.
+
+## Routes
+
+Everything mounts under `/_pinbox`, same-origin with the injected page, so there is no
+CORS to configure and cookies ride along.
+
+| Route | Notes |
+| --- | --- |
+| `GET /_pinbox/health` | No credential required |
+| `GET /_pinbox/pinbox.js` | The toolbar bundle, served as text |
+| `/_pinbox/ws` | WebSocket upgrade; authenticated at upgrade only |
+| `/_pinbox/*` | The hub: pins, threads, events, sessions, attachments |

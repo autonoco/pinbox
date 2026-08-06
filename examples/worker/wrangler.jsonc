@@ -1,0 +1,29 @@
+// Deployable CF Worker + DO template. Copied by `pinbox init`, never imported.
+// Conventions: pinned compatibility_date (never "today"); placeholder resource names fail
+// loudly at deploy — consumers provision their own resources (see README.md).
+{
+  "name": "pinbox-hub",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "PINBOX_HUB", "class_name": "PinboxHubDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PinboxHubDO"] }],
+  "r2_buckets": [
+    // Placeholder — `wrangler r2 bucket create <name>` and put the real name here.
+    // Deploying against a bucket that does not exist fails loudly, by design.
+    { "binding": "MEDIA", "bucket_name": "pinbox-media-placeholder-provision-me" }
+  ],
+  "vars": {
+    "AUTH_STRATEGY": "token",
+    "PINBOX_PROJECT": "default",
+    "ORIGIN_URL": ""
+  },
+  // The toolbar bundle ships as text (served verbatim at /_pinbox/pinbox.js).
+  "rules": [{ "type": "Text", "globs": ["**/*.iife.js"], "fallthrough": true }],
+  // THE LOAD-BEARING LINE: hub.ts → store.ts carries a top-level
+  // `import { Database } from "bun:sqlite"`. The DO never calls openStore, but esbuild
+  // must still resolve the specifier. The shim aliases it to a stub whose Database
+  // constructor throws with a pointed message. Remove this and `wrangler deploy` breaks.
+  "alias": { "bun:sqlite": "./src/shims/bun-sqlite.ts" }
+}

@@ -1,0 +1,224 @@
+---
+title: "Installation"
+description: "Install the pinbox CLI, and verify the install with pinbox doctor."
+---
+
+The pinbox CLI is a single compiled binary with the Bun runtime embedded in it.
+Once it is on your `PATH` there is nothing else to install — no Node, no Bun, no
+service, no account.
+
+<Warning>
+  **Nothing is published yet.** There is no npm package and no GitHub Release
+  for pinbox today. Building from source is the only route that works right now.
+  The other two routes below are the shipped installers — they are described here
+  so you know what to expect, and they start working the moment the first release
+  is tagged.
+</Warning>
+
+## Supported platforms
+
+| OS | Architectures |
+| --- | --- |
+| macOS | `arm64`, `x64` |
+| Linux | `arm64`, `x64` |
+
+Windows is not supported. On Linux or macOS with a different architecture, build
+from source.
+
+## Build from source
+
+Works today. You need [Bun](https://bun.sh) 1.3 or newer — but only to build; the
+binary that comes out does not need it.
+
+```sh
+git clone https://github.com/autonoco/pinbox.git
+cd pinbox
+bun install
+bun run build
+```
+
+That produces `packages/cli/dist/pinbox`. Put it somewhere on your `PATH`:
+
+```sh
+export PATH="$PWD/packages/cli/dist:$PATH"
+```
+
+Or copy it out, so the checkout is not load-bearing:
+
+```sh
+cp packages/cli/dist/pinbox ~/.local/bin/pinbox
+```
+
+```console
+$ pinbox --version
+0.0.0
+```
+
+## Install script
+
+The installer downloads one prebuilt binary from GitHub Releases, verifies its
+SHA-256 checksum before making it executable, and moves it onto your `PATH`. Use
+this on machines with no JavaScript runtime at all.
+
+```sh
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+It needs `curl` or `wget`, plus `shasum` or `sha256sum` — if it cannot verify the
+checksum it refuses to install rather than install something unverified.
+
+Two environment variables control it:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PINBOX_INSTALL_DIR` | `$HOME/.local/bin` | Where the binary is written |
+| `PINBOX_VERSION` | `latest` | A release tag, e.g. `v1.2.0` |
+
+```sh
+PINBOX_INSTALL_DIR=/usr/local/bin PINBOX_VERSION=v1.2.0 \
+  curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+If the install directory is not already on your `PATH`, the script says so and
+prints the `export` line to add.
+
+## npm
+
+`@autono/pinbox` is a small launcher package. Its `optionalDependencies` carry
+one package per platform, each holding a single compiled binary, so your package
+manager downloads only the one matching your `os` and `cpu` and skips the rest.
+
+```sh
+npx @autono/pinbox init
+```
+
+<Tabs>
+  <Tab title="npm">
+    ```sh
+    npm install -g @autono/pinbox
+    ```
+  </Tab>
+  <Tab title="bun">
+    ```sh
+    bun add -g @autono/pinbox
+    ```
+  </Tab>
+  <Tab title="pnpm">
+    ```sh
+    pnpm add -g @autono/pinbox
+    ```
+  </Tab>
+  <Tab title="yarn">
+    ```sh
+    yarn global add @autono/pinbox
+    ```
+  </Tab>
+</Tabs>
+
+The launcher itself is plain JavaScript with a `node` shebang, because that is
+what npm's `bin` machinery assumes. It only locates and executes the real
+binary — so this route needs *some* JavaScript runtime present, which is the one
+thing the install script above does not.
+
+## Libraries
+
+These are separate npm packages, and are also unpublished today. Install them
+into your app, not globally.
+
+| Package | What it is |
+| --- | --- |
+| `@autono/pinbox-toolbar` | The in-app toolbar: a web component plus React, Vue, Svelte, Vite, and Next subpath exports |
+| `@autono/pinbox-core` | Pin schema, hub handler, and storage adapters |
+| `@autono/pinbox-mcp` | An MCP server over the same client, for environments that cannot run a shell |
+
+The toolbar belongs in `devDependencies` — it must never reach a production
+bundle:
+
+```sh
+npm install -D @autono/pinbox-toolbar
+```
+
+## Verify the install
+
+`pinbox doctor` does not print a version table. Each check actually performs the
+thing the CLI needs and reports what happened.
+
+```console
+$ pinbox doctor
+ok  sqlite       created and read a table in :memory:
+ok  fts5         MATCH query answered on a virtual table
+ok  state-dir    ~/.local/state/pinbox/639a7d0d625c writable, mode 0700
+ok  db-writable  .pinbox/pinbox.db opens for writing
+ok  hub          spawned, healthy at http://127.0.0.1:59689 (schemaVersion 1)
+ok  agents       found: claude, codex, hermes
+ok  gh           gh 2.96.0, authenticated
+ok  delivery     round trip ok — pin_ev7jyc1a44 reached the session through `session inject`
+8 checks, all ok
+```
+
+| Check | What it proves |
+| --- | --- |
+| `sqlite` | SQLite works: it creates a table, writes a row, and reads it back |
+| `fts5` | SQLite's full-text search extension is compiled in and answers a `MATCH` query |
+| `state-dir` | Your state directory is writable and is mode `0700` — the bearer token lives there |
+| `db-writable` | The project's `.pinbox/pinbox.db` opens for writing |
+| `hub` | The local daemon spawns and answers a health probe |
+| `agents` | Which coding agent CLIs are on your `PATH`. Informational — never fails the run |
+| `gh` | Whether the GitHub CLI is installed and authenticated, which gates `pinbox link`. Informational |
+| `delivery` | An end-to-end probe: it registers a session, posts a pin to it, and proves the pin comes back out through the agent injection path, then resolves it |
+
+Failing checks print `no` instead of `ok`, the count line becomes
+`8 checks, 1 failing`, and the command exits `1`. That makes it usable in a
+script:
+
+```sh
+pinbox doctor > /dev/null || echo "pinbox is not healthy here"
+```
+
+For machine output, `pinbox doctor --json` returns the same checks as data. The
+envelope stays `"ok": true` when doctor itself ran — the findings are in
+`data.checks` and the verdict is the exit code.
+
+```console
+$ pinbox doctor --json
+{
+  "ok": true,
+  "data": {
+    "checks": [
+      {
+        "name": "sqlite",
+        "ok": true,
+        "detail": "created and read a table in :memory:"
+      },
+      ...
+    ]
+  }
+}
+```
+
+## Where pinbox puts things
+
+Nothing is installed system-wide beyond the binary itself.
+
+| Path | Contents |
+| --- | --- |
+| `<project>/.pinbox/pinbox.db` | Your pins. SQLite. Added to `.gitignore` by `pinbox init` |
+| `<project>/.pinbox/server.json` | The local hub's port, and nothing else |
+| `$XDG_STATE_HOME/pinbox/<id>/hub.json` | The hub's pid and bearer token, mode `0600`. Defaults to `~/.local/state`. Secrets never sit in the repo |
+| `<project>/.git/hooks/post-commit` | The commit-trailer hook, if `pinbox init` installed it |
+| `<project>/.claude/skills/pinbox/` | The agent skill, for agents that load skills from a directory |
+
+To remove pinbox from a project, delete `.pinbox/`, the `post-commit` hook, and
+the installed agent skill. To remove it from your machine, delete the binary and
+`~/.local/state/pinbox`.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Zero to a resolved pin in one terminal session.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/cli/commands">
+    Every command, flag, exit code, and JSON shape.
+  </Card>
+</CardGroup>

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/vitest-pool-workers/types"],
+    "paths": {
+      "bun:sqlite": ["./fixtures/bun-sqlite.ts"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pinbox",
+  "version": "0.0.0",
+  "description": "Pinbox feedback pins — CLI-first pin queue for coding agents",
+  "author": {
+    "name": "Autono"
+  },
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Pinbox",
+    "logo": "./assets/logo.svg"
+  }
+}

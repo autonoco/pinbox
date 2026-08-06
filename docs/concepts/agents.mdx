@@ -1,0 +1,129 @@
+---
+title: "Agents"
+description: "How a pin gets from a live page to a coding agent, and how it gets marked done."
+---
+
+Dropping a pin is easy. Getting it in front of an agent that is already mid-task, in the
+right repo, with the right history loaded, is the part that needs design. Pinbox does it
+with a session registry, a sticky binding, and a short list of delivery paths tried in
+order. Supported agents are Claude Code, Codex, Hermes, and OpenClaw.
+
+## Sessions
+
+An agent session is identified by a pair: `agent` (`claude`, `codex`, `hermes`,
+`openclaw`) and `key` (the agent's own session id). That pair is unique — registering the
+same pair again refreshes the session rather than creating a second one, and revives it if
+it had ended.
+
+```bash
+pinbox session register --agent claude --key sess-abc123 --cwd "$PWD"
+```
+
+You do not type that. `pinbox init` installs a `SessionStart` hook that runs it with the
+agent's hook payload on stdin, so sessions register themselves. A session records
+`registeredAt`, `lastSeenAt`, `cwd`, and `endedAt`. `pinbox session list` shows them.
+
+## Sticky routing
+
+When an event needs delivering, the hub picks a target:
+
+1. If the pin already has `agentSession`, that binding wins — the hub looks the session up
+   (registering it if it has since been forgotten) and delivers there.
+2. Otherwise it takes the most recently seen session that has not ended, and **writes that
+   binding into the pin**.
+3. If no session exists at all, the row is queued unassigned. The next session to register
+   or pull picks it up.
+
+Step 2 is what makes replies sticky: the binding is persisted at first delivery, so every
+later message on that pin follows it. A conversation stays with the agent that has the
+context, even if you have three other sessions open.
+
+Agent-authored events are never delivered back to agents. A reply written with
+`--as agent` does not bounce back into the agent's own context.
+
+## Delivery paths
+
+Delivery runs in the local daemon. Adapters are tried in order; the first one that reports
+the session reachable takes the event.
+
+<AccordionGroup>
+  <Accordion title="In-session context injection (pull)">
+    For agents with a hook system — Claude Code, Codex, Hermes. Nothing is pushed. The
+    delivery row simply sits pending, and the agent's own hooks pull it:
+
+    - `UserPromptSubmit` runs `pinbox session inject --hook`, which returns every open pin
+      as context for the next turn. Re-injecting every turn is the delivery model — it is
+      also why attachments carry a path or URL and never inline bytes, which would be paid
+      for again on every turn.
+    - `Stop` runs `pinbox session pending --hook`. If pins arrived mid-turn and are still
+      open, it emits them and holds the agent instead of letting it stop. Zero pending
+      emits nothing at all.
+
+    Injected pin text is always wrapped with an explicit note that it is user feedback
+    data, not instructions.
+  </Accordion>
+
+  <Accordion title="Push to a running agent gateway">
+    For OpenClaw, which runs a gateway that can accept work for a session key. Pinbox
+    queues the payload to join the session's next heartbeat rather than interrupting
+    whatever it is doing.
+  </Accordion>
+
+  <Accordion title="Waking an ended session (resume)">
+    If a session has ended, pinbox restarts it under the **same session key** from its
+    recorded `cwd`, so the agent comes back with its history:
+
+    ```
+    claude --resume <key> -p <prompt>
+    codex exec resume <key> <prompt>
+    ```
+
+    Requires a recorded `cwd` and the agent binary on `PATH`. If the resume is refused or
+    impossible, the delivery fails terminally with `E_SESSION_GONE` — pinbox does not
+    silently start a fresh session and pretend it is the old one.
+  </Accordion>
+
+  <Accordion title="Signed webhook">
+    The catch-all: anything the other paths cannot reach, including hosts that resume
+    their own sessions. Set `PINBOX_WEBHOOK_URL` and `PINBOX_WEBHOOK_SECRET` on the daemon
+    and pinbox POSTs the event with:
+
+    | Header | Value |
+    | --- | --- |
+    | `x-pinbox-event` | the event type |
+    | `x-pinbox-timestamp` | ISO timestamp |
+    | `x-pinbox-signature` | `sha256=<hex>` |
+
+    To verify: compute an HMAC-SHA256 over `` `${timestamp}.${rawBody}` `` with your secret
+    and compare against the signature. A non-2xx response is a failure and gets retried.
+  </Accordion>
+</AccordionGroup>
+
+Failures ride the deliveries queue: retries back off from 30 seconds, capped at 15 minutes,
+and go terminal after 5 attempts. A push delivery that keeps failing escalates to the next
+adapter in the list; a pull row that no one collects within 10 minutes escalates too
+(`PINBOX_HOOKS_ESCALATE_MS`). Nothing is lost when the daemon exits — the queue is durable,
+and boot replays from its cursor.
+
+## Resolving from a commit
+
+The most honest signal that a pin is fixed is the commit that fixed it. `pinbox init`
+installs a `post-commit` hook that reads the message and resolves any pin named by a
+trailer:
+
+```
+Fix the save button hit area on mobile
+
+Resolves: pin_njnwyw6r8d
+```
+
+`Fixes`, `Resolves`, and `Closes` all work, case-insensitively, with or without the colon
+(`Fixes pin_njnwyw6r8d` is fine). The full commit SHA is attached to the resolution, so
+`pinbox show` tells you exactly which commit closed the pin.
+
+It is idempotent by design: already-resolved and unknown ids skip silently, so amending or
+rebasing re-fires the hook without complaint. And a broken hub never blocks a commit.
+
+<Card title="CLI reference" href="/cli/commands" icon="terminal">
+`pinbox session`, `pinbox resolve`, and the rest of the surface.
+</Card>

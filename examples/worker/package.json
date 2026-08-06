@@ -1,0 +1,16 @@
+{
+  "name": "pinbox-hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@autono/pinbox-core": "^0.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "wrangler": "^4.118.0"
+  }
+}

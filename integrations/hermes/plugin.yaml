@@ -1,0 +1,16 @@
+# Pinbox Hermes plugin manifest. The loader reads plugin.yaml ONLY, and parses ONLY:
+# name, version, description, author, requires_env, provides_tools, provides_hooks,
+# kind, manifest_version (research 2026-08-02-agent-plugin-formats §2B).
+# NO `hooks:` key on purpose — it parses fine and wires NOTHING (the silent-failure
+# trap; hooks are wired from register(ctx) in __init__.py).
+name: pinbox
+version: 0.0.0
+description: Pinbox feedback pins — CLI-first pin queue for coding agents
+author: Autono
+manifest_version: 1
+provides_tools:
+  - pin_list
+  - pin_reply
+  - pin_resolve
+provides_hooks:
+  - pre_llm_call

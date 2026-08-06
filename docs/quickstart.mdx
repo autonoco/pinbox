@@ -1,0 +1,264 @@
+---
+title: "Quickstart"
+description: "Go from an empty project to a resolved pin in one terminal session."
+---
+
+This walks the whole loop in the terminal: set up a project, create a pin, read
+it, reply to it, resolve it. No browser and no agent are needed to follow along —
+the toolbar and the agent integration hook into the same commands you are about
+to run.
+
+Everything below is copy-pasteable, and every block of output is a real run.
+
+<Steps>
+
+<Step title="Install pinbox">
+
+Pinbox ships as one self-contained binary with Bun compiled into it, so there is
+no runtime to install first.
+
+<CodeGroup>
+
+```sh Build from source
+git clone https://github.com/autonoco/pinbox.git
+cd pinbox
+bun install
+bun run build
+# the binary lands at packages/cli/dist/pinbox — put it on your PATH:
+export PATH="$PWD/packages/cli/dist:$PATH"
+```
+
+```sh Install script
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+```sh npm
+npx @autono/pinbox init
+```
+
+</CodeGroup>
+
+<Note>
+  Building from source is the route that works today — there is no published
+  release or npm package yet. See [Installation](/installation) for the full
+  picture and what each route needs.
+</Note>
+
+Check that the command resolves:
+
+```console
+$ pinbox --version
+0.0.0
+```
+
+</Step>
+
+<Step title="Set up your project">
+
+Run `pinbox init` in the root of the project you want feedback on. It creates
+the state directory, adds it to `.gitignore`, installs the pinbox skill for
+each coding agent it finds on your machine, and installs a `post-commit` git
+hook.
+
+On a terminal it asks which agents to install for. `--yes` accepts what it
+detected, and `--agent <list>` picks them explicitly.
+
+```console
+$ pinbox init --yes --agent claude
+ok  .pinbox   created
+ok  .gitignore  created (.pinbox/ entry)
+ok  claude    installed .claude/skills/pinbox (skills-dir)
+ok  git-hook  installed .git/hooks/post-commit
+note: project-scope skills load only when the agent launches from this directory
+
+# Pinbox toolbar integration
+
+You are integrating the pinbox feedback toolbar into this project. Work only on a
+new branch and hand the result back as a pull request — the PR is the review
+boundary, so never commit to the working branch.
+...
+```
+
+The block after the checklist is an integration brief: a set of instructions for
+your agent describing how to mount the toolbar in this specific project. You can
+paste it into your agent, or ignore it — the CLI works without the toolbar.
+
+<Tip>
+  `pinbox init --dry-run` prints exactly what it would do and changes nothing.
+</Tip>
+
+</Step>
+
+<Step title="Create a pin">
+
+`pinbox pin` creates a pin from the terminal. Anchor it to a web surface with
+`--url` and `--selector`, or to a source location with `--file`.
+
+```console
+$ pinbox pin "Pay button is cut off on mobile" \
+    --url http://localhost:5173/checkout --selector "button.pay"
+pin_mzbcopu8ai
+pinned to http://localhost:5173/checkout
+
+$ pinbox pin "This helper should be named charge()" --file src/checkout.ts:1
+pin_cfdj3fyigz
+pinned to src/checkout.ts:1
+```
+
+`--file` takes a path that exists, optionally with `:line`, and records it
+relative to the repo — swap in a real file from your own project.
+
+The id goes to stdout; the confirmation line goes to stderr. Facts on stdout,
+messaging on stderr, in every command — so `pinbox list | grep open` never
+matches a footer.
+
+You did not start a server. The first command that needs the hub starts it in
+the background and it exits when idle.
+
+</Step>
+
+<Step title="See what is open">
+
+```console
+$ pinbox summary
+open        2
+resolved    0
+sessions    0
+last event  #2
+
+$ pinbox list
+pin_cfdj3fyigz  open  just now  src/checkout.ts:1  This helper should be named charge()
+pin_mzbcopu8ai  open  just now  button.pay         Pay button is cut off on mobile
+2 pins (2 open)
+```
+
+`pinbox show` prints one pin with everything captured with it, plus its thread:
+
+```console
+$ pinbox show pin_mzbcopu8ai
+pin_mzbcopu8ai  open  note
+text      Pay button is cut off on mobile
+target    button.pay
+url       http://localhost:5173/checkout
+git       main @ 8d4ccfc
+author    ada@example.com
+created   2026-08-06T16:24:21.888Z (just now)
+```
+
+The branch and commit were recorded for you. That is the point of a pin over a
+sentence in chat: the agent does not have to ask where you were.
+
+<Tip>
+  Pipe any of these to a file or another program and you get JSON instead —
+  a non-TTY stdout switches the output mode. `--json` forces it on a terminal.
+</Tip>
+
+</Step>
+
+<Step title="Reply on the thread">
+
+A pin is a conversation. Replying adds a message and never changes the status,
+so an agent can report progress or ask you a question without closing anything.
+
+```console
+$ pinbox reply pin_mzbcopu8ai "Bumped the button min-width — can you re-check on a narrow viewport?" --as agent
+msg_ju2heqrl7l
+replied to pin_mzbcopu8ai as agent
+
+$ pinbox show pin_mzbcopu8ai
+pin_mzbcopu8ai  open  note
+text      Pay button is cut off on mobile
+target    button.pay
+url       http://localhost:5173/checkout
+git       main @ 8d4ccfc
+author    ada@example.com
+created   2026-08-06T16:24:21.888Z (just now)
+
+agent  just now  Bumped the button min-width — can you re-check on a narrow viewport?
+```
+
+`--as` records who spoke: `human` (the default) or `agent`.
+
+</Step>
+
+<Step title="Resolve it">
+
+Resolving takes a note saying what changed — or why it will not.
+
+```console
+$ pinbox resolve pin_mzbcopu8ai --note "min-width: 8rem on .pay, verified at 320px" --as agent
+pin_mzbcopu8ai resolved
+by agent — min-width: 8rem on .pay, verified at 320px
+```
+
+The other way to resolve is not to run a command at all. Name the pin in a
+commit message and the `post-commit` hook `pinbox init` installed resolves it,
+with the commit attached:
+
+```console
+$ git commit -m "Rename pay() to charge()
+
+Fixes pin_cfdj3fyigz"
+{
+  "ok": true,
+  "data": {
+    "resolved": [
+      "pin_cfdj3fyigz"
+    ],
+    "skipped": []
+  }
+}
+```
+
+`Fixes`, `Resolves`, and `Closes` all work, case-insensitively, with or without
+a colon and with or without the word `pin` in front of the id. Amending or
+rebasing is safe — an already-resolved pin is skipped silently, and a broken hub
+never blocks a commit.
+
+</Step>
+
+<Step title="Check the result">
+
+```console
+$ pinbox list
+pin_cfdj3fyigz  resolved  1m ago   src/checkout.ts:1  This helper should be named charge()
+pin_mzbcopu8ai  resolved  1m ago   button.pay         Pay button is cut off on mobile
+2 pins (2 resolved)
+
+$ pinbox list --status open
+0 pins
+```
+
+And a record you can hand to someone else:
+
+```console
+$ pinbox export --format md
+- [resolved] src/checkout.ts:1 — This helper should be named charge() (pin_cfdj3fyigz)
+  - source: src/checkout.ts:1
+- [resolved] button.pay — Pay button is cut off on mobile (pin_mzbcopu8ai)
+  - url: http://localhost:5173/checkout
+```
+
+</Step>
+
+</Steps>
+
+## What just happened
+
+Pins are rows in `.pinbox/pinbox.db`, a SQLite file in your project that
+`pinbox init` added to `.gitignore`. They are served by a local hub daemon bound
+to `127.0.0.1` on an ephemeral port; the port sits in `.pinbox/server.json` and
+the bearer token lives outside the repo in your state directory with `0600`
+permissions. You never start or stop that daemon — any command starts it, and it
+shuts down when idle.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Concepts" icon="book-open" href="/concepts/pins">
+    Pins, threads, sessions, the hub, and where your data lives.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/cli/commands">
+    Every command, flag, exit code, and JSON shape.
+  </Card>
+</CardGroup>

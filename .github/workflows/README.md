@@ -1,0 +1,7 @@
+# .github/workflows
+
+Planned workflows (YAML wires credentials only; logic lives in `tools/`). Every job sets up Bun with `oven-sh/setup-bun` — there is no Node matrix.
+
+- `validate.yml` — PRs + main: runs the single root script `bun run ci:validate` (check, typecheck, `bun test`, knip) verbatim.
+- `release.yml` — tag + publish in **one** workflow (`GITHUB_TOKEN`-pushed tags don't trigger sibling workflows); `concurrency: cancel-in-progress: false` so channels never interleave; builds the `bun build --compile` binaries per OS/arch and attaches them to the GitHub Release; npm Trusted Publishing (OIDC, `id-token: write`) + `--provenance`; runs the dogfood smoke (drop a pin via toolbar, resolve via CLI) before publishing.
+- `docs-sync.yml` — on main pushes touching the CLI: regenerates `skills/pinbox/SKILL.md` + CLI docs via `tools/skillgen` and opens a PR on drift.

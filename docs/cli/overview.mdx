@@ -1,0 +1,206 @@
+---
+title: "CLI output contract"
+description: "How every pinbox command formats output, chooses human or JSON mode, and reports failure."
+---
+
+`pinbox` is designed to be read by two audiences: you, at a terminal, and an agent
+running commands on your behalf. Both get the same facts in a different shape, and the
+shape is a contract — the same command, run the same way, always produces the same
+structure.
+
+This page describes that contract. It applies to every command; the
+[command reference](/cli/commands) does not repeat it.
+
+## Two modes
+
+Human mode prints aligned columns. JSON mode prints one JSON document.
+
+```console
+$ pinbox summary
+open        7
+resolved    4
+sessions    2
+last event  #18
+```
+
+```console
+$ pinbox summary --json
+{
+  "ok": true,
+  "data": {
+    "open": 7,
+    "resolved": 4,
+    "lastEventSeq": 18,
+    "sessions": 2,
+    "connectedToolbars": 0
+  }
+}
+```
+
+### How the mode is chosen
+
+| Situation | Mode |
+| --- | --- |
+| stdout is a terminal, no flag | human |
+| stdout is a pipe, a file, or an agent harness | JSON |
+| `--json` passed | JSON, always |
+
+Most explicit wins: `--json` forces JSON even on a terminal. Nothing forces human mode.
+
+The practical consequence: **you do not need to teach an agent to pass `--json`.** Any
+process that captures pinbox's output is by definition not a terminal, so it gets the
+envelope automatically.
+
+It also means piping changes the output:
+
+```console
+$ pinbox list | head -1
+{
+```
+
+`--json` is a global flag, so it works in either position — `pinbox list --json` and
+`pinbox --json list` are the same command.
+
+<Note>
+`pinbox export` is the one exception, because its stdout **is** the artifact. See
+[export](/cli/commands#export).
+</Note>
+
+## The envelope
+
+In JSON mode, a command prints exactly one pretty-printed JSON document to stdout and
+nothing to stderr. Success:
+
+```text
+{ "ok": true, "data": <the command's result> }
+```
+
+Failure:
+
+```text
+{ "ok": false, "error": { "code": …, "message": …, "hint": … } }
+```
+
+`data` is whatever the command returns — a pin, an array of pins, a message, a set of
+checks. `hint` names the next command to run; nearly every error carries one.
+
+Failures print the envelope to **stdout**, not stderr, and still exit non-zero. A JSON
+consumer therefore parses one stream and branches on `ok`; it never has to merge two.
+
+```console
+$ pinbox list --status closed --json
+{
+  "ok": false,
+  "error": {
+    "code": "E_INVALID_INPUT",
+    "message": "invalid --status: \"closed\" (expected open or resolved)",
+    "hint": "run `pinbox list --help` for usage"
+  }
+}
+$ echo $?
+2
+```
+
+## stdout is data, stderr is messaging
+
+In human mode, stdout carries facts — one line per fact, no headers, no decoration.
+Counts, confirmations, and errors go to stderr.
+
+```console
+$ pinbox list
+pin_kni6ulkb4d  open  just now  a.pricing          pricing page 404s
+pin_zvkcmc7cm5  open  just now  —                  make the onboarding shorter
+pin_uwxyz5iit7  open  just now  footer a.terms     terms link 404s
+pin_fbsgo0zif4  open  just now  main > button.cta  button is cut off
+pin_0l7whi3wde  open  1m ago    src/app.tsx:42     the footer overlaps on mobile
+5 pins (5 open)
+```
+
+The last line — `5 pins (5 open)` — is on stderr. So is `pinned to src/app.tsx:42` after
+`pinbox pin`, and `replied to pin_… as human` after `pinbox reply`. Commands that create
+something put the new id on stdout by itself, so `2>/dev/null` leaves you with just the
+id.
+
+Remember that a pipe switches the whole command to JSON mode. To capture an id in a
+script, parse the envelope rather than the human line:
+
+```bash
+id=$(pinbox pin "the footer overlaps on mobile" --json | jq -r .data.id)
+pinbox show "$id" --json
+```
+
+## Exit codes
+
+Exit codes map 1:1 from error codes and are part of the contract. They are append-only:
+a code never gets renumbered.
+
+| Exit | Error code | What it means |
+| --- | --- | --- |
+| 0 | — | success |
+| 1 | `E_INTERNAL` | unexpected failure; also `doctor` when a required check failed |
+| 2 | `E_INVALID_INPUT` | bad flag, bad argument, bad body |
+| 3 | `E_NOT_FOUND` | no such pin or resource |
+| 4 | `E_CONFLICT` | e.g. resolving an already-resolved pin |
+| 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
+| 6 | `E_SESSION_GONE` | the agent session a delivery was aimed at no longer exists |
+| 7 | `E_DELIVERY` | a pin could not be delivered to its agent |
+| 8 | `E_WS_PROTOCOL` | a WebSocket frame the hub could not accept |
+| 9 | `E_ATTACHMENT` | attachment over the 5 MB cap, or otherwise rejected |
+| 10 | `E_CONNECTOR` | an external tracker connector is missing or failed |
+| 11 | `E_AUTH` | a hosted hub rejected the request |
+
+Codes 1–5 and 10 are the ones you meet at a terminal. The rest come from the delivery
+path, the toolbar's WebSocket transport, attachment uploads, and hosted deployments; they
+surface through the same envelope when they do.
+
+`doctor` is a special case: it exits 1 when a check failed but still prints
+`"ok": true`, because doctor itself ran. See [doctor](/cli/commands#doctor).
+
+## Every error names a next step
+
+The `hint` field in JSON mode is the second stderr line in human mode. It says what to do
+next, not just what went wrong.
+
+```console
+$ pinbox show pin_0000000000
+pinbox: no pin with id pin_0000000000
+run `pinbox list` to see valid ids (full ids only — prefixes don't match)
+$ echo $?
+3
+```
+
+```console
+$ pinbox resolve pin_fbsgo0zif4
+pinbox: pin_fbsgo0zif4 is already resolved
+run `pinbox show pin_fbsgo0zif4` to see who resolved it and why
+$ echo $?
+4
+```
+
+## Ids are exact
+
+A pin id is `pin_` plus 10 characters; a thread message id is `msg_` plus 10. There is no
+prefix matching — a truncated id is `E_NOT_FOUND`, and the hint says so. Copy ids whole.
+
+## Timestamps
+
+Human output shows relative ages (`just now`, `2m ago`, `3h ago`, `4d ago`). JSON output
+carries the stored ISO 8601 strings verbatim. Nothing rounds in JSON.
+
+## The hub starts itself
+
+Every command talks to a small local hub process that owns the SQLite database. You never
+start it: the first command that needs it spawns it, it binds `127.0.0.1` on an ephemeral
+port, and it exits when idle. No transcript on this page contains a "starting hub…" line
+because there isn't one — the plumbing is silent unless it fails, and when it fails you
+get `E_HUB_UNREACHABLE` (exit 5) pointing at `pinbox doctor`.
+
+Two commands exist but are not part of the human surface: `serve` runs the hub in the
+foreground for debugging, and `session` is how agent hooks register with the hub and pull
+pin context. Both have `--help` if you need them; neither appears in `pinbox --help`.
+
+## The contract is versioned
+
+`--json` output, error codes, exit codes, and `doctor` check names are machine-readable
+surface, treated as a contract rather than as incidental formatting. They change
+deliberately and visibly. Build against them.

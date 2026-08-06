@@ -1,0 +1,5 @@
+#!/bin/sh
+# e2e shim — puts `claude` on PATH for the resume adapter (delivery.test.ts prepends this
+# directory). Unlike loop.test.ts's runtime-free PATH, the delivery PATH carries bun for
+# this fixture only: the shim execs the bun fixture next to it, argv passed through.
+exec bun "$(dirname "$0")/fake-claude.ts" "$@"

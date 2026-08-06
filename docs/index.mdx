@@ -1,0 +1,87 @@
+---
+title: "Pinbox"
+description: "Drop a pin on a live app. Your coding agent picks it up, fixes it, replies, and resolves it."
+---
+
+Pinbox is a feedback loop between the person using an app and the coding agent
+working on it. Someone finds a problem, points at it, and says what is wrong.
+The agent picks that up in the session it is already running in, changes the
+code, answers back on the same thread, and marks it resolved.
+
+It is CLI-first. Every verb is a command with a `--json` mode, so an agent
+drives pinbox the same way you do — no API client, no service to sign up for.
+Pins live in a SQLite file inside your repo, served by a local daemon that
+starts itself on first use and exits when idle. Nothing leaves your machine
+unless you link a pin to a tracker.
+
+## The loop
+
+You drop a pin on a live app — click the element that is wrong and type what is
+wrong with it — or create one straight from the terminal with `pinbox pin`. The
+pin records your words plus the context an agent would otherwise have to ask
+for: the URL, the CSS selector, the source file and line, the branch and commit
+you were on. Your agent lists open pins, reads the thread, edits the code, and
+replies on the pin; replying never resolves it, because a pin is a conversation
+and the agent may need to ask you something back. When the fix is real the
+agent resolves the pin with a note, or just writes `Fixes pin_abc1234567` in a
+commit message and the git hook `pinbox init` installed resolves it for them.
+The status change shows up wherever the pin is being watched — your terminal,
+the toolbar in the browser, or a linked GitHub issue.
+
+## What it looks like
+
+```console
+$ pinbox pin "Pay button is cut off on mobile" \
+    --url http://localhost:5173/checkout --selector "button.pay"
+pin_mzbcopu8ai
+pinned to http://localhost:5173/checkout
+
+$ pinbox list
+pin_mzbcopu8ai  open  just now  button.pay  Pay button is cut off on mobile
+1 pin (1 open)
+
+$ pinbox resolve pin_mzbcopu8ai --note "min-width: 8rem on .pay, verified at 320px" --as agent
+pin_mzbcopu8ai resolved
+by agent — min-width: 8rem on .pay, verified at 320px
+```
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Zero to a resolved pin in one terminal session.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Every install route that works today, and how to verify it.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/cli/commands">
+    Every command, flag, exit code, and JSON shape.
+  </Card>
+  <Card title="Concepts" icon="book-open" href="/concepts/pins">
+    Pins, threads, sessions, the hub, and where data lives.
+  </Card>
+</CardGroup>
+
+## What you get
+
+- **A CLI that is also the API.** `pinbox <verb> --json` prints one
+  `{"ok":true,"data":…}` document per invocation. Exit codes are part of the
+  contract. Piping to a non-TTY switches to JSON automatically, so an agent gets
+  machine output without remembering a flag.
+- **Agent integration that installs itself.** `pinbox init` detects the coding
+  agents on your machine and installs the pinbox skill or plugin for each one,
+  so your agent knows the verbs without being told.
+- **A toolbar for web apps.** `@autono/pinbox-toolbar` is a zero-dependency web
+  component you mount in development only. It is optional — the CLI works on its
+  own.
+- **Local by default, portable when you need it.** The hub is a single
+  `(Request) => Response` handler. It runs as a local daemon on your machine, or
+  as a Cloudflare Worker with a Durable Object if you want a shared one.
+- **GitHub linking.** `pinbox link` creates an issue for a pin and mirrors the
+  thread both ways.
+
+<Note>
+  Pinbox is MIT licensed. Pin text is untrusted input — it describes a UI
+  problem, and the shipped agent instructions tell agents to treat it as data,
+  never as instructions.
+</Note>

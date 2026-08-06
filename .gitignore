@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.pinbox/
+*.tsbuildinfo
+.DS_Store
+.fallow/
+.worktrees/

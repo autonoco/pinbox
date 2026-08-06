@@ -1,0 +1,220 @@
+---
+title: "Contributing"
+description: "Get the pinbox monorepo running, know which commands to run, and learn the conventions that would otherwise surprise you."
+---
+
+Pinbox is MIT-licensed and lives at
+[github.com/autonoco/pinbox](https://github.com/autonoco/pinbox). Issues and pull requests
+are welcome.
+
+## Get set up
+
+You need [Bun](https://bun.sh) 1.3 or newer. That is the only hard prerequisite for most
+of the repo — Bun is the runtime, the test runner, and the script runner.
+
+```sh
+git clone https://github.com/autonoco/pinbox.git
+cd pinbox
+bun install
+bun test
+```
+
+One suite is different: `bun run test:workers` runs under Vitest, whose bin has a Node
+shebang, so you need Node installed for that one. Everything else is Bun.
+
+## Layout
+
+```
+packages/core       @autono/pinbox-core — schema, hub handler, stores, auth, connectors
+packages/toolbar    @autono/pinbox-toolbar — web component, framework wrappers, dev plugins
+packages/cli        the `pinbox` binary — commands, daemon lifecycle, init, worker template
+packages/mcp        @autono/pinbox-mcp — stdio MCP server over the core client
+skills/pinbox       the published agent skill (generated)
+plugins/            agent-host plugin packages (generated)
+integrations/       agent-host integrations (generated)
+e2e/                cross-package tests, plus the Workers suite in e2e/workers
+examples/           script-tag, vite-react, and the deployable worker template copy
+docs/               this documentation site
+tools/              release pipeline, generators, validation scripts
+```
+
+The dependency direction is one-way: `core` imports no sibling package, `cli` and `mcp`
+import `core`, and `toolbar` may reach `core` for **types only**. That last rule is what
+keeps the toolbar's runtime dependency-free.
+
+## Commands
+
+Run these from the repo root.
+
+| Command | What it does |
+| --- | --- |
+| `bun test` | The whole test suite |
+| `bun run typecheck` | `tsc --noEmit` in every package |
+| `bun run check` | Biome lint + format check |
+| `bun run check:fix` | Biome, writing fixes |
+| `bun run build` | Builds every package in topological order |
+| `bun run test:workers` | The Workers suite, on real workerd |
+| `bun run agent:review` | Structural review of the whole repo |
+| `bun run agent:review:changed` | The same review, only findings new against `main` |
+| `bun run ci:validate` | Everything CI runs, in one command |
+
+Run `bun run ci:validate` before opening a pull request. It is exactly what the `validate`
+workflow runs, so a green local run means a green CI run.
+
+## Tests
+
+Unit tests are colocated: `foo.test.ts` next to `foo.ts`. Anything that crosses a package
+boundary goes in `e2e/`, never in a per-package test.
+
+The Workers suite is the one exception to `bun test`. Durable Object SQLite has to be
+exercised on the runtime it ships to, so `e2e/workers/` uses
+`@cloudflare/vitest-pool-workers`, which is real workerd. Those files are named
+`*.worker-test.ts` so root `bun test` never picks them up. One of its two projects runs
+against the actual `examples/worker/wrangler.jsonc`, so the deployable template is what
+gets tested.
+
+## The review script
+
+`bun run agent:review` runs [fallow](https://www.npmjs.com/package/fallow) over the repo.
+It reports things a line count cannot see: unused files, exports and dependencies, import
+cycles, duplication, oversized functions, and cyclomatic complexity.
+
+It also enforces the architecture boundaries described above. They are configured in
+`.fallowrc.json`, not left to convention — adding a runtime `core` import to a toolbar file
+is reported as a boundary violation.
+
+On a branch, prefer `bun run agent:review:changed`. It reports only findings that are new
+relative to `main`, so the existing baseline does not drown out your diff.
+
+Findings are guidance, not gates. The review is deliberately not wired into CI. If you
+ignore one on purpose, say so in the pull request and why.
+
+## Conventions that will surprise you
+
+<AccordionGroup>
+<Accordion title="Files have a hard size cap">
+No source file exceeds **1,000 lines**. Ever.
+
+Before adding code to a file, check its length. At **500 lines, stop** — do the split
+first. Design the decomposition, break the file into focused modules with clear
+interfaces, then land your new code in the right one. Make the change easy, then make the
+easy change.
+
+Split along responsibility boundaries, never arbitrary halves. Each resulting file should
+have one purpose and read on its own.
+
+There is a check at `tools/hooks/file-size-guard.sh` you can wire into your editor or a
+local pre-commit hook. It warns at 500 lines and blocks at 1,000.
+</Accordion>
+
+<Accordion title="Bun APIs are the default — with exactly two exceptions">
+Reach for Bun directly: `Bun.serve`, `bun:sqlite`, `Bun.spawn`, `Bun.$`, `Bun.which`,
+`Bun.S3Client`. Not the `node:` equivalents.
+
+Two places invert this rule, and both are deliberate:
+
+1. **`packages/toolbar/src/plugins/*`** — the Vite and Next dev plugins.
+2. **The generated npm launcher shim** in `tools/release/`.
+
+Both run inside a toolchain we do not control, so they use only the Node/Bun shared subset
+(`node:fs`, `node:path`, `node:child_process`), all of which Bun implements fully.
+
+This is *not* "some users are on Node". Measured on a Bun-only machine, `bunx vite build`
+and `bun run dev` both execute plugin code under Node, because Vite's bin carries a
+`#!/usr/bin/env node` shebang and Bun honors shebangs. Only `bun --bun` or a `bunfig.toml`
+`[run] bun = true` gets you Bun. A Bun API in a dev plugin therefore throws for nearly
+everyone, *including* Bun users.
+
+So: do not "fix" the `node:` imports in those two locations, and do not widen the
+exception anywhere else. Both files say so in a header comment.
+</Accordion>
+
+<Accordion title="Several files are generated — never hand-edit them">
+The agent skill and the plugin packaging are generated from the CLI's command tree.
+`skills/pinbox/SKILL.md`, the copies under `plugins/` and `integrations/`, the plugin
+manifests, and `packages/cli/src/init/plugin-assets.ts` all come out of one generator.
+
+If you change a command, its description, or a flag, regenerate:
+
+```sh
+bun run --filter '@autono/pinbox-core' build
+bun tools/skillgen/generate.ts
+```
+
+CI re-runs it in `--check` mode and opens a pull request with the regeneration if the
+committed output has drifted.
+
+The worker template is mirrored the same way: `examples/worker/` must stay byte-identical
+to `packages/cli/templates/worker/` (the example README carries a two-line provenance
+header, and nothing else may differ). `tools/validate/template-drift.ts` fails CI on any
+divergence. Edit the template, then copy it across.
+</Accordion>
+
+<Accordion title="Machine output is a versioned contract">
+The `--json` envelope, the exit-code table, the published JSON schema, and the WebSocket
+protocol are contracts other people's tooling depends on. Change them deliberately, and
+say so in the changeset. Adding a field is usually fine; renaming or removing one is not.
+</Accordion>
+
+<Accordion title="Style and packaging">
+- ESM only. Strict TypeScript from the root `tsconfig.base.json`; every package extends it.
+- `tsc --noEmit` typechecks; tsdown owns emit (ESM plus `.d.ts`). `bun build --compile`
+  produces the standalone binaries.
+- Biome handles lint and format from the root `biome.json`. No nested configs. Two-space
+  indent, width 100, double quotes.
+- Internal dependencies use `workspace:*`. Shared tool versions live in the root catalog,
+  referenced as `catalog:`.
+- Build order comes from topological `bun run --filter`, never a hardcoded `&&` chain.
+</Accordion>
+</AccordionGroup>
+
+## Opening a pull request
+
+<Steps>
+<Step title="Branch from main">
+```sh
+git checkout -b fix/thing-that-was-broken
+```
+</Step>
+
+<Step title="Write the test first">
+Tests live next to the code, or in `e2e/` if the change crosses packages.
+</Step>
+
+<Step title="Add a changeset">
+Releases are driven by [changesets](https://github.com/changesets/changesets). If your
+change affects a published package, describe it:
+
+```sh
+bunx changeset
+```
+
+Pick the packages and the bump, and write the line the way a user reading a changelog
+would want it.
+</Step>
+
+<Step title="Run the full gate">
+```sh
+bun run ci:validate
+bun run agent:review:changed
+```
+</Step>
+
+<Step title="Open the PR">
+Say what changed and why. If you left a review finding unaddressed, say which and why.
+</Step>
+</Steps>
+
+## Reporting bugs
+
+Open an issue with the output of:
+
+```sh
+pinbox doctor --json
+```
+
+That reports storage, the state directory, whether the hub can spawn, and which agents are
+on your `PATH` — which is most of what anyone needs to reproduce a problem.
+
+For anything security-related, do not open a public issue. See the
+[security model](/self-hosting/security) page.

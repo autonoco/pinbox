@@ -1,0 +1,12 @@
+{
+  "name": "pinbox-openclaw",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Pinbox native OpenClaw plugin (live next-turn injection)",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}

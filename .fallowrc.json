@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "packages/core/src/schema.ts",
+    "packages/core/src/store.ts",
+    "packages/core/src/hub.ts",
+    "packages/core/src/hub-server.ts",
+    "packages/core/src/markdown.ts",
+    "packages/core/src/sessions.ts",
+    "packages/core/src/delivery/router.ts",
+    "packages/core/src/delivery/resume.ts",
+    "packages/core/src/delivery/openclaw.ts",
+    "packages/core/src/delivery/webhook.ts",
+    "packages/core/src/ws.ts",
+    "packages/core/src/ws-protocol.ts",
+    "packages/core/src/connectors/index.ts",
+    "packages/core/src/connectors/types.ts",
+    "packages/core/src/connectors/github.ts",
+    "packages/core/src/connectors/slack.ts",
+    "packages/core/src/auth/verify.ts",
+    "packages/core/src/do.ts",
+    "packages/core/scripts/emit-schema.ts",
+    "packages/cli/src/main.ts",
+    "packages/toolbar/src/index.ts",
+    "packages/toolbar/src/iife.ts",
+    "packages/toolbar/src/react.ts",
+    "packages/toolbar/src/vue.ts",
+    "packages/toolbar/src/svelte.ts",
+    "packages/toolbar/src/plugins/vite.ts",
+    "packages/toolbar/src/plugins/next.ts",
+    "packages/mcp/src/main.ts"
+  ],
+  "ignorePatterns": ["docs/design/**", "packages/cli/templates/**", "examples/**"],
+  "boundaries": {
+    "zones": [
+      { "name": "core", "patterns": ["packages/core/src/**"] },
+      { "name": "cli", "patterns": ["packages/cli/src/**"] },
+      { "name": "toolbar", "patterns": ["packages/toolbar/src/**"] },
+      { "name": "mcp", "patterns": ["packages/mcp/src/**"] }
+    ],
+    "rules": [
+      { "from": "core", "allow": [] },
+      { "from": "cli", "allow": ["core"] },
+      { "from": "mcp", "allow": ["core"] },
+      { "from": "toolbar", "allow": [], "allowTypeOnly": ["core"] }
+    ]
+  }
+}

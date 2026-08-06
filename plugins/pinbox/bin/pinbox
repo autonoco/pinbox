@@ -1,0 +1,7 @@
+#!/bin/sh
+# pinbox launcher shim (plugins/pinbox/bin) — resolves an installed pinbox first,
+# falls back to bunx. Claude Code appends plugin bin/ to PATH; an existing pinbox wins.
+if command -v pinbox >/dev/null 2>&1 && [ "$(command -v pinbox)" != "$0" ]; then
+  exec pinbox "$@"
+fi
+exec bunx @autono/pinbox "$@"

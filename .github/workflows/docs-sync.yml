@@ -1,0 +1,72 @@
+# The plugin artifacts are GENERATED from the CLI command tree — never hand-edited. tools/skillgen
+# writes six of them: three byte-identical SKILL.md copies (skills/pinbox, plugins/pinbox, the
+# hermes integration), both plugin manifests, and the embedded packages/cli/src/init/plugin-assets.ts.
+# This workflow is what keeps that true: on any main push touching the CLI it re-runs the generator
+# in `--check` mode — the one gate that covers the whole set — and on drift opens a PR carrying the
+# full regeneration. A PR rather than a push to main, so the skill's wording is still read by a
+# human before it ships to agents.
+name: docs-sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/cli/src/**"
+      - "tools/skillgen/**"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-sync
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  docs-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # skillgen imports the CLI's command tree, which imports @autono/pinbox-core subpaths —
+      # those resolve to dist/, so core must be built or the generator dies on module resolution.
+      - run: bun run --filter '@autono/pinbox-core' build
+      - name: detect drift
+        id: drift
+        # `--check` byte-diffs every generated artifact and exits 1 on any of them, printing the
+        # drifted paths. Exit 0 is clean; anything else is the generator itself failing, and the
+        # regeneration below re-runs it without --check, so a crash cannot be mistaken for drift.
+        run: |
+          status=0
+          bun tools/skillgen/generate.ts --check || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "drifted=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drifted=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: open the regeneration PR
+        if: steps.drift.outputs.drifted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: docs-sync/skillgen-${{ github.run_id }}
+        # `git add -A` because the generated set is six files across four directories: staging one
+        # of them lands a partial regeneration that leaves the repo drifted after the merge that
+        # was meant to fix it.
+        run: |
+          bun tools/skillgen/generate.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add -A
+          git --no-pager diff --cached --stat
+          git commit -m "docs(skill): regenerate plugin artifacts from the CLI command tree"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "docs(skill): regenerate plugin artifacts from the CLI command tree" \
+            --body "The CLI command tree changed; \`tools/skillgen/generate.ts\` produced \
+          different output. Generated files — review the wording, then merge. Never hand-edit \
+          them; edit the command tree or the generator instead."

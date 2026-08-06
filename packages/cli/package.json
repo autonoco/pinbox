@@ -1,0 +1,39 @@
+{
+  "name": "@autono/pinbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "bin": {
+    "pinbox": "./dist/main.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown && bun run compile",
+    "compile": "bun build ./src/main.ts --compile --target=bun --outfile dist/pinbox",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@autono/pinbox-core": "workspace:*",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "tsdown": "catalog:",
+    "@types/bun": "catalog:"
+  }
+}

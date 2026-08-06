@@ -1,0 +1,114 @@
+---
+title: "Pins"
+description: "A pin is a comment plus the context you would otherwise have to describe by hand."
+---
+
+A pin is one piece of feedback about a running app, captured with enough context that an
+agent does not have to ask "where?". You drop it from the toolbar on a live page, or
+create it from a terminal with `pinbox pin`.
+
+Everything else in pinbox is built on the pin: the thread hanging off it, the event that
+announces it, the delivery that carries it to an agent.
+
+## The shape
+
+Here is a real pin, straight out of `pinbox pin --json`:
+
+```json
+{
+  "text": "Save button is too small on mobile",
+  "kind": "note",
+  "target": {
+    "url": "http://localhost:3000/settings",
+    "selector": "button.save"
+  },
+  "env": {
+    "branch": "main",
+    "commit": "f0f1441a267014d901bb5584388140ad55bfd734"
+  },
+  "author": {
+    "userId": "dev@example.com",
+    "name": "Dev",
+    "email": "dev@example.com"
+  },
+  "id": "pin_njnwyw6r8d",
+  "schemaVersion": 1,
+  "status": "open",
+  "createdAt": "2026-08-06T16:21:19.244Z"
+}
+```
+
+The hub assigns `id`, `schemaVersion`, `status`, `createdAt`, and stamps `env.branch` and
+`env.commit` from git. You supply the rest.
+
+| Field | Notes |
+| --- | --- |
+| `text` | Required. The feedback itself. |
+| `kind` | `note` or `move`. Defaults to `note`; `move` carries `move: { from, to }` rects. |
+| `author` | Required: `userId`, optional `name` and `email`. |
+| `target` | Where the pin points: `url`, `selector`, `tag`, `rect`, `fixed`, `anchor`, `source`, `context`. |
+| `target.source` | `{ file, line?, via }` where `via` is `plugin`, `framework`, or `none`. |
+| `target.context` | `classes`, `styles`, `aria`, `nearbyText`, `selectedText`. |
+| `env` | `viewport` (`w`/`h`/`dpr`), `browser`, `os`, `colorScheme`, plus git `branch` and `commit`. |
+| `attachments` | Screenshots and files, each carrying a `path` or `url` — never inline bytes. |
+| `agentSession` | `{ agent, key, cwd? }` — the session this pin is bound to. See [Agents](/concepts/agents). |
+| `resolution` | Set on resolve: `{ by, note?, commit?, at }`. |
+| `verification` | Set when a human accepts or reopens a resolved pin: `{ outcome, at }`. |
+| `links` | External tracker links: `{ connector, ref, url }`. |
+
+<Note>
+Every field under `target` and `env` is optional. A pin created with `pinbox pin` has no
+browser, so it has no viewport and no bounding rect — pinbox records absence rather than
+inventing `browser: "cli"`. Read them by presence (`pin.target?.rect`), never by sentinel.
+</Note>
+
+## Status is two values
+
+On the wire, `status` is `open` or `resolved`. Nothing else. It is a versioned contract,
+and keeping it to two values is what lets any client — the CLI, the toolbar, an agent, a
+script you write this afternoon — agree on what a pin is.
+
+Anything richer is **derived** from the pin plus its thread. The toolbar, for example,
+computes its badge like this:
+
+| Pin state | Derived label |
+| --- | --- |
+| `open`, thread empty or last message from a human | waiting |
+| `open`, last message from an agent or a mirror | replied |
+| `resolved`, no `verification` yet | verify |
+| `resolved`, `verification` present | resolved |
+
+Build your own labels the same way: read `status`, then look at the thread. Do not expect
+new status values to appear.
+
+## Pins are conversations
+
+A pin is a thread, not a ticket that flips a bit. Each thread message is:
+
+```json
+{
+  "id": "msg_joneejkrge",
+  "pinId": "pin_njnwyw6r8d",
+  "role": "agent",
+  "text": "Bumped the hit area to 44px — please check",
+  "at": "2026-08-06T16:21:26.225Z"
+}
+```
+
+`role` is `human`, `agent`, or `mirror` (a message that came in from a linked tracker;
+`origin` records where, e.g. `github:someuser`).
+
+Two rules matter:
+
+**Replying never resolves.** `pinbox reply` appends a message and leaves `status` alone.
+Resolving is a separate, deliberate act — `pinbox resolve`, or a `Resolves: pin_x` trailer
+on a commit. An agent that answers a question has not fixed anything yet.
+
+**A reply reaches the same agent session the thread started in.** The first time a pin is
+routed, the hub writes the session it went to into `pin.agentSession`. Every later message
+on that pin follows that binding, so a back-and-forth stays with the agent that already has
+the context loaded, instead of landing cold in whichever session happens to be newest.
+
+<Card title="CLI reference" href="/cli/commands" icon="terminal">
+`pinbox pin`, `list`, `show`, `reply`, `resolve` — flags, output, and exit codes.
+</Card>

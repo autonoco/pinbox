@@ -1,0 +1,38 @@
+{
+  "name": "@autono/pinbox-mcp",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/autonoco/pinbox.git",
+    "directory": "packages/mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "pinbox-mcp": "./dist/main.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "tsdown": "catalog:",
+    "@types/bun": "catalog:"
+  }
+}

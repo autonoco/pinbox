@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-pb="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pinbox · toolbar demo (real hub)</title>
+<!--
+  Demo fixture for <pinbox-toolbar>.
+
+  The MERIDIAN page below is lifted from docs/design/toolbar/v2-command-bar.html — the
+  approved prototype — WITHOUT its prototype toolbar: the `data-pb-el` labels are the
+  only thing the real toolbar needs, and it renders its own bar/reticle/pins/cards from
+  packages/toolbar/src. Anything you see floating over this page is shipping code.
+
+  Nothing here is a test fixture: run `bun demo/serve.ts` and follow demo/README.md.
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  :root { color-scheme: dark; }
+  [data-pb="dark"] {
+    --pb-canvas:#0f0f0f; --pb-surface:#171717; --pb-sunken:#0b0b0b;
+    --pb-line:rgba(245,240,230,0.08); --pb-line-2:rgba(245,240,230,0.16);
+    --pb-fg1:#f5f0e6; --pb-fg2:#b8b0a5; --pb-fg3:#8a827a;
+    --pb-invert-bg:#f5f0e6; --pb-invert-fg:#0f0f0f;
+  }
+  [data-pb="light"] {
+    --pb-canvas:#fbf8f2; --pb-surface:#ffffff; --pb-sunken:#f2ede3;
+    --pb-line:rgba(23,23,23,0.11); --pb-line-2:rgba(23,23,23,0.22);
+    --pb-fg1:#141414; --pb-fg2:#5a534d; --pb-fg3:#8a827a;
+    --pb-invert-bg:#141414; --pb-invert-fg:#fbf8f2;
+  }
+  :root {
+    --font-body: ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  }
+  html, body { background: var(--pb-canvas); }
+  body { color: var(--pb-fg1); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgba(212,160,74,0.28); }
+
+  .page { position: relative; min-height: 100vh; overflow-x: hidden; }
+  .grain { position: fixed; inset: 0; opacity: .04; pointer-events: none; z-index: 1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .wrap { position: relative; z-index: 2; max-width: 1180px; margin: 0 auto; padding: 56px 40px 160px; }
+  nav.mnav { display: flex; align-items: center; justify-content: space-between; padding-bottom: 74px; }
+  .brand { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: .24em; }
+  .mnav .links { display: flex; gap: 34px; font-size: 13px; color: var(--pb-fg2); }
+  header.hero { display: flex; flex-direction: column; gap: 26px; max-width: 860px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: .24em; color: var(--pb-fg3); }
+  h1.headline { font-weight: 250; font-size: clamp(40px, 5.4vw, 66px); line-height: 1.02; letter-spacing: -.03em; text-wrap: pretty; }
+  p.sub { max-width: 470px; font-size: 15px; line-height: 1.62; letter-spacing: -.005em; color: var(--pb-fg2); text-wrap: pretty; }
+  .btns { display: flex; gap: 10px; padding-top: 6px; }
+  .btn-a { display: flex; align-items: center; height: 38px; padding: 0 20px; border-radius: 2px; background: var(--pb-invert-bg); color: var(--pb-invert-fg); font-size: 13px; }
+  .btn-b { display: flex; align-items: center; height: 38px; padding: 0 20px; border-radius: 2px; border: 1px solid var(--pb-line-2); font-size: 13px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--pb-line); margin-top: 72px; }
+  .metric { padding: 22px 24px 0; display: flex; flex-direction: column; gap: 6px; border-left: 1px solid var(--pb-line); }
+  .metric:first-child { border-left: 0; padding-left: 0; }
+  .metric .v { font-weight: 250; font-size: 34px; letter-spacing: -.03em; }
+  .metric .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .2em; color: var(--pb-fg3); }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 72px; }
+  .pillar { padding: 24px; border: 1px solid var(--pb-line); border-radius: 4px; background: var(--pb-surface); display: flex; flex-direction: column; gap: 10px; min-height: 150px; }
+  .pillar .n { font-family: var(--font-mono); font-size: 10px; letter-spacing: .2em; color: var(--pb-fg3); }
+  .pillar .t { font-size: 15px; line-height: 1.55; letter-spacing: -.01em; text-wrap: pretty; }
+  @media (max-width: 900px) { .metrics, .pillars { grid-template-columns: 1fr 1fr; } }
+
+  .boot { position: fixed; left: 16px; bottom: 16px; z-index: 9;
+    padding: 10px 12px; border: 1px solid var(--pb-line-2); border-radius: 3px;
+    background: var(--pb-sunken); color: var(--pb-fg2);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.5; max-width: 460px; }
+  .boot[hidden] { display: none; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="grain"></div>
+  <div class="wrap">
+    <nav class="mnav" data-pb-el="NAVIGATION">
+      <div class="brand">MERIDIAN</div>
+      <div class="links"><span>work</span><span>approach</span><span>people</span><span>contact</span></div>
+    </nav>
+    <header class="hero">
+      <div class="eyebrow">PRIVATE CAPITAL — EST. 1997</div>
+      <h1 class="headline" data-pb-el="HEADLINE">capital, deployed<br>with conviction.</h1>
+      <p class="sub" data-pb-el="SUB-COPY">We hold positions for a decade, not a quarter. Twelve companies. One thesis. No outside capital.</p>
+      <div class="btns" data-pb-el="BUTTONS">
+        <div class="btn-a">The thesis</div>
+        <div class="btn-b">Portfolio</div>
+      </div>
+    </header>
+    <div class="metrics" data-pb-el="METRICS ROW">
+      <div class="metric"><div class="v">$4.2B</div><div class="k">UNDER MANAGEMENT</div></div>
+      <div class="metric"><div class="v">12</div><div class="k">ACTIVE POSITIONS</div></div>
+      <div class="metric"><div class="v">11.4</div><div class="k">AVG. HOLD, YEARS</div></div>
+      <div class="metric"><div class="v">1997</div><div class="k">FIRST CLOSE</div></div>
+    </div>
+    <div class="pillars">
+      <div class="pillar" data-pb-el="PILLAR CARD"><div class="n">01 — CONTROL</div><div class="t">We take board seats and operating roles. Passive capital is not our instrument.</div></div>
+      <div class="pillar" data-pb-el="PILLAR CARD"><div class="n">02 — DURATION</div><div class="t">No fund life, no forced exit. The clock belongs to the business.</div></div>
+      <div class="pillar" data-pb-el="PILLAR CARD"><div class="n">03 — CONCENTRATION</div><div class="t">Twelve positions, deliberately. Diversification is a tax on conviction.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="boot" id="boot" hidden></div>
+
+<script type="module">
+  // serve.ts hands the page the hub it just started. Fetching it (rather than baking it in)
+  // keeps this file static, so `bun demo/serve.ts` needs no templating step and the ephemeral
+  // hub port/token change freely between runs.
+  const boot = document.getElementById("boot");
+  const fail = (message) => {
+    boot.hidden = false;
+    boot.textContent = `pinbox demo: ${message}`;
+  };
+
+  try {
+    const { Pinbox } = await import("/dist/index.js");
+    const config = await (await fetch("/config.json")).json();
+    Pinbox.init({ endpoint: config.endpoint, token: config.token });
+  } catch (error) {
+    fail(`${error}\nDid you run \`bun run build\` in packages/toolbar first?`);
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+#!/bin/sh
+# pinbox git hook — post-commit → `pinbox session trailer` (commit-trailer resolution).
+# Canonical copy: the agent plugins copy this file byte-identical; `pinbox init`'s long-tail
+# path installs it into .git/hooks/. `|| true` on every path: a broken hub must never
+# block a commit. Amend/rebase re-fires are safe — already-resolved and unknown ids
+# skip silently.
+if command -v pinbox >/dev/null 2>&1; then
+  pinbox session trailer || true
+else
+  bunx @autono/pinbox session trailer || true
+fi

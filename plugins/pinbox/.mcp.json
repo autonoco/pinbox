@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pinbox": {
+      "command": "bunx",
+      "args": ["@autono/pinbox-mcp"]
+    }
+  }
+}

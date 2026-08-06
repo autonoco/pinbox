@@ -1,0 +1,122 @@
+---
+title: "Architecture"
+description: "One request handler, two hosts, one storage interface, and an append-only event log."
+---
+
+Pinbox has a small centre: a hub that owns pins, and clients that talk to it over HTTP.
+The interesting decisions are about making that centre run in two very different places
+without forking it.
+
+## The hub is one function
+
+The hub is a plain `(Request) => Promise<Response>`:
+
+```ts
+const handler = createHubHandler({ store, token });
+const response = await handler(new Request("http://hub/summary"));
+```
+
+No framework, no server coupling, no adapter layer. That signature is the whole reason the
+same code runs on your laptop and on Cloudflare:
+
+- **Locally**, `Bun.serve({ fetch: handler })` consumes it.
+- **In the cloud**, a Cloudflare Worker forwards to a Durable Object that calls the same
+  handler.
+
+Routing is a list of route modules; the first one to return a `Response` wins. Every route
+except `GET /health` requires a bearer token. Every response uses the same envelope as the
+CLI's `--json` output:
+
+```json
+{ "ok": true, "data": { "open": 1, "resolved": 0, "lastEventSeq": 2 } }
+```
+
+Failures carry a code, a message, and usually a hint:
+
+```json
+{ "ok": false, "error": { "code": "E_NOT_FOUND", "message": "pin not found: pin_nope" } }
+```
+
+Hosting concerns that genuinely differ stay outside the handler — the WebSocket upgrade,
+the loopback CORS gate, cloud auth. The local host binds `127.0.0.1` only. The cloud host
+picks an auth strategy from configuration: a shared token, or JWTs validated against an
+issuer's JWKS URL with an expected audience, so you can put pinbox behind whatever
+identity system you already run.
+
+## The local daemon spawns itself
+
+You never start a server. Any `pinbox` command that needs the hub calls `ensureHub()`,
+which:
+
+<Steps>
+  <Step title="Reads the state file">
+    The pid, port, token, and version, from your XDG state directory (mode `0600` — secrets
+    never sit in the repo). The project directory only gets `.pinbox/server.json`, which
+    holds the port and nothing else.
+  </Step>
+  <Step title="Probes it">
+    `GET /health` on that port. A healthy hub of the right version is reused. A hub from an
+    older version gets a `SIGTERM` and is replaced.
+  </Step>
+  <Step title="Otherwise spawns one">
+    A detached `pinbox serve` in its own process group, then polls until *that* pid's state
+    file answers `/health`. Detached matters: a `Ctrl+C` aimed at the CLI must not take the
+    daemon with it.
+  </Step>
+</Steps>
+
+The daemon exits on its own after 30 minutes with no requests and no attached WebSockets
+(`PINBOX_IDLE_MS` overrides the timeout, in milliseconds). Idle exit is safe because the
+queue is durable, not the process — the next command respawns the daemon and it replays
+whatever it missed.
+
+## Storage is SQLite, twice
+
+`PinStore` is the interface. There are exactly two implementations:
+
+| Where | Engine |
+| --- | --- |
+| Local | `bun:sqlite`, WAL mode, file at `.pinbox/pinbox.db` |
+| Cloud | Durable Object SQLite |
+
+Both replay the **same numbered migration list**, as plain SQL. Nothing engine-specific
+leaks through the interface, which is what keeps the two from drifting apart. Locally, an
+FTS5 index over pin and thread text backs the hub's `GET /pins?search=<query>`.
+
+## The event log is the backbone
+
+Pins and thread messages live in derived tables. The source of truth is an append-only
+`events` table:
+
+```
+seq  | type            | at                       | payload
+-----+-----------------+--------------------------+---------------------------
+1    | pin.created     | 2026-08-06T16:21:19.244Z | { …the whole pin… }
+2    | thread.message  | 2026-08-06T16:21:26.225Z | { …the whole message… }
+```
+
+`seq` is a monotonic integer. Event types are `pin.created`, `pin.resolved`,
+`thread.message`, `pin.verified`, and `pin.linked`. Each payload is the **complete
+post-mutation object**, so a consumer can apply an event without a follow-up read.
+
+That gives every consumer the same simple contract: *remember the last `seq` you saw, ask
+for everything after it.*
+
+- **HTTP:** `GET /events?after=<seq>` returns the tail. `GET /summary` gives you
+  `lastEventSeq` in one call.
+- **WebSocket:** a client connects to `/ws` and sends one hello carrying its
+  `consumerId` and `lastSeq`. The hub replies with a catch-up frame containing every event
+  since, then streams new ones live. A client that drops reconnects, sends its cursor, and
+  loses nothing.
+- **Delivery:** every event gets a row in the deliveries ledger — including events that are
+  unroutable by design, which are recorded as `skipped`. So `MAX(event_seq)` in that ledger
+  *is* the delivery cursor. On boot the daemon replays `eventsAfter(lastEventSeq)` and picks
+  up anything that happened while nothing was running.
+
+This is why a crash mid-delivery, a closed laptop, or a toolbar that lost its connection
+all recover the same way: replay from a cursor. There is no separate reconciliation path
+to get wrong.
+
+<Card title="How pins reach agents" href="/concepts/agents" icon="robot">
+The session registry, sticky routing, and the four delivery paths.
+</Card>

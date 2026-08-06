@@ -1,0 +1,20 @@
+{
+  "name": "@autono/pinbox-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc -p workers --noEmit",
+    "test": "bun test",
+    "test:workers": "vitest run -c workers/vitest.config.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@types/bun": "catalog:",
+    "jose": "^6.1.0",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.118.0"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pinbox",
+  "description": "Drop a pin on a live app. Your coding agent picks it up, fixes it, replies, and resolves it.",
+  "colors": {
+    "primary": "#DC3D1E",
+    "light": "#FF7A5C",
+    "dark": "#B32D12"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": ["index", "quickstart", "installation"]
+      },
+      {
+        "group": "CLI",
+        "pages": ["cli/overview", "cli/commands"]
+      },
+      {
+        "group": "Concepts",
+        "pages": ["concepts/pins", "concepts/architecture", "concepts/agents"]
+      },
+      {
+        "group": "Integrations",
+        "pages": ["integrations/toolbar", "integrations/agents", "integrations/github"]
+      },
+      {
+        "group": "Self-hosting",
+        "pages": ["self-hosting/cloud", "self-hosting/security"]
+      },
+      {
+        "group": "Contributing",
+        "pages": ["contributing"]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/autonoco/pinbox"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/autonoco/pinbox"
+    },
+    "links": [
+      {
+        "header": "Project",
+        "items": [
+          {
+            "label": "GitHub",
+            "href": "https://github.com/autonoco/pinbox"
+          },
+          {
+            "label": "Report an issue",
+            "href": "https://github.com/autonoco/pinbox/issues"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "includes": ["**", "!docs/design", "!.fallow"] },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": { "quoteStyle": "double", "semicolons": "always" }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": { "noExplicitAny": "warn" },
+      "complexity": { "useLiteralKeys": "off" }
+    }
+  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    }
+  ]
+}

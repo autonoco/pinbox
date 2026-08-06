@@ -11,13 +11,18 @@ class ExitSignal extends Error {
 // The commands list grows in Tasks 7–8; these tests pin only the skeleton facts
 // the transcripts fix now: name, description, version, and the global --json flag.
 describe("pinbox program skeleton", () => {
-  test("name, description, and version match the transcripts", () => {
+  test("name, description, and version match the transcripts", async () => {
     const program = buildProgram();
     expect(program.name()).toBe("pinbox");
     expect(program.description()).toBe(
       "CLI-first feedback loop: pins dropped on a live app, fixed and resolved by agents.",
     );
-    expect(program.version()).toBe("0.0.0");
+    // Read from the manifest, not hardcoded: this file should not need editing at every
+    // release, and a stale literal here would fail CI on the version-bump commit itself.
+    const { version } = (await Bun.file(new URL("../package.json", import.meta.url)).json()) as {
+      version: string;
+    };
+    expect(program.version()).toBe(version);
   });
 
   test("global --json option exists with the transcript wording", () => {

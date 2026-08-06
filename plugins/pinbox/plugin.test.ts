@@ -26,8 +26,10 @@ const readJson = async (path: string): Promise<Record<string, unknown>> =>
 // The three hook payload basenames both manifests reference. Renaming one here
 // without renaming the file breaks installs silently.
 const PINNED_HOOK_SCRIPTS = ["session-start.sh", "inject.sh", "stop.sh"];
-// String.raw keeps the literal ${…} shell idiom out of biome's template-placeholder lint.
-const DUAL_ROOT = String.raw`${"$"}{CLAUDE_PLUGIN_ROOT:-${"$"}PLUGIN_ROOT}`;
+// The literal shell idiom the generated hooks.json must contain. `${…}` is inert in a plain
+// string, which is the point — the rule guards against an accidental template, not this.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
+const DUAL_ROOT = "${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}";
 
 describe("plugin manifests", () => {
   test("claude manifest parses and name is the public contract", async () => {

@@ -29,7 +29,7 @@ export type RouteModule = (req: Request, url: URL, opts: HubOptions) => Promise<
 
 // Keep in step with packages/core/package.json — surfaced by GET /health so the CLI
 // daemon can detect a stale hub and restart it.
-const HUB_VERSION = "0.0.0";
+const HUB_VERSION = "0.1.0";
 
 // Final §9 union minus E_HUB_UNREACHABLE (client-only).
 type HubErrorCode =

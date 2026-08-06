@@ -24,8 +24,10 @@ import type {
 const pluginDir = import.meta.dir;
 const repoRoot = new URL("../..", `file://${pluginDir}/`).pathname.replace(/\/$/, "");
 
-// String.raw keeps the literal ${…} idiom out of biome's template-placeholder lint.
-const IDEMPOTENCY_LITERAL = String.raw`pin:${"$"}{pin.id}:${"$"}{lastSeq}`;
+// The literal source text the plugin must contain. In a plain string `${…}` is inert, which is
+// exactly what we want — the rule below exists to catch an accidental template, not a deliberate one.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal source text
+const IDEMPOTENCY_LITERAL = "pin:${pin.id}:${lastSeq}";
 
 describe("openclaw.plugin.json", () => {
   test("parses with required id and configSchema; skills lists the skills dir", async () => {

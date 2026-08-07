@@ -112,11 +112,15 @@ async function publishBinaryChannel(version: string, noProvenance: boolean): Pro
 
 async function publishDir(dir: string, tarball: string, noProvenance = false): Promise<void> {
   await $`bun pm pack --filename ${tarball} --quiet`.cwd(dir);
-  if (noProvenance) {
-    await $`npm publish ${tarball} --access public`.cwd(repoRoot);
-    return;
-  }
-  await $`npm publish ${tarball} --provenance --access public`.cwd(repoRoot);
+  const argv = noProvenance
+    ? ["npm", "publish", tarball, "--access", "public"]
+    : ["npm", "publish", tarball, "--provenance", "--access", "public"];
+  // stdio is INHERITED, not captured. With 2FA enabled npm prints a browser URL and blocks on
+  // the approval; through a captured pipe it has no terminal, so that flow cannot complete and
+  // the publish dies on EOTP. Inheriting also means npm's progress reaches CI logs live.
+  const proc = Bun.spawn(argv, { cwd: repoRoot, stdio: ["inherit", "inherit", "inherit"] });
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(`npm publish failed (exit ${code}) for ${tarball}`);
 }
 
 /** The binary's version is the CLI manifest's — `pinbox --version` reads exactly that file. */

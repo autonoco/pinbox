@@ -87,7 +87,11 @@ export async function publishAll(opts: PublishOptions): Promise<void> {
 
   await $`mkdir -p ${TGZ_DIR}`.quiet();
   for (const lib of LIBS) {
-    await publishDir(`${repoRoot}packages/${lib}`, `${TGZ_DIR}/${lib}.tgz`, opts.noProvenance);
+    const manifest = await readManifest(`${repoRoot}packages/${lib}/package.json`);
+    await publishDir(`${repoRoot}packages/${lib}`, `${TGZ_DIR}/${lib}.tgz`, opts.noProvenance, {
+      name: manifest.name,
+      version: manifest.version,
+    });
   }
   await publishBinaryChannel(await binaryVersion(), opts.noProvenance);
 }
@@ -100,17 +104,50 @@ async function publishBinaryChannel(version: string, noProvenance: boolean): Pro
       throw new Error(`missing ${binary} — run \`bun run release:build\` first`);
     }
     const dir = await stagePlatform(target, version, binary, STAGE_DIR);
-    await publishDir(dir, `${TGZ_DIR}/${target.assetName}.tgz`, noProvenance);
+    await publishDir(dir, `${TGZ_DIR}/${target.assetName}.tgz`, noProvenance, {
+      name: target.pkgName,
+      version,
+    });
   }
   // Last, and only now that every pin it declares resolves on the registry.
   await publishDir(
     await stageLauncher(version, STAGE_DIR),
     `${TGZ_DIR}/launcher.tgz`,
     noProvenance,
+    {
+      name: "@autono/pinbox",
+      version,
+    },
   );
 }
 
-async function publishDir(dir: string, tarball: string, noProvenance = false): Promise<void> {
+/**
+ * Is this exact name@version already on the registry?
+ *
+ * Publishing is eight sequential steps and npm refuses to overwrite a version, so ANY failure
+ * partway leaves a half-published release that can never be re-run — the retry dies on the first
+ * package with EPUBLISHCONFLICT instead of finishing the remaining seven. Checking first makes
+ * the whole run resumable, which matters most for the launcher: it is published last precisely
+ * so it is never live before the binaries it points at, and that ordering is worthless if a
+ * retry cannot get past step one.
+ */
+async function alreadyPublished(name: string, version: string): Promise<boolean> {
+  const res = await fetch(`https://registry.npmjs.org/${name.replace("/", "%2f")}/${version}`, {
+    headers: { accept: "application/json" },
+  }).catch(() => null);
+  return res !== null && res.status === 200;
+}
+
+async function publishDir(
+  dir: string,
+  tarball: string,
+  noProvenance = false,
+  identity?: { name: string; version: string },
+): Promise<void> {
+  if (identity !== undefined && (await alreadyPublished(identity.name, identity.version))) {
+    console.log(`  skip ${identity.name}@${identity.version} — already on the registry`);
+    return;
+  }
   await $`bun pm pack --filename ${tarball} --quiet`.cwd(dir);
   const argv = noProvenance
     ? ["npm", "publish", tarball, "--access", "public"]

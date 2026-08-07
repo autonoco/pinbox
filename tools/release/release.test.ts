@@ -212,3 +212,23 @@ async function readHubState(): Promise<{ pid: number } | null> {
     return null;
   }
 }
+
+// Publishing is eight sequential steps and npm refuses to overwrite a version, so without a
+// registry check a failure partway leaves a release that can never be re-run: the retry dies on
+// step one with EPUBLISHCONFLICT and the remaining packages never ship.
+test("every publish step passes an identity so an already-published version is skipped", async () => {
+  const source = await Bun.file(`${import.meta.dir}/publish.ts`).text();
+  expect(source).toContain("alreadyPublished");
+  // Three call sites: the workspace libraries, the platform packages, the launcher — the last
+  // matters most, since its publish-last ordering is meaningless if a retry cannot reach it.
+  expect(source).toContain("name: target.pkgName");
+  expect(source).toContain('name: "@autono/pinbox"');
+});
+
+test("the registry probe treats only a 200 as published", async () => {
+  const source = await Bun.file(`${import.meta.dir}/publish.ts`).text();
+  // A 404 (never published) and a network error must both mean "publish anyway" — never the
+  // reverse, which would silently skip a package that was never released.
+  expect(source).toContain("res.status === 200");
+  expect(source).toContain(".catch(() => null)");
+});

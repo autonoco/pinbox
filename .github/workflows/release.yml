@@ -173,7 +173,10 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       # npm is CI publishing glue for the one flag `bun publish` lacks (--provenance).
-      - run: npm install -g npm@latest
+      # Deliberately NOT `npm install -g npm@latest`: npm's in-place self-upgrade swaps its own
+      # dependencies out mid-install and corrupts its module graph (MODULE_NOT_FOUND on
+      # promise-retry). Node 24 already ships npm >= 11.5.1, which is what Trusted Publishing
+      # requires, so the upgrade bought nothing and could only break the publish.
       - run: bun install --frozen-lockfile
       - run: bun run build
       - uses: actions/download-artifact@v4

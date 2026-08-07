@@ -36,6 +36,18 @@ export async function freshBinary(): Promise<string | null> {
   return DEV_BINARY;
 }
 
+/**
+ * Build the workspace libraries before compiling.
+ *
+ * The CLI imports `@autono/pinbox-core/*` subpaths, which resolve to that package's `dist/` —
+ * so on a clean checkout `bun build --compile` fails to resolve every one of them. Doing it here
+ * rather than as a workflow step means any caller is correct: the release job, a local dry run,
+ * or whatever runs this next. `bun run --filter` walks the dependency graph in order.
+ */
+async function buildLibraries(): Promise<void> {
+  await $`bun run --filter '*' build`.cwd(repoRoot).quiet();
+}
+
 /** Compile one target into `<outDir>/<assetName>`; returns the binary path. */
 export async function compileTarget(target: Target, outDir: string): Promise<string> {
   const outfile = `${outDir}/${target.assetName}`;
@@ -55,6 +67,7 @@ export async function compileAll(
   outDir: string,
 ): Promise<{ target: string; binary: string }[]> {
   await assertVersion(version);
+  await buildLibraries();
   const built: { target: string; binary: string }[] = [];
   for (const target of TARGETS) {
     built.push({ target: target.bunTarget, binary: await compileTarget(target, outDir) });

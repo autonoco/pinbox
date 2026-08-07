@@ -125,7 +125,7 @@ test("compiling a version the CLI manifest does not claim fails before any build
 
 test("publishing a version the CLI manifest does not claim fails before any network call", async () => {
   await expect(
-    publishAll({ dryRun: true, expectVersion: "0.0.0-not-the-manifest" }),
+    publishAll({ dryRun: true, noProvenance: false, expectVersion: "0.0.0-not-the-manifest" }),
   ).rejects.toThrow(/version mismatch/);
 });
 

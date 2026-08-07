@@ -55,7 +55,18 @@ export async function publishPlan(): Promise<PublishStep[]> {
  * a tree whose manifests still read 1.2.2 (an unmerged changesets version PR) publishes 1.2.2
  * under that tag's name, silently. Compared before anything is staged or uploaded.
  */
-type PublishOptions = { dryRun: boolean; expectVersion?: string | undefined };
+type PublishOptions = {
+  dryRun: boolean;
+  expectVersion?: string | undefined;
+  /**
+   * Publish without `--provenance`. Provenance is minted from a CI OIDC token, so it cannot be
+   * produced from a laptop — and npm will not let you configure Trusted Publishing for a package
+   * that does not exist yet. That is a genuine chicken-and-egg for a first release: this flag is
+   * the one-time escape hatch that creates the packages so TP can then be configured on them.
+   * CI must never pass it; the release workflow does not.
+   */
+  noProvenance: boolean;
+};
 
 export async function publishAll(opts: PublishOptions): Promise<void> {
   if (opts.expectVersion !== undefined) {
@@ -76,27 +87,35 @@ export async function publishAll(opts: PublishOptions): Promise<void> {
 
   await $`mkdir -p ${TGZ_DIR}`.quiet();
   for (const lib of LIBS) {
-    await publishDir(`${repoRoot}packages/${lib}`, `${TGZ_DIR}/${lib}.tgz`);
+    await publishDir(`${repoRoot}packages/${lib}`, `${TGZ_DIR}/${lib}.tgz`, opts.noProvenance);
   }
-  await publishBinaryChannel(await binaryVersion());
+  await publishBinaryChannel(await binaryVersion(), opts.noProvenance);
 }
 
 /** The generated half: four platform packages, then the launcher. Staged from `release:build`'s output. */
-async function publishBinaryChannel(version: string): Promise<void> {
+async function publishBinaryChannel(version: string, noProvenance: boolean): Promise<void> {
   for (const target of TARGETS) {
     const binary = `${BIN_DIR}/${target.assetName}`;
     if (!(await Bun.file(binary).exists())) {
       throw new Error(`missing ${binary} — run \`bun run release:build\` first`);
     }
     const dir = await stagePlatform(target, version, binary, STAGE_DIR);
-    await publishDir(dir, `${TGZ_DIR}/${target.assetName}.tgz`);
+    await publishDir(dir, `${TGZ_DIR}/${target.assetName}.tgz`, noProvenance);
   }
   // Last, and only now that every pin it declares resolves on the registry.
-  await publishDir(await stageLauncher(version, STAGE_DIR), `${TGZ_DIR}/launcher.tgz`);
+  await publishDir(
+    await stageLauncher(version, STAGE_DIR),
+    `${TGZ_DIR}/launcher.tgz`,
+    noProvenance,
+  );
 }
 
-async function publishDir(dir: string, tarball: string): Promise<void> {
+async function publishDir(dir: string, tarball: string, noProvenance = false): Promise<void> {
   await $`bun pm pack --filename ${tarball} --quiet`.cwd(dir);
+  if (noProvenance) {
+    await $`npm publish ${tarball} --access public`.cwd(repoRoot);
+    return;
+  }
   await $`npm publish ${tarball} --provenance --access public`.cwd(repoRoot);
 }
 
@@ -114,6 +133,7 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   await publishAll({
     dryRun: args.includes("--dry-run"),
+    noProvenance: args.includes("--no-provenance"),
     expectVersion: args.find((arg) => !arg.startsWith("--")),
   });
 }

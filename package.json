@@ -23,6 +23,7 @@
     "check:fix": "biome check --write .",
     "typecheck": "bun run --filter '*' typecheck && tsc -p tools/tsconfig.json",
     "test": "bun test",
+    "scan:secrets": "bun tools/security/scan-introduced-secrets.ts",
     "agent:review": "fallow --group-by package",
     "agent:review:changed": "fallow audit --base main",
     "build": "bun run --filter '*' build",

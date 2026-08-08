@@ -31,7 +31,7 @@ jobs:
   # The one gate every other job hangs off. Cheap, first, and loud: a non-tag ref fails the run
   # rather than skipping it silently, so a mis-aimed dispatch is visible instead of looking green.
   guard:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       # The ref arrives through env, never interpolated into the shell: a ref name is
       # attacker-shaped input the moment anyone can push a tag.
@@ -54,7 +54,7 @@ jobs:
 
   validate:
     needs: guard
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -63,7 +63,7 @@ jobs:
 
   compile:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -101,7 +101,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [blacksmith-4vcpu-ubuntu-2404, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -132,7 +132,7 @@ jobs:
     # Belt and braces over `guard`: the two irreversible jobs re-check the ref themselves, so
     # neither a single-job re-run nor a future edit to `needs` can hand them a branch.
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
@@ -159,7 +159,7 @@ jobs:
     # See github-release: npm publishes cannot be taken back, so this ref check is duplicated
     # rather than delegated.
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Trusted Publishing: npm mints its credential from this OIDC token, and --provenance
     # binds every tarball to this repo, workflow, and commit. No npm token is stored.
     permissions:

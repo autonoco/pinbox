@@ -3,12 +3,41 @@
 Drop a pin on a live app, and the coding agent already working on it picks the pin up, fixes the code, replies on the thread, and resolves it.
 
 [![validate](https://img.shields.io/github/actions/workflow/status/autonoco/pinbox/validate.yml?branch=main&label=validate)](https://github.com/autonoco/pinbox/actions/workflows/validate.yml)
+[![npm](https://img.shields.io/npm/v/@autono/pinbox?label=npm)](https://www.npmjs.com/package/@autono/pinbox)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Install
 
-Building from source is the only route that works today — nothing is on npm and no
-release is tagged yet. You need [Bun](https://bun.sh) 1.3 or newer to build, not to run.
+One self-contained binary, macOS and Linux, on `arm64` and `x64`. Bun is compiled into it, so there is no runtime to install first.
+
+**Install script** — no JavaScript runtime required:
+
+```sh
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+**npm** — or `bun add -g`, `pnpm add -g`, `yarn global add`:
+
+```sh
+npm install -g @autono/pinbox
+```
+
+**No install at all** — run it once against a project:
+
+```sh
+npx @autono/pinbox init
+```
+
+Then check it resolves:
+
+```sh
+pinbox --version
+```
+
+<details>
+<summary>Build from source</summary>
+
+You need [Bun](https://bun.sh) 1.3 or newer.
 
 ```sh
 git clone https://github.com/autonoco/pinbox.git
@@ -18,107 +47,116 @@ bun run build
 export PATH="$PWD/packages/cli/dist:$PATH"
 ```
 
-```console
-$ pinbox --version
-0.1.0
+</details>
+
+Every route, and how to verify each one: [`docs/installation.mdx`](docs/installation.mdx).
+
+## Quickstart
+
+**Set up the project you want feedback on.** This creates `.pinbox/`, adds it to `.gitignore`, installs the pinbox skill for each coding agent it finds on your machine, and installs a `post-commit` hook. It asks before it touches anything; add `--yes` to skip the prompt in a script.
+
+```sh
+pinbox init
 ```
 
-The binary at `packages/cli/dist/pinbox` is self-contained — Bun is compiled into it — so
-you can copy it anywhere on your `PATH`. Prebuilt binaries on GitHub Releases and an
-`@autono/pinbox` npm launcher are both wired up and will work as soon as the first release
-is tagged; see [`docs/installation.mdx`](docs/installation.mdx).
+**Pin what is wrong.** Anchor it to a web surface with `--url` and `--selector`, or to a source location with `--file`:
 
-## Use it
-
-**1. Set up the project you want feedback on.** This creates `.pinbox/`, gitignores it,
-installs the pinbox skill for every coding agent it finds, and adds a `post-commit` hook.
-
-```console
-$ pinbox init --yes
-ok  .pinbox     created
-ok  .gitignore  created (.pinbox/ entry)
-ok  claude      installed .claude/skills/pinbox (skills-dir)
-ok  git-hook    installed .git/hooks/post-commit
+```sh
+pinbox pin "Pay button is cut off on mobile" \
+  --url http://localhost:5173/checkout --selector "button.pay"
 ```
 
-**2. Pin what is wrong.** Anchor it to a web surface with `--url` and `--selector`, or to
-a source location with `--file src/checkout.ts:42`.
-
-```console
-$ pinbox pin "Pay button is cut off on mobile" \
-    --url http://localhost:5173/checkout --selector "button.pay"
-pin_6qe8guhf57
+```
+pin_lxpe3bflp3
 pinned to http://localhost:5173/checkout
 ```
 
-**3. See what is open.** `list` for the queue, `show` for one pin and its thread.
+You did not start a server. The first command that needs the hub starts it, and it exits when idle.
 
-```console
-$ pinbox list
-pin_6qe8guhf57  open  just now  button.pay  Pay button is cut off on mobile
+**See what is open:**
+
+```sh
+pinbox list
+```
+
+```
+pin_lxpe3bflp3  open  just now  button.pay  Pay button is cut off on mobile
 1 pin (1 open)
+```
 
-$ pinbox show pin_6qe8guhf57
-pin_6qe8guhf57  open  note
+**Read one pin with everything captured alongside it:**
+
+```sh
+pinbox show pin_lxpe3bflp3
+```
+
+```
+pin_lxpe3bflp3  open  note
 text      Pay button is cut off on mobile
 target    button.pay
 url       http://localhost:5173/checkout
-git       main @ fd4b67b
+git       main @ fad63e3
 author    ada@example.com
-created   2026-08-06T21:15:28.526Z (just now)
+created   2026-08-08T01:09:16.037Z (just now)
 ```
 
-The branch and commit were captured for you. That is the point of a pin over a sentence in
-chat: the agent never has to ask where you were.
+The branch and commit were recorded for you. That is the point of a pin over a sentence in chat: the agent never has to ask where you were.
 
-**4. Reply on the thread.** Replying adds a message and never changes the status, so an
-agent can report progress or ask a question without closing anything.
+**Reply on the thread.** Replying adds a message and never changes the status, so an agent can report progress or ask a question without closing anything:
 
-```console
-$ pinbox reply pin_6qe8guhf57 "Bumped the min-width — re-check at 320px?" --as agent
-msg_8e3gw0nnxf
-replied to pin_6qe8guhf57 as agent
+```sh
+pinbox reply pin_lxpe3bflp3 "Bumped the min-width — re-check at 320px?" --as agent
 ```
 
-**5. Resolve it** — with a note saying what changed, or why it will not.
+**Resolve it,** with a note saying what changed — or why it will not:
 
-```console
-$ pinbox resolve pin_6qe8guhf57 --note "min-width: 8rem on .pay" --as agent
-pin_6qe8guhf57 resolved
+```sh
+pinbox resolve pin_lxpe3bflp3 --note "min-width: 8rem on .pay" --as agent
+```
+
+```
+pin_lxpe3bflp3 resolved
 by agent — min-width: 8rem on .pay
 ```
 
-Or name the pin in a commit message and the hook does it for you, with the commit
-attached. `Fixes`, `Resolves`, and `Closes` all work.
+Or name the pin in a commit message and the `post-commit` hook resolves it for you, with the commit attached. `Fixes`, `Resolves`, and `Closes` all work:
 
 ```sh
 git commit -m "Widen the pay button
 
-Fixes pin_6qe8guhf57"
+Fixes pin_lxpe3bflp3"
 ```
 
-Two things you never had to do: start a server — the first command that needs the hub
-starts it, and it exits when idle — and learn a second interface. Pipe any command to
-another program and you get JSON instead of text, so an agent runs exactly what you just
-ran.
+The whole loop in one sitting, with the agent side included: [Quickstart](docs/quickstart.mdx).
+
+## Commands
+
+| | |
+|---|---|
+| `pinbox init` | set up pinbox in this project |
+| `pinbox pin <text>` | create a pin from the terminal |
+| `pinbox list` | list pins, newest first |
+| `pinbox show <id>` | one pin with its full thread |
+| `pinbox reply <id> <text>` | add a message to a pin's thread |
+| `pinbox resolve <id>` | mark a pin resolved |
+| `pinbox summary` | counts and the event cursor, in one call |
+| `pinbox link <id>` | link a pin to an external tracker |
+| `pinbox export` | write pins to stdout as markdown or JSON |
+| `pinbox doctor` | probe this machine's capabilities |
+
+Every flag, exit code, and JSON shape: [CLI reference](docs/cli/commands/overview.mdx).
 
 ## Why a pin
 
-You are clicking through your app and something is wrong. Now you have to describe it
-somewhere else: which page, which element, which branch you were on, what you expected. By
-the time an agent has enough to work with, you have retyped everything you were already
-looking at, and the answer comes back somewhere the report is not.
+You are clicking through your app and something is wrong. Now you have to describe it somewhere else: which page, which element, which branch you were on, what you expected. By the time an agent has enough to work with, you have retyped everything you were already looking at, and the answer comes back somewhere the report is not.
 
-Pinbox closes that round trip. A pin captures your words plus the context — URL, selector,
-file and line, branch and commit — and it stays a conversation until someone resolves it.
+Pinbox closes that round trip. A pin captures your words plus the context — URL, selector, file and line, branch and commit — and it stays a conversation until someone resolves it.
 
 ## How it works
 
-Pins live in a SQLite file in your project (`.pinbox/pinbox.db`), served by a local hub
-daemon bound to `127.0.0.1`. Nothing leaves your machine unless you link a pin to a
-tracker. Every verb is a command with a `--json` mode and a documented exit code, which is
-the whole API — an agent drives pinbox the same way you do, and `pinbox init` gives it the
-skill so it knows these verbs without being told.
+Pins live in a SQLite file in your project (`.pinbox/pinbox.db`), served by a local hub daemon bound to `127.0.0.1`. Nothing leaves your machine unless you link a pin to a tracker.
+
+Every verb is a command with a `--json` mode and a documented exit code, and that is the whole API. Pipe any command to another program and you get JSON instead of text, so an agent drives pinbox by running exactly what you just ran — and `pinbox init` hands it the skill, so it knows these verbs without being told.
 
 ## Documentation
 
@@ -148,9 +186,7 @@ docs/               this documentation site
 
 ## Contributing
 
-Issues and pull requests are welcome. [Bun](https://bun.sh) 1.3+ is the runtime, the test
-runner, and the script runner; read [`docs/contributing.mdx`](docs/contributing.mdx) before
-you open a PR.
+Issues and pull requests are welcome. [Bun](https://bun.sh) 1.3+ is the runtime, the test runner, and the script runner; read [`docs/contributing.mdx`](docs/contributing.mdx) before you open a PR.
 
 ```sh
 bun install

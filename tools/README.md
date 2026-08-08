@@ -2,6 +2,11 @@
 
 Release and CI scripts. House rule: **logic lives in TypeScript here; workflow YAML only wires credentials and calls these scripts.**
 
+Present:
+
+- `security/` — `scan-introduced-secrets.ts`, the gitleaks range scan behind the `gitleaks`
+  required check on `main`. Dismissals live in `.gitleaksignore` as line-level fingerprints.
+
 Planned:
 
 - `release/` — changesets version, then `bun build --compile` per target (cross-compiled via `--target=bun-{linux,darwin}-{x64,arm64}`). From that output it **generates** the npm platform packages `@autono/pinbox-<os>-<cpu>` (manifest with `os`/`cpu` + one binary) and the ~5 KB `@autono/pinbox` launcher whose `optionalDependencies` pin them at an exact version — this is the primary channel; the same binaries also go to a GitHub Release behind a `curl | sh` installer for machines with no JS runtime. Publish platforms first and the launcher last, or the first install after a release 404s. Then a per-package `bun publish` loop for the libraries (dependencies before dependents, exact pins; never raw `changeset publish` under Bun — it ships literal `workspace:*`/`catalog:` strings).

@@ -1,0 +1,20 @@
+# gitleaks findings reviewed and dismissed, as `commit:path:rule:line` fingerprints — the
+# narrowest form there is. Anything looser (a path glob, a disabled rule) silences future real
+# findings in the same place. Add a line only after reading the match and confirming it is not a
+# credential; regenerate a fingerprint with:
+#
+#   gitleaks git --redact --no-banner --report-format json --report-path leaks.json .
+#
+# Do not quote a flagged literal in this file. The rule that matched it will match the comment
+# too, and the entry you just added does not cover the line you added it on.
+#
+# packages/core/src/r2.test.ts — all six are the same R2 *object key* (the path a pin attachment
+# is stored under) in a presigning test, matched by the generic-api-key heuristic only because it
+# reads as a prefix plus digits. The signing credentials in that file are obvious AKIDEXAMPLE-style
+# placeholders, which gitleaks correctly leaves alone.
+24ac408ddac91deb7d6f57c97a2ca99135033049:packages/core/src/r2.test.ts:generic-api-key:78
+24ac408ddac91deb7d6f57c97a2ca99135033049:packages/core/src/r2.test.ts:generic-api-key:130
+bd0fb4e057ade33e48975de12914ab6770b6f8cb:packages/core/src/r2.test.ts:generic-api-key:78
+bd0fb4e057ade33e48975de12914ab6770b6f8cb:packages/core/src/r2.test.ts:generic-api-key:130
+709330c99038af8b08b21fdf0bbc43e26eae0b30:packages/core/src/r2.test.ts:generic-api-key:130
+3f2f9d86be3f6d0f26b7e19dd7591f07c37f9cb3:packages/core/src/r2.test.ts:generic-api-key:75

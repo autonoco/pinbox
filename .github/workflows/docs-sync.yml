@@ -29,6 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
+      # The core build below runs tsdown, which needs Node >= 23.6 to load its TS config
+      # natively; pin 24 rather than trust the image's Node.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - run: bun install --frozen-lockfile
       # skillgen imports the CLI's command tree, which imports @autono/pinbox-core subpaths —
       # those resolve to dist/, so core must be built or the generator dies on module resolution.

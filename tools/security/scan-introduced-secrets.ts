@@ -11,7 +11,7 @@
 // different binary is the one tool in CI where that matters most. Bump both together; read the
 // new digest from `docker buildx imagetools inspect ghcr.io/gitleaks/gitleaks:<tag>`.
 const GITLEAKS_IMAGE =
-  "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f";
+  "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:d00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f";
 const SHA_RE = /^[0-9a-f]{40,64}$/u;
 const ZERO_SHA_RE = /^0+$/u;
 

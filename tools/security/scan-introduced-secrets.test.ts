@@ -38,8 +38,12 @@ describe("secret-scan workflow", () => {
       concurrency?: { "cancel-in-progress"?: boolean | string };
     };
     const cancel = parsed.concurrency?.["cancel-in-progress"];
+    expect(cancel, "missing cancel-in-progress allows unconditional cancellation").toBeDefined();
     expect(cancel, "unconditional cancellation drops commits from every range").not.toBe(true);
-    if (typeof cancel === "string") expect(cancel).toContain("pull_request");
+    expect(
+      cancel,
+      "cancel-in-progress must be exactly the predicate github.event_name == 'pull_request'",
+    ).toBe("${{ github.event_name == 'pull_request' }}");
   });
 
   test("the required-check name matches the job the branch rule names", () => {

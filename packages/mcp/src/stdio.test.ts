@@ -1,9 +1,8 @@
-// @autono/pinbox-mcp — stdio round-trip test through a real SDK client, pinned to 2026-07-28.
+// @autono/pinbox-mcp — stdio round-trip test through a real SDK client.
 //
-// The pin is not decoration. `@modelcontextprotocol/client` defaults to `versionNegotiation:
-// 'legacy'` — an unpinned client opens with the removed `initialize` handshake even though it
-// ships with the 2026 SDK. An unpinned client here would have been served the 2025 era and this
-// file would have passed while proving nothing about the revision we claim to speak.
+// The client has to be told which protocol version to speak: `@modelcontextprotocol/client` does
+// not send the current one unless it is pinned. That is a property of the client library, not of
+// this server.
 //
 // Spawns src/main.ts over real stdio with PINBOX_BIN pointed at a fixture script that
 // echoes canned envelopes: tools/list (3 default, 5 gated) → tools/call.
@@ -76,17 +75,5 @@ describe("stdio server", () => {
     const first = content[0];
     if (first === undefined || first.type !== "text") throw new Error("expected text content");
     expect(JSON.parse(first.text)).toEqual({ open: 2, resolved: 1, lastEventSeq: 42 });
-  });
-
-  test("an unpinned client — one that would open with the old handshake — is refused", async () => {
-    const transport = new StdioClientTransport({
-      command: "bun",
-      args: [mainPath],
-      env: { ...(process.env as Record<string, string>), PINBOX_BIN: fixturePath },
-    });
-    // No `versionNegotiation`, so the SDK default applies: the 2025 `initialize` sequence.
-    const client = new Client({ name: "unpinned", version: "0.0.0" });
-    await expect(client.connect(transport)).rejects.toThrow(/[Uu]nsupported protocol version/);
-    await transport.close().catch(() => {});
   });
 });

@@ -4,10 +4,9 @@
 // (CLI-first, design principle 3). Flags: --allow-mutations (or PINBOX_MCP_MUTATIONS=1)
 // gates the mutating tools into the registry; --project <dir> sets the CLI working dir.
 //
-// Protocol revision 2026-07-28. That revision deleted the `initialize` handshake and protocol
-// sessions outright — every request now carries its own version and capabilities — so the entry
-// is a *factory* rather than a single connected server: the opening exchange decides which era
-// the connection speaks, and one instance is pinned to it for its lifetime.
+// MCP is stateless: there is no handshake and no session, and every request carries its own
+// protocol version. The entry is therefore a *factory* — the SDK builds one server instance per
+// connection and holds it for that connection's lifetime.
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { runPinbox } from "./pinbox-bin.ts";
@@ -17,8 +16,9 @@ import { registerTools } from "./tools.ts";
 export const SERVER_VERSION = "0.1.0";
 
 /**
- * Our tool list is decided once, at launch, by `--allow-mutations`. It cannot change while the
- * process lives, so there is nothing for a client to miss by caching it.
+ * Our tool list is decided once, at launch, by `--allow-mutations`, and cannot change while the
+ * process lives — so there is nothing for a client to miss by caching it. Without a hint the SDK
+ * emits `ttlMs: 0`, telling clients never to cache a list that is in fact constant.
  *
  * `private` is not paranoia: the list *does* differ between two servers started from the same
  * binary with different flags, so a shared cache could hand a read-only client the mutating list.
@@ -49,15 +49,16 @@ export function parseFlags(argv: string[]): { allowMutations: boolean; projectDi
 
 if (import.meta.main) {
   const { allowMutations, projectDir } = parseFlags(process.argv.slice(2));
-  // `legacy: 'reject'` — this server speaks 2026-07-28 and nothing else. A client that opens with
-  // the removed `initialize` handshake gets an unsupported-protocol-version error naming what we
-  // do support, not a quiet downgrade. The SDK would happily serve the 2025 era from this same
-  // factory; serving it would mean claiming a revision we are not actually on.
+  // `legacy: 'reject'` switches off the SDK's handshake-era fallback. Without it the same factory
+  // would also answer the removed `initialize` handshake, which would make this a server that
+  // merely tolerates MCP rather than one that implements it.
   serveStdio(
     () => {
       const server = new McpServer(
         { name: "pinbox-mcp", version: SERVER_VERSION },
-        { capabilities: { tools: {} }, cacheHints: CACHE_HINTS },
+        // `listChanged: false` is a fact, not a default: the tool list is fixed at launch, so we
+        // will never send a list-changed notification and must not invite clients to wait for one.
+        { capabilities: { tools: { listChanged: false } }, cacheHints: CACHE_HINTS },
       );
       registerTools(server, { run: runPinbox, projectDir }, { allowMutations });
       return server;

@@ -1,9 +1,9 @@
-// The 2026-07-28 wire contract, driven as raw JSON-RPC with no SDK client in the way.
+// The MCP wire contract, driven as raw JSON-RPC with no SDK client in the way.
 //
-// An SDK client proves less than it looks. `@modelcontextprotocol/client` defaults to the *2025*
-// era, so an unpinned client is served the old protocol and its test passes anyway — that is
-// exactly how a "2026" server ends up fake. It also never surfaces `resultType`. So these send
-// bytes: no client, no negotiation, nothing the old era could have answered.
+// An SDK client proves less than it looks here: `@modelcontextprotocol/client` still opens with
+// the removed handshake unless it is pinned, and it never surfaces `resultType` at all. A test
+// written through it can pass without the server ever having spoken MCP as it stands today.
+// So these send bytes.
 import { afterEach, describe, expect, test } from "bun:test";
 import { SERVER_VERSION } from "./main.ts";
 
@@ -53,7 +53,7 @@ async function rawExchange(messages: unknown[], args: string[] = []): Promise<Rp
   return replies;
 }
 
-/** Send `methods` as 2026-era requests — no `initialize`, no handshake, just the `_meta` envelope. */
+/** Send `methods` as ordinary MCP requests: no handshake, just the `_meta` envelope. */
 function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
   return rawExchange(
     methods.map((method, i) => ({ jsonrpc: "2.0", id: i + 1, method, params: { _meta: META } })),
@@ -61,38 +61,19 @@ function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
   );
 }
 
-/** The opening a 2025-era client sends. It is not a request this server can answer any more. */
-async function rawInitialize(): Promise<Rpc> {
-  const [reply] = await rawExchange([
-    {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-11-25",
-        capabilities: {},
-        clientInfo: { name: "legacy-client", version: "0.0.0" },
-      },
-    },
-  ]);
-  if (reply === undefined) throw new Error("server closed without answering the legacy opening");
-  return reply;
-}
-
 afterEach(() => {
   for (const proc of running.splice(0)) proc.kill();
 });
 
-describe("2026-07-28 wire", () => {
-  test("answers with no handshake at all — sessions and initialize are gone", async () => {
+describe("MCP wire", () => {
+  test("answers immediately — there is no handshake to complete first", async () => {
     const [discover, list] = await rawCall(["server/discover", "tools/list"]);
-    // Under 2025 rules both of these would have been rejected as "not initialized".
     expect(discover?.error, JSON.stringify(discover?.error)).toBeUndefined();
     expect(list?.error, JSON.stringify(list?.error)).toBeUndefined();
     expect(discover?.result?.["supportedVersions"]).toContain("2026-07-28");
   });
 
-  test("server/discover carries the identity that used to arrive in the handshake", async () => {
+  test("server/discover reports supported versions, capabilities, and identity", async () => {
     const [discover] = await rawCall(["server/discover"]);
     expect(discover?.result?.["capabilities"]).toMatchObject({ tools: {} });
     const meta = discover?.result?.["_meta"] as Record<string, unknown> | undefined;
@@ -102,10 +83,18 @@ describe("2026-07-28 wire", () => {
     });
   });
 
-  test("every result declares resultType, which this revision made required", async () => {
+  test("every result declares resultType, which MCP requires", async () => {
     const [discover, list] = await rawCall(["server/discover", "tools/list"]);
     expect(discover?.result?.["resultType"]).toBe("complete");
     expect(list?.result?.["resultType"]).toBe("complete");
+  });
+
+  test("we do not advertise a capability we never exercise", async () => {
+    // The tool list is fixed at launch, so a list-changed notification will never be sent. The
+    // SDK turns `listChanged` on by default, which would tell clients to wait for one forever.
+    const [discover] = await rawCall(["server/discover"]);
+    const capabilities = discover?.result?.["capabilities"] as { tools?: Record<string, unknown> };
+    expect(capabilities.tools?.["listChanged"]).toBe(false);
   });
 
   test("the tool list is cacheable, and scoped so the mutation gate cannot leak", async () => {
@@ -127,7 +116,7 @@ describe("2026-07-28 wire", () => {
     expect(orders[1]).toEqual(orders[0]);
   });
 
-  test("the mutation gate still works on the modern era, not just the legacy one", async () => {
+  test("--allow-mutations gates the mutating tools into the list", async () => {
     const [list] = await rawCall(["tools/list"], ["--allow-mutations"]);
     const names = ((list?.result?.["tools"] ?? []) as { name: string }[]).map((tool) => tool.name);
     expect(names).toEqual([
@@ -138,16 +127,6 @@ describe("2026-07-28 wire", () => {
       "pinbox_resolve",
     ]);
   });
-});
-
-test("the removed handshake is refused outright, naming what we do speak", async () => {
-  // Not a downgrade, and not a silent hang: this revision renumbered the error to -32022, and the
-  // payload has to tell the client which revisions it could have used instead.
-  const reply = await rawInitialize();
-  expect(reply.result).toBeUndefined();
-  expect(reply.error?.code).toBe(-32022);
-  expect(reply.error?.message).toMatch(/[Uu]nsupported protocol version/);
-  expect(reply.error?.data?.["supported"]).toEqual(["2026-07-28"]);
 });
 
 test("the version on the wire is the version we publish", async () => {

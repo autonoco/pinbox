@@ -7,26 +7,23 @@ require `--allow-mutations`.
 
 ## Protocol
 
-Speaks **2026-07-28, and only that**. That revision removed the `initialize` handshake and
-protocol sessions, so a client may send `tools/call` as its very first message; `server/discover`
-reports what this server supports.
+Implements MCP as it stands today (protocol version `2026-07-28`, the string carried on the wire).
+MCP is stateless: there is no handshake and no session, so a client may send `tools/call` as its
+very first message. `server/discover` reports supported versions, capabilities, and identity.
 
-A client that opens with `initialize` is **refused** — error `-32022`, with the supported revision
-in the payload — not quietly downgraded. Serving the old handshake as a fallback would mean
-advertising a revision this server is not actually on.
+The handshake-based revisions are not served. The SDK offers a fallback that answers them from the
+same code; it is switched off, because a server that answers the removed handshake has not
+implemented the protocol, it has tolerated it.
 
-That has a consequence worth knowing before you wire this up: **most hosts today still open with
-`initialize`, and so will fail to connect.** That includes clients built on the current SDK —
-`@modelcontextprotocol/client` defaults to the 2025 era and must be pinned:
+One practical note for client authors: `@modelcontextprotocol/client` does not send the current
+protocol version unless told to.
 
 ```ts
 new Client(info, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
 ```
 
-The CLI is unaffected and remains the documented path (see below).
-
-Both halves are tested: `protocol-2026.test.ts` drives the wire as raw JSON-RPC with no client at
-all — including the rejection — and `stdio.test.ts` drives a real pinned SDK client.
+`protocol.test.ts` drives the wire as raw JSON-RPC with no client involved; `stdio.test.ts` drives
+a real SDK client end to end.
 
 ## Usage
 

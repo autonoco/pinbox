@@ -9,7 +9,9 @@
 // connection and holds it for that connection's lifetime.
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { watchHub } from "./hub-events.ts";
 import { runPinbox } from "./pinbox-bin.ts";
+import { notifyFromEvent, registerResources } from "./resources.ts";
 import { registerTools } from "./tools.ts";
 
 /** Kept in step with package.json by a unit test — the wire reports this as the server version. */
@@ -26,6 +28,8 @@ export const SERVER_VERSION = "0.1.0";
 const CACHE_HINTS = {
   "tools/list": { ttlMs: 300_000, cacheScope: "private" },
   "server/discover": { ttlMs: 300_000, cacheScope: "private" },
+  // Pins change under you; a stale list is a missed pin, so this one is not cached.
+  "resources/list": { ttlMs: 0, cacheScope: "private" },
 } as const;
 
 export function parseFlags(argv: string[]): { allowMutations: boolean; projectDir: string } {
@@ -57,11 +61,27 @@ if (import.meta.main) {
     () => {
       const server = new McpServer(
         { name: "pinbox-mcp", version: SERVER_VERSION },
-        // `listChanged: false` is a fact, not a default: the tool list is fixed at launch, so we
-        // will never send a list-changed notification and must not invite clients to wait for one.
-        { capabilities: { tools: { listChanged: false } }, cacheHints: CACHE_HINTS },
+        {
+          // `tools.listChanged: false` is a fact, not a default: the tool list is fixed at launch.
+          // Resources are the opposite — pins appear and change constantly, which is the whole
+          // reason this server holds a socket to the hub.
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { listChanged: true, subscribe: true },
+          },
+          cacheHints: CACHE_HINTS,
+        },
       );
-      registerTools(server, { run: runPinbox, projectDir }, { allowMutations });
+      const deps = { run: runPinbox, projectDir };
+      registerTools(server, deps, { allowMutations });
+      registerResources(server, deps);
+      // The hub broadcasts every store change; this turns each one into a notification. It is
+      // best-effort by construction — no hub, no events, and every tool still works.
+      const watcher = watchHub({
+        projectDir,
+        onEvent: (event) => notifyFromEvent(server, event),
+      });
+      server.server.onclose = () => watcher.close();
       return server;
     },
     { legacy: "reject" },

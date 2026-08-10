@@ -19,9 +19,14 @@ reads fields rather than parsing a JSON string out of message text. The schemas 
 design: the CLI's machine output is a versioned contract that gains fields, and a strict schema
 would strip anything new on the way through.
 
-Not implemented, because nothing here needs them: change subscriptions (the tool list is fixed at
-launch and this server exposes no resources), mid-request user input (no tool asks the user
-anything — pin text arrives with the pin), and background tasks (every call is a local SQLite read
+Pins are published as resources — `pinbox://pins` for the queue, `pinbox://pins/{id}` for one pin
+and its thread — and this server holds a socket to the local hub, which broadcasts every store
+change. Subscribe with `subscriptions/listen` and a new pin arrives as a notification instead of
+something you have to poll for. Reads still go through the CLI: the socket is a change signal, not
+a second way to read the database.
+
+Not implemented, because nothing here needs them: mid-request user input (no tool asks the user
+anything — pin text arrives with the pin) and background tasks (every call is a local SQLite read
 behind a CLI invocation).
 
 `protocol.test.ts` is the contract: it drives the server as raw JSON-RPC, with no client library

@@ -76,6 +76,7 @@
         "pinbox-mcp": "./dist/main.js",
       },
       "dependencies": {
+        "@autono/pinbox-core": "workspace:*",
         "@modelcontextprotocol/server": "2.0.0",
         "zod": "catalog:",
       },

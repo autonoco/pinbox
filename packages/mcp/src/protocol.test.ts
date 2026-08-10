@@ -17,14 +17,23 @@ const META = {
 };
 
 type Rpc = {
+  jsonrpc: string;
+  id: number | string | null;
   result?: Record<string, unknown>;
   error?: { code: number; message: string; data?: Record<string, unknown> };
 };
 
+type Sent = { jsonrpc: string; id: number; method: string; params: Record<string, unknown> };
+
 const running: { kill: () => void }[] = [];
 
-/** Spawn the server, write `messages` verbatim, and read back one reply per message. */
-async function rawExchange(messages: unknown[], args: string[] = []): Promise<Rpc[]> {
+/**
+ * Spawn the server, write `messages` verbatim, and return the replies **in request order** —
+ * correlated by `id`, not by arrival. JSON-RPC lets a server answer in any order, and it will:
+ * `tools/call` shells out to the CLI while `tools/list` is answered from memory. Indexing by
+ * arrival would quietly assert one request's payload against another's expectations.
+ */
+async function rawExchange(messages: Sent[], args: string[] = []): Promise<Rpc[]> {
   const proc = Bun.spawn(["bun", mainPath, ...args], {
     stdin: "pipe",
     stdout: "pipe",
@@ -35,11 +44,11 @@ async function rawExchange(messages: unknown[], args: string[] = []): Promise<Rp
   for (const message of messages) proc.stdin.write(`${JSON.stringify(message)}\n`);
   await proc.stdin.flush();
 
-  const replies: Rpc[] = [];
+  const byId = new Map<Rpc["id"], Rpc>();
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffered = "";
-  while (replies.length < messages.length) {
+  while (byId.size < messages.length) {
     const { value, done } = await reader.read();
     if (done) break;
     buffered += decoder.decode(value);
@@ -47,10 +56,18 @@ async function rawExchange(messages: unknown[], args: string[] = []): Promise<Rp
     for (; newline >= 0; newline = buffered.indexOf("\n")) {
       const line = buffered.slice(0, newline).trim();
       buffered = buffered.slice(newline + 1);
-      if (line.length > 0) replies.push(JSON.parse(line) as Rpc);
+      if (line.length === 0) continue;
+      const reply = JSON.parse(line) as Rpc;
+      // The version tag is part of the contract, so it gets checked rather than discarded.
+      if (reply.jsonrpc !== "2.0") throw new Error(`reply is not JSON-RPC 2.0: ${line}`);
+      byId.set(reply.id, reply);
     }
   }
-  return replies;
+  return messages.map((sent) => {
+    const reply = byId.get(sent.id);
+    if (reply === undefined) throw new Error(`no reply for ${sent.method} (id ${sent.id})`);
+    return reply;
+  });
 }
 
 /** Send `methods` as ordinary MCP requests: no handshake, just the `_meta` envelope. */
@@ -59,6 +76,19 @@ function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
     methods.map((method, i) => ({ jsonrpc: "2.0", id: i + 1, method, params: { _meta: META } })),
     args,
   );
+}
+
+/** A `tools/call` alongside a `tools/list`: one shells out to the CLI, the other does not. */
+function rawCallToolThenList(): Promise<Rpc[]> {
+  return rawExchange([
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "pinbox_summary", arguments: {}, _meta: META },
+    },
+    { jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: META } },
+  ]);
 }
 
 afterEach(() => {
@@ -87,6 +117,22 @@ describe("MCP wire", () => {
     const [discover, list] = await rawCall(["server/discover", "tools/list"]);
     expect(discover?.result?.["resultType"]).toBe("complete");
     expect(list?.result?.["resultType"]).toBe("complete");
+  });
+
+  test("concurrent requests are answered independently, and each reply names its request", async () => {
+    // No sessions and no handshake means requests are self-contained: the server may answer them
+    // in any order, and does — `tools/call` waits on the CLI while `tools/list` returns at once.
+    const [call, list] = await rawCallToolThenList();
+    expect(call?.id).toBe(1);
+    expect(list?.id).toBe(2);
+    // Correlated by id, so this is the tool call's payload even if it arrived second.
+    const content = call?.result?.["content"] as { type: string; text: string }[];
+    expect(JSON.parse(content[0]?.text ?? "null")).toEqual({
+      open: 2,
+      resolved: 1,
+      lastEventSeq: 42,
+    });
+    expect(list?.result?.["tools"]).toBeArray();
   });
 
   test("we do not advertise a capability we never exercise", async () => {

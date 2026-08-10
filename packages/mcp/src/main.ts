@@ -49,15 +49,19 @@ export function parseFlags(argv: string[]): { allowMutations: boolean; projectDi
 
 if (import.meta.main) {
   const { allowMutations, projectDir } = parseFlags(process.argv.slice(2));
-  // Default `legacy: 'serve'`: one factory answers both the 2026 era and the 2025 `initialize`
-  // handshake. Left at the default deliberately — most hosts still open with `initialize`, and
-  // rejecting them to look strict would break every client we have in exchange for nothing.
-  serveStdio(() => {
-    const server = new McpServer(
-      { name: "pinbox-mcp", version: SERVER_VERSION },
-      { capabilities: { tools: {} }, cacheHints: CACHE_HINTS },
-    );
-    registerTools(server, { run: runPinbox, projectDir }, { allowMutations });
-    return server;
-  });
+  // `legacy: 'reject'` — this server speaks 2026-07-28 and nothing else. A client that opens with
+  // the removed `initialize` handshake gets an unsupported-protocol-version error naming what we
+  // do support, not a quiet downgrade. The SDK would happily serve the 2025 era from this same
+  // factory; serving it would mean claiming a revision we are not actually on.
+  serveStdio(
+    () => {
+      const server = new McpServer(
+        { name: "pinbox-mcp", version: SERVER_VERSION },
+        { capabilities: { tools: {} }, cacheHints: CACHE_HINTS },
+      );
+      registerTools(server, { run: runPinbox, projectDir }, { allowMutations });
+      return server;
+    },
+    { legacy: "reject" },
+  );
 }

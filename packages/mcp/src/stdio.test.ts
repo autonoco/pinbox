@@ -1,14 +1,15 @@
-// @autono/pinbox-mcp — stdio round-trip test, driven by a **2025-era** client on purpose.
+// @autono/pinbox-mcp — stdio round-trip test through a real SDK client, pinned to 2026-07-28.
 //
-// The server speaks 2026-07-28 (see protocol-2026.test.ts). This file is the other half of that
-// promise: the v1 SDK client still opens with `initialize`, and every host we have today is that
-// client. If serving both eras ever regresses, this is what goes red — which is why the old SDK
-// stays on as a dev dependency after the runtime moved off it.
+// The pin is not decoration. `@modelcontextprotocol/client` defaults to `versionNegotiation:
+// 'legacy'` — an unpinned client opens with the removed `initialize` handshake even though it
+// ships with the 2026 SDK. An unpinned client here would have been served the 2025 era and this
+// file would have passed while proving nothing about the revision we claim to speak.
+//
 // Spawns src/main.ts over real stdio with PINBOX_BIN pointed at a fixture script that
-// echoes canned envelopes: initialize → tools/list (3 default, 5 gated) → tools/call.
+// echoes canned envelopes: tools/list (3 default, 5 gated) → tools/call.
 import { afterEach, describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const mainPath = new URL("./main.ts", import.meta.url).pathname;
 const fixturePath = new URL("../test-fixtures/fake-pinbox.ts", import.meta.url).pathname;
@@ -28,7 +29,10 @@ async function connectStdio(opts: {
       ...opts.env,
     },
   });
-  const client = new Client({ name: "stdio-test", version: "0.0.0" });
+  const client = new Client(
+    { name: "stdio-test", version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
   await client.connect(transport);
   openClients.push(client);
   return client;
@@ -39,7 +43,7 @@ afterEach(async () => {
 });
 
 describe("stdio server", () => {
-  test("initialize → tools/list: three read-only tools by default", async () => {
+  test("tools/list: three read-only tools by default", async () => {
     const client = await connectStdio({});
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
@@ -72,5 +76,17 @@ describe("stdio server", () => {
     const first = content[0];
     if (first === undefined || first.type !== "text") throw new Error("expected text content");
     expect(JSON.parse(first.text)).toEqual({ open: 2, resolved: 1, lastEventSeq: 42 });
+  });
+
+  test("an unpinned client — one that would open with the old handshake — is refused", async () => {
+    const transport = new StdioClientTransport({
+      command: "bun",
+      args: [mainPath],
+      env: { ...(process.env as Record<string, string>), PINBOX_BIN: fixturePath },
+    });
+    // No `versionNegotiation`, so the SDK default applies: the 2025 `initialize` sequence.
+    const client = new Client({ name: "unpinned", version: "0.0.0" });
+    await expect(client.connect(transport)).rejects.toThrow(/[Uu]nsupported protocol version/);
+    await transport.close().catch(() => {});
   });
 });

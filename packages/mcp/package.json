@@ -34,7 +34,6 @@
     "@modelcontextprotocol/client": "2.0.0",
     "@types/bun": "catalog:",
     "tsdown": "catalog:",
-    "typescript": "catalog:",
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "typescript": "catalog:"
   }
 }

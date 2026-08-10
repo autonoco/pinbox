@@ -7,14 +7,26 @@ require `--allow-mutations`.
 
 ## Protocol
 
-Speaks **2026-07-28** — the revision that removed the `initialize` handshake and protocol
-sessions, so a client may send `tools/call` as its very first message. `server/discover` reports
-what this server supports.
+Speaks **2026-07-28, and only that**. That revision removed the `initialize` handshake and
+protocol sessions, so a client may send `tools/call` as its very first message; `server/discover`
+reports what this server supports.
 
-Clients that still open with `initialize` (which today is most of them) keep working unchanged:
-one server instance answers whichever era the connection opens with. Both paths are tested —
-`protocol-2026.test.ts` drives the modern wire as raw JSON-RPC, `stdio.test.ts` drives the same
-server with a 2025-era SDK client.
+A client that opens with `initialize` is **refused** — error `-32022`, with the supported revision
+in the payload — not quietly downgraded. Serving the old handshake as a fallback would mean
+advertising a revision this server is not actually on.
+
+That has a consequence worth knowing before you wire this up: **most hosts today still open with
+`initialize`, and so will fail to connect.** That includes clients built on the current SDK —
+`@modelcontextprotocol/client` defaults to the 2025 era and must be pinned:
+
+```ts
+new Client(info, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+```
+
+The CLI is unaffected and remains the documented path (see below).
+
+Both halves are tested: `protocol-2026.test.ts` drives the wire as raw JSON-RPC with no client at
+all — including the rejection — and `stdio.test.ts` drives a real pinned SDK client.
 
 ## Usage
 

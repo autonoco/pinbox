@@ -8,7 +8,7 @@ export default defineConfig({
   fixedExtension: false,
   dts: false,
   banner: { js: "#!/usr/bin/env bun" },
-  // deps (@modelcontextprotocol/sdk, zod) are auto-externalized from package.json;
+  // deps (@modelcontextprotocol/server, zod) are auto-externalized from package.json;
   // the Bun builtins must be declared or rolldown warns.
   deps: { neverBundle: [/^bun(:|$)/] },
 });

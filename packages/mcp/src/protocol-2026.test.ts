@@ -1,10 +1,9 @@
 // The 2026-07-28 wire contract, driven as raw JSON-RPC with no SDK client in the way.
 //
-// An SDK client would prove far less than it looks: it negotiates the era itself, and its
-// ergonomic return values strip the protocol fields this revision added (`resultType`, the cache
-// hints) before a test can see them. The failure that matters is silently still serving the 2025
-// era — every SDK-mediated test keeps passing through that, because the SDK speaks both.
-// So these send bytes.
+// An SDK client proves less than it looks. `@modelcontextprotocol/client` defaults to the *2025*
+// era, so an unpinned client is served the old protocol and its test passes anyway — that is
+// exactly how a "2026" server ends up fake. It also never surfaces `resultType`. So these send
+// bytes: no client, no negotiation, nothing the old era could have answered.
 import { afterEach, describe, expect, test } from "bun:test";
 import { SERVER_VERSION } from "./main.ts";
 
@@ -17,12 +16,15 @@ const META = {
   "io.modelcontextprotocol/clientInfo": { name: "raw-wire-test", version: "0.0.0" },
 };
 
-type Rpc = { result?: Record<string, unknown>; error?: { code: number; message: string } };
+type Rpc = {
+  result?: Record<string, unknown>;
+  error?: { code: number; message: string; data?: Record<string, unknown> };
+};
 
 const running: { kill: () => void }[] = [];
 
-/** Spawn the server and send `methods` as 2026-era requests — no `initialize`, no handshake. */
-async function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
+/** Spawn the server, write `messages` verbatim, and read back one reply per message. */
+async function rawExchange(messages: unknown[], args: string[] = []): Promise<Rpc[]> {
   const proc = Bun.spawn(["bun", mainPath, ...args], {
     stdin: "pipe",
     stdout: "pipe",
@@ -30,18 +32,14 @@ async function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
     env: { ...process.env, PINBOX_BIN: fixturePath },
   });
   running.push(proc);
-  for (const [i, method] of methods.entries()) {
-    proc.stdin.write(
-      `${JSON.stringify({ jsonrpc: "2.0", id: i + 1, method, params: { _meta: META } })}\n`,
-    );
-  }
+  for (const message of messages) proc.stdin.write(`${JSON.stringify(message)}\n`);
   await proc.stdin.flush();
 
   const replies: Rpc[] = [];
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buffered = "";
-  while (replies.length < methods.length) {
+  while (replies.length < messages.length) {
     const { value, done } = await reader.read();
     if (done) break;
     buffered += decoder.decode(value);
@@ -53,6 +51,32 @@ async function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
     }
   }
   return replies;
+}
+
+/** Send `methods` as 2026-era requests — no `initialize`, no handshake, just the `_meta` envelope. */
+function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
+  return rawExchange(
+    methods.map((method, i) => ({ jsonrpc: "2.0", id: i + 1, method, params: { _meta: META } })),
+    args,
+  );
+}
+
+/** The opening a 2025-era client sends. It is not a request this server can answer any more. */
+async function rawInitialize(): Promise<Rpc> {
+  const [reply] = await rawExchange([
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "legacy-client", version: "0.0.0" },
+      },
+    },
+  ]);
+  if (reply === undefined) throw new Error("server closed without answering the legacy opening");
+  return reply;
 }
 
 afterEach(() => {
@@ -114,6 +138,16 @@ describe("2026-07-28 wire", () => {
       "pinbox_resolve",
     ]);
   });
+});
+
+test("the removed handshake is refused outright, naming what we do speak", async () => {
+  // Not a downgrade, and not a silent hang: this revision renumbered the error to -32022, and the
+  // payload has to tell the client which revisions it could have used instead.
+  const reply = await rawInitialize();
+  expect(reply.result).toBeUndefined();
+  expect(reply.error?.code).toBe(-32022);
+  expect(reply.error?.message).toMatch(/[Uu]nsupported protocol version/);
+  expect(reply.error?.data?.["supported"]).toEqual(["2026-07-28"]);
 });
 
 test("the version on the wire is the version we publish", async () => {

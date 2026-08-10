@@ -1,9 +1,9 @@
-// The MCP wire contract, driven as raw JSON-RPC with no SDK client in the way.
+// The MCP wire contract: raw JSON-RPC in, raw JSON-RPC out, nothing in between.
 //
-// An SDK client proves less than it looks here: `@modelcontextprotocol/client` still opens with
-// the removed handshake unless it is pinned, and it never surfaces `resultType` at all. A test
-// written through it can pass without the server ever having spoken MCP as it stands today.
-// So these send bytes.
+// What we owe a client is bytes on a pipe, so that is what gets asserted. A client library sits
+// between the test and the thing being tested, decides for itself what to send, and hides fields
+// like `resultType` behind its own return shape — a test written through one can pass without the
+// server ever having produced a correct message.
 import { afterEach, describe, expect, test } from "bun:test";
 import { SERVER_VERSION } from "./main.ts";
 
@@ -33,12 +33,16 @@ const running: { kill: () => void }[] = [];
  * `tools/call` shells out to the CLI while `tools/list` is answered from memory. Indexing by
  * arrival would quietly assert one request's payload against another's expectations.
  */
-async function rawExchange(messages: Sent[], args: string[] = []): Promise<Rpc[]> {
+async function rawExchange(
+  messages: Sent[],
+  args: string[] = [],
+  env: Record<string, string> = {},
+): Promise<Rpc[]> {
   const proc = Bun.spawn(["bun", mainPath, ...args], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
-    env: { ...process.env, PINBOX_BIN: fixturePath },
+    env: { ...process.env, PINBOX_BIN: fixturePath, ...env },
   });
   running.push(proc);
   for (const message of messages) proc.stdin.write(`${JSON.stringify(message)}\n`);
@@ -71,11 +75,20 @@ async function rawExchange(messages: Sent[], args: string[] = []): Promise<Rpc[]
 }
 
 /** Send `methods` as ordinary MCP requests: no handshake, just the `_meta` envelope. */
-function rawCall(methods: string[], args: string[] = []): Promise<Rpc[]> {
+function rawCall(
+  methods: string[],
+  args: string[] = [],
+  env: Record<string, string> = {},
+): Promise<Rpc[]> {
   return rawExchange(
     methods.map((method, i) => ({ jsonrpc: "2.0", id: i + 1, method, params: { _meta: META } })),
     args,
+    env,
   );
+}
+
+function toolNames(list: Rpc | undefined): string[] {
+  return ((list?.result?.["tools"] ?? []) as { name: string }[]).map((tool) => tool.name);
 }
 
 /** A `tools/call` alongside a `tools/list`: one shells out to the CLI, the other does not. */
@@ -155,17 +168,19 @@ describe("MCP wire", () => {
 
   test("tools come back in a stable order, so clients can cache and prompts stay warm", async () => {
     const runs = await Promise.all([rawCall(["tools/list"]), rawCall(["tools/list"])]);
-    const orders = runs.map(([list]) =>
-      ((list?.result?.["tools"] ?? []) as { name: string }[]).map((tool) => tool.name),
-    );
+    const orders = runs.map(([list]) => toolNames(list));
     expect(orders[0]).toEqual(["pinbox_summary", "pinbox_list", "pinbox_show"]);
     expect(orders[1]).toEqual(orders[0]);
   });
 
+  test("PINBOX_MCP_MUTATIONS=1 gates them in as well as the flag does", async () => {
+    const [list] = await rawCall(["tools/list"], [], { PINBOX_MCP_MUTATIONS: "1" });
+    expect(toolNames(list)).toHaveLength(5);
+  });
+
   test("--allow-mutations gates the mutating tools into the list", async () => {
     const [list] = await rawCall(["tools/list"], ["--allow-mutations"]);
-    const names = ((list?.result?.["tools"] ?? []) as { name: string }[]).map((tool) => tool.name);
-    expect(names).toEqual([
+    expect(toolNames(list)).toEqual([
       "pinbox_summary",
       "pinbox_list",
       "pinbox_show",

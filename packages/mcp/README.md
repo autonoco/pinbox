@@ -7,23 +7,15 @@ require `--allow-mutations`.
 
 ## Protocol
 
-Implements MCP as it stands today (protocol version `2026-07-28`, the string carried on the wire).
-MCP is stateless: there is no handshake and no session, so a client may send `tools/call` as its
-very first message. `server/discover` reports supported versions, capabilities, and identity.
+Implements MCP: protocol version `2026-07-28`, the string a client carries in each request's
+`_meta`. MCP is stateless — no handshake, no session — so a client may send `tools/call` as its
+very first message, and requests are answered independently of one another. `server/discover`
+reports supported versions, capabilities, and identity.
 
-The handshake-based revisions are not served. The SDK offers a fallback that answers them from the
-same code; it is switched off, because a server that answers the removed handshake has not
-implemented the protocol, it has tolerated it.
+Requests naming any other protocol version are refused with `-32022` and the supported list.
 
-One practical note for client authors: `@modelcontextprotocol/client` does not send the current
-protocol version unless told to.
-
-```ts
-new Client(info, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
-```
-
-`protocol.test.ts` drives the wire as raw JSON-RPC with no client involved; `stdio.test.ts` drives
-a real SDK client end to end.
+`protocol.test.ts` is the contract: it drives the server as raw JSON-RPC, with no client library
+in between.
 
 ## Usage
 

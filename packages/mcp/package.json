@@ -31,7 +31,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
     "@types/bun": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"

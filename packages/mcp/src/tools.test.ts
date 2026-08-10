@@ -3,56 +3,71 @@
 // success and error paths. Mutation gating is asserted at the registry level: the
 // gated tools are absent from tools/list without the flag, not registered-but-erroring.
 import { describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/client";
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { type McpToolDeps, registerTools } from "./tools.ts";
 
 type Call = { args: string[]; cwd: string | undefined };
 type CannedResult = { code: number; stdout: string };
+type ToolResult = { content: { type: string; text: string }[]; isError?: boolean };
 
 const okEnvelope = (data: unknown): CannedResult => ({
   code: 0,
   stdout: JSON.stringify({ ok: true, data }, null, 2),
 });
 
-async function connectHarness(opts: {
-  allowMutations: boolean;
-  respond?: (args: string[]) => CannedResult;
-}): Promise<{ client: Client; calls: Call[] }> {
+/**
+ * These are unit tests for what each tool does with its arguments — which argv it builds, and how
+ * the CLI's envelope becomes a tool result. None of that is protocol, so no server, transport, or
+ * client is involved: the registry is a recording stand-in and the handlers are called directly.
+ */
+function harness(opts: { allowMutations: boolean; respond?: (args: string[]) => CannedResult }): {
+  call: (name: string, args?: Record<string, unknown>) => Promise<ToolResult>;
+  names: string[];
+  calls: Call[];
+} {
   const calls: Call[] = [];
+  const handlers = new Map<string, (args: Record<string, unknown>) => Promise<ToolResult>>();
   const run: McpToolDeps["run"] = (args, runOpts) => {
     calls.push({ args, cwd: runOpts?.cwd });
     return Promise.resolve(opts.respond?.(args) ?? okEnvelope(null));
   };
-  const server = new McpServer({ name: "pinbox-mcp-test", version: "0.0.0" });
-  registerTools(server, { run, projectDir: "/work/project" }, opts);
-  const client = new Client({ name: "test-client", version: "0.0.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  return { client, calls };
+  const registry = {
+    registerTool: (
+      name: string,
+      _config: unknown,
+      cb: (args: Record<string, unknown>) => unknown,
+    ) => {
+      handlers.set(name, async (args) => (await cb(args)) as ToolResult);
+      return {};
+    },
+  } as unknown as McpServer;
+  registerTools(registry, { run, projectDir: "/work/project" }, opts);
+  return {
+    calls,
+    names: [...handlers.keys()].sort(),
+    call: async (name, args = {}) => {
+      const handler = handlers.get(name);
+      if (handler === undefined) throw new Error(`${name} is not registered`);
+      return handler(args);
+    },
+  };
 }
 
-async function toolNames(client: Client): Promise<string[]> {
-  const { tools } = await client.listTools();
-  return tools.map((tool) => tool.name).sort();
-}
-
-function firstText(result: unknown): string {
-  const content = (result as { content: { type: string; text: string }[] }).content;
-  const first = content[0];
+function firstText(result: ToolResult): string {
+  const first = result.content[0];
   if (first === undefined || first.type !== "text") throw new Error("expected text content");
   return first.text;
 }
 
 describe("mutation gating", () => {
   test("read-only registry without the flag: exactly the three read tools", async () => {
-    const { client } = await connectHarness({ allowMutations: false });
-    expect(await toolNames(client)).toEqual(["pinbox_list", "pinbox_show", "pinbox_summary"]);
+    const { names } = harness({ allowMutations: false });
+    expect(names).toEqual(["pinbox_list", "pinbox_show", "pinbox_summary"]);
   });
 
   test("gated registry with the flag: reply and resolve appear", async () => {
-    const { client } = await connectHarness({ allowMutations: true });
-    expect(await toolNames(client)).toEqual([
+    const { names } = harness({ allowMutations: true });
+    expect(names).toEqual([
       "pinbox_list",
       "pinbox_reply",
       "pinbox_resolve",
@@ -64,41 +79,38 @@ describe("mutation gating", () => {
 
 describe("argv mapping", () => {
   test("pinbox_summary → summary --json, in the project dir", async () => {
-    const { client, calls } = await connectHarness({ allowMutations: false });
-    await client.callTool({ name: "pinbox_summary", arguments: {} });
+    const { call, calls } = harness({ allowMutations: false });
+    await call("pinbox_summary", {});
     expect(calls).toEqual([{ args: ["summary", "--json"], cwd: "/work/project" }]);
   });
 
   test("pinbox_list with status filter → list --status open --json", async () => {
-    const { client, calls } = await connectHarness({
+    const { call, calls } = harness({
       allowMutations: false,
       respond: () => okEnvelope([]),
     });
-    await client.callTool({ name: "pinbox_list", arguments: { status: "open" } });
+    await call("pinbox_list", { status: "open" });
     expect(calls[0]?.args).toEqual(["list", "--status", "open", "--json"]);
   });
 
   test("pinbox_list with search → list --search <q> --json", async () => {
-    const { client, calls } = await connectHarness({
+    const { call, calls } = harness({
       allowMutations: false,
       respond: () => okEnvelope([]),
     });
-    await client.callTool({ name: "pinbox_list", arguments: { search: "dark mode" } });
+    await call("pinbox_list", { search: "dark mode" });
     expect(calls[0]?.args).toEqual(["list", "--search", "dark mode", "--json"]);
   });
 
   test("pinbox_show → show <id> --json", async () => {
-    const { client, calls } = await connectHarness({ allowMutations: false });
-    await client.callTool({ name: "pinbox_show", arguments: { id: "pin_0123456789" } });
+    const { call, calls } = harness({ allowMutations: false });
+    await call("pinbox_show", { id: "pin_0123456789" });
     expect(calls[0]?.args).toEqual(["show", "pin_0123456789", "--json"]);
   });
 
   test("pinbox_reply → reply <id> <text> --as agent --json", async () => {
-    const { client, calls } = await connectHarness({ allowMutations: true });
-    await client.callTool({
-      name: "pinbox_reply",
-      arguments: { id: "pin_0123456789", text: "done — shipped in a1b2c3" },
-    });
+    const { call, calls } = harness({ allowMutations: true });
+    await call("pinbox_reply", { id: "pin_0123456789", text: "done — shipped in a1b2c3" });
     expect(calls[0]?.args).toEqual([
       "reply",
       "pin_0123456789",
@@ -110,11 +122,8 @@ describe("argv mapping", () => {
   });
 
   test("pinbox_resolve with note → resolve <id> --note <note> --as agent --json", async () => {
-    const { client, calls } = await connectHarness({ allowMutations: true });
-    await client.callTool({
-      name: "pinbox_resolve",
-      arguments: { id: "pin_0123456789", note: "fixed padding" },
-    });
+    const { call, calls } = harness({ allowMutations: true });
+    await call("pinbox_resolve", { id: "pin_0123456789", note: "fixed padding" });
     expect(calls[0]?.args).toEqual([
       "resolve",
       "pin_0123456789",
@@ -127,8 +136,8 @@ describe("argv mapping", () => {
   });
 
   test("pinbox_resolve without note omits --note", async () => {
-    const { client, calls } = await connectHarness({ allowMutations: true });
-    await client.callTool({ name: "pinbox_resolve", arguments: { id: "pin_0123456789" } });
+    const { call, calls } = harness({ allowMutations: true });
+    await call("pinbox_resolve", { id: "pin_0123456789" });
     expect(calls[0]?.args).toEqual(["resolve", "pin_0123456789", "--as", "agent", "--json"]);
   });
 });
@@ -136,17 +145,17 @@ describe("argv mapping", () => {
 describe("envelope mapping", () => {
   test("success data round-trips as the tool result text", async () => {
     const pins = [{ id: "pin_0123456789", status: "open" }];
-    const { client } = await connectHarness({
+    const { call } = harness({
       allowMutations: false,
       respond: () => okEnvelope(pins),
     });
-    const result = await client.callTool({ name: "pinbox_list", arguments: {} });
+    const result: ToolResult = await call("pinbox_list", {});
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(firstText(result))).toEqual(pins);
   });
 
   test("failure envelope surfaces as a tool error carrying code/message/hint verbatim", async () => {
-    const { client } = await connectHarness({
+    const { call } = harness({
       allowMutations: false,
       respond: () => ({
         code: 3,
@@ -160,10 +169,7 @@ describe("envelope mapping", () => {
         }),
       }),
     });
-    const result = await client.callTool({
-      name: "pinbox_show",
-      arguments: { id: "pin_zzzzzzzzzz" },
-    });
+    const result: ToolResult = await call("pinbox_show", { id: "pin_zzzzzzzzzz" });
     expect(result.isError).toBe(true);
     const text = firstText(result);
     expect(text).toContain("E_NOT_FOUND");
@@ -172,11 +178,11 @@ describe("envelope mapping", () => {
   });
 
   test("non-envelope stdout surfaces as an E_INTERNAL tool error with the exit code", async () => {
-    const { client } = await connectHarness({
+    const { call } = harness({
       allowMutations: false,
       respond: () => ({ code: 1, stdout: "segfault-ish garbage\n" }),
     });
-    const result = await client.callTool({ name: "pinbox_summary", arguments: {} });
+    const result: ToolResult = await call("pinbox_summary", {});
     expect(result.isError).toBe(true);
     const text = firstText(result);
     expect(text).toContain("E_INTERNAL");

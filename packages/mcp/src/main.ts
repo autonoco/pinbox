@@ -49,9 +49,10 @@ export function parseFlags(argv: string[]): { allowMutations: boolean; projectDi
 
 if (import.meta.main) {
   const { allowMutations, projectDir } = parseFlags(process.argv.slice(2));
-  // `legacy: 'reject'` switches off the SDK's handshake-era fallback. Without it the same factory
-  // would also answer the removed `initialize` handshake, which would make this a server that
-  // merely tolerates MCP rather than one that implements it.
+  // The SDK ships a handshake fallback that is ON by default; this is its off switch. It is the
+  // only reachable way to get a stdio server that answers MCP alone — the module exports exactly
+  // `serveStdio` and `StdioServerTransport`, and hand-wiring the transport replies in the older
+  // result shape (no `resultType`, no cache fields). Verified, not assumed.
   serveStdio(
     () => {
       const server = new McpServer(

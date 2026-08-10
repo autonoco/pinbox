@@ -14,6 +14,16 @@ reports supported versions, capabilities, and identity.
 
 Requests naming any other protocol version are refused with `-32022` and the supported list.
 
+Every tool declares an output schema and returns its data in `structuredContent`, so a client
+reads fields rather than parsing a JSON string out of message text. The schemas are permissive by
+design: the CLI's machine output is a versioned contract that gains fields, and a strict schema
+would strip anything new on the way through.
+
+Not implemented, because nothing here needs them: change subscriptions (the tool list is fixed at
+launch and this server exposes no resources), mid-request user input (no tool asks the user
+anything — pin text arrives with the pin), and background tasks (every call is a local SQLite read
+behind a CLI invocation).
+
 `protocol.test.ts` is the contract: it drives the server as raw JSON-RPC, with no client library
 in between.
 

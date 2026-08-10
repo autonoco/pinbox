@@ -148,6 +148,30 @@ describe("MCP wire", () => {
     expect(list?.result?.["tools"]).toBeArray();
   });
 
+  test("every tool declares its output shape, and results carry the data structured", async () => {
+    // Without this a tool hands back a JSON string and the model parses prose. `structuredContent`
+    // for `pinbox_list` is an *array*, which the current revision permits and the older one did not.
+    const [list, call] = await rawExchange([
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: META } },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "pinbox_summary", arguments: {}, _meta: META },
+      },
+    ]);
+    const tools = (list?.result?.["tools"] ?? []) as { name: string; outputSchema?: unknown }[];
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.outputSchema, `${tool.name} advertises no output shape`).toBeDefined();
+    }
+    expect(call?.result?.["structuredContent"]).toEqual({
+      open: 2,
+      resolved: 1,
+      lastEventSeq: 42,
+    });
+  });
+
   test("we do not advertise a capability we never exercise", async () => {
     // The tool list is fixed at launch, so a list-changed notification will never be sent. The
     // SDK turns `listChanged` on by default, which would tell clients to wait for one forever.

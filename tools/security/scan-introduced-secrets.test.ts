@@ -43,7 +43,9 @@ describe("secret-scan workflow", () => {
     expect(
       cancel,
       "cancel-in-progress must be exactly the predicate github.event_name == 'pull_request'",
-    ).toBe("${{ github.event_name == 'pull_request' }}");
+      // Escaped `\${` so this stays a literal GitHub expression rather than a JS interpolation —
+      // biome reads `${...}` in a plain string as a template literal someone forgot to backtick.
+    ).toBe(`\${{ github.event_name == 'pull_request' }}`);
   });
 
   test("the required-check name matches the job the branch rule names", () => {

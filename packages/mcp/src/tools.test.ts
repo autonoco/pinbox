@@ -3,9 +3,8 @@
 // success and error paths. Mutation gating is asserted at the registry level: the
 // gated tools are absent from tools/list without the flag, not registered-but-erroring.
 import { describe, expect, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { type McpToolDeps, registerTools } from "./tools.ts";
 
 type Call = { args: string[]; cwd: string | undefined };

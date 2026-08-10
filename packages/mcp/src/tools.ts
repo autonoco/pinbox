@@ -3,7 +3,7 @@
 // `allowMutations` — absent from tools/list, not registered-but-erroring. Every call is
 // a `pinbox … --json` invocation; the envelope maps 1:1 onto the MCP result so the error
 // language stays one language (code/message/hint verbatim).
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { runPinbox } from "./pinbox-bin.ts";
 
@@ -74,10 +74,10 @@ export function registerTools(
     "pinbox_list",
     {
       description: "List pins, newest first. Optional status filter and full-text search.",
-      inputSchema: {
+      inputSchema: z.object({
         status: z.enum(["open", "resolved"]).optional().describe("filter by status"),
         search: z.string().optional().describe("full-text search over pin conversations"),
-      },
+      }),
     },
     ({ status, search }) => {
       const args = ["list"];
@@ -92,7 +92,7 @@ export function registerTools(
     "pinbox_show",
     {
       description: "Show one pin: target element, full conversation thread, links.",
-      inputSchema: { id: z.string().describe("pin id (pin_xxxxxxxxxx)") },
+      inputSchema: z.object({ id: z.string().describe("pin id (pin_xxxxxxxxxx)") }),
     },
     ({ id }) => callCli(deps, ["show", id, "--json"]),
   );
@@ -105,10 +105,10 @@ export function registerTools(
       description:
         "Reply on a pin's thread as the agent. Mutating — registered only when the " +
         "server was started with --allow-mutations.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().describe("pin id (pin_xxxxxxxxxx)"),
         text: z.string().describe("the message"),
-      },
+      }),
     },
     ({ id, text }) => callCli(deps, ["reply", id, text, "--as", "agent", "--json"]),
   );
@@ -119,10 +119,10 @@ export function registerTools(
       description:
         "Resolve a pin as the agent, optionally with a note saying what changed. " +
         "Mutating — registered only when the server was started with --allow-mutations.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().describe("pin id (pin_xxxxxxxxxx)"),
         note: z.string().optional().describe("resolution note"),
-      },
+      }),
     },
     ({ id, note }) => {
       const args = ["resolve", id];

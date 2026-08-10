@@ -27,12 +27,14 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "typescript": "catalog:",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/bun": "catalog:",
     "tsdown": "catalog:",
-    "@types/bun": "catalog:"
+    "typescript": "catalog:",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   }
 }

@@ -5,6 +5,17 @@ documented default. Agents are markedly better at CLI tools than MCP: use the `p
 the pinbox skill; this server exists for environments that cannot shell out. Mutating tools
 require `--allow-mutations`.
 
+## Protocol
+
+Speaks **2026-07-28** — the revision that removed the `initialize` handshake and protocol
+sessions, so a client may send `tools/call` as its very first message. `server/discover` reports
+what this server supports.
+
+Clients that still open with `initialize` (which today is most of them) keep working unchanged:
+one server instance answers whichever era the connection opens with. Both paths are tested —
+`protocol-2026.test.ts` drives the modern wire as raw JSON-RPC, `stdio.test.ts` drives the same
+server with a 2025-era SDK client.
+
 ## Usage
 
 ```jsonc

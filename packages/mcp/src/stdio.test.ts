@@ -1,4 +1,9 @@
-// @autono/pinbox-mcp — stdio round-trip test.
+// @autono/pinbox-mcp — stdio round-trip test, driven by a **2025-era** client on purpose.
+//
+// The server speaks 2026-07-28 (see protocol-2026.test.ts). This file is the other half of that
+// promise: the v1 SDK client still opens with `initialize`, and every host we have today is that
+// client. If serving both eras ever regresses, this is what goes red — which is why the old SDK
+// stays on as a dev dependency after the runtime moved off it.
 // Spawns src/main.ts over real stdio with PINBOX_BIN pointed at a fixture script that
 // echoes canned envelopes: initialize → tools/list (3 default, 5 gated) → tools/call.
 import { afterEach, describe, expect, test } from "bun:test";

@@ -1,0 +1,29 @@
+// pinbox.sh — static site plus the demo hub, in one Worker.
+// Conventions match examples/worker: pinned compatibility_date, never "today".
+{
+  "name": "pinbox-site",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PINBOX_HUB", "class_name": "PinboxHubDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PinboxHubDO"] }],
+  "vars": {
+    // NOT A SECRET, and must never be treated as one: the demo page ships this token to every
+    // visitor, because a live demo anyone can try is a hub anyone can write to. It exists so the
+    // hub runs its normal token path rather than the unauthenticated mode the DO refuses without
+    // an explicit override — not to keep anyone out. Never reuse this value anywhere real.
+    "AUTH_STRATEGY": "token",
+    "PINBOX_TOKEN": "pinbox-public-demo",
+    // One namespace for the demo, separate from anything else. Wiping the demo is deleting this
+    // Durable Object.
+    "PINBOX_PROJECT": "site-demo"
+  },
+  "alias": { "bun:sqlite": "../../examples/worker/src/shims/bun-sqlite.ts" }
+}

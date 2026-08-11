@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meridian — pinbox demo</title>
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <style>
+      /* A stand-in for "some app you are working on". Everything pinbox-shaped on this page comes
+         from the real toolbar bundle below — nothing here draws a pin, a thread, or an inbox. */
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background: var(--bg-1);
+        color: var(--fg-1);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+        padding: clamp(28px, 5vw, 56px);
+        display: flex;
+        flex-direction: column;
+        gap: clamp(28px, 4vw, 44px);
+      }
+      .m-nav {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        font-size: 13px;
+        color: var(--fg-3);
+      }
+      .m-logo {
+        font-family: var(--font-display);
+        font-weight: 300;
+        font-size: 15px;
+        letter-spacing: -0.02em;
+        color: var(--fg-1);
+      }
+      .m-hero {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        max-width: 44ch;
+      }
+      .m-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-weight: 300;
+        font-size: clamp(30px, 4.6vw, 52px);
+        line-height: 1.02;
+        letter-spacing: -0.03em;
+      }
+      .m-lede {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--fg-2);
+      }
+      .m-pay {
+        align-self: flex-start;
+        height: 42px;
+        padding: 0 20px;
+        border: none;
+        border-radius: var(--radius-1);
+        background: var(--amber);
+        color: #141414;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .m-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+        gap: 1px;
+        background: var(--hairline);
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-2);
+      }
+      .m-card {
+        background: var(--bg-2);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .m-card__k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        color: var(--fg-4);
+      }
+      .m-card__v {
+        font-family: var(--font-display);
+        font-weight: 300;
+        font-size: 22px;
+        letter-spacing: -0.02em;
+      }
+      /* Shown only if the hub is unreachable, so a dead demo says so instead of looking broken. */
+      .m-offline {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border: 1px solid var(--hairline-strong);
+        border-radius: var(--radius-1);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--fg-3);
+      }
+      .m-offline.is-shown {
+        display: flex;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="m-nav">
+      <span class="m-logo">meridian</span>
+      <span>Product</span>
+      <span>Pricing</span>
+      <span>Docs</span>
+    </nav>
+
+    <div class="m-hero">
+      <h1 class="m-title">Freight, settled the same day.</h1>
+      <p class="m-lede">
+        One ledger for every carrier, every lane, every invoice. Reconciled before the truck is
+        unloaded.
+      </p>
+      <button class="m-pay" type="button">Start settlement</button>
+    </div>
+
+    <div class="m-cards">
+      <div class="m-card"><span class="m-card__k">LANES</span><span class="m-card__v">1,284</span></div>
+      <div class="m-card">
+        <span class="m-card__k">SETTLED TODAY</span><span class="m-card__v">$2.4M</span>
+      </div>
+      <div class="m-card"><span class="m-card__k">DISPUTES</span><span class="m-card__v">3</span></div>
+    </div>
+
+    <div class="m-offline" id="offline">DEMO HUB UNREACHABLE — THE TOOLBAR IS NOT CONNECTED</div>
+
+    <!-- The shipped component, byte for byte: packages/toolbar's IIFE bundle, kept in step by
+         tools/validate/site-toolbar.ts. -->
+    <script src="/pinbox/toolbar.iife.js"></script>
+    <script>
+      // Same origin as the hub, so no CORS. The token is public by design — see wrangler.jsonc.
+      // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with `new URL(endpoint)`,
+      // which throws on a bare path.
+      const endpoint = `${location.origin}/_pinbox`;
+      fetch(`${endpoint}/health`, { headers: { authorization: "Bearer pinbox-public-demo" } })
+        .then((response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          Pinbox.init({ endpoint, token: "pinbox-public-demo" });
+        })
+        .catch(() => {
+          document.getElementById("offline").classList.add("is-shown");
+        });
+    </script>
+  </body>
+</html>

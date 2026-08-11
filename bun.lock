@@ -16,6 +16,17 @@
         "typescript": "catalog:",
       },
     },
+    "apps/web": {
+      "name": "@autono/pinbox-site",
+      "dependencies": {
+        "@autono/pinbox-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20260804.1",
+        "typescript": "catalog:",
+        "wrangler": "^4.118.0",
+      },
+    },
     "e2e": {
       "name": "@autono/pinbox-e2e",
       "version": "0.0.0",
@@ -133,6 +144,8 @@
     "@autono/pinbox-e2e": ["@autono/pinbox-e2e@workspace:e2e"],
 
     "@autono/pinbox-mcp": ["@autono/pinbox-mcp@workspace:packages/mcp"],
+
+    "@autono/pinbox-site": ["@autono/pinbox-site@workspace:apps/web"],
 
     "@autono/pinbox-toolbar": ["@autono/pinbox-toolbar@workspace:packages/toolbar"],
 
@@ -1153,6 +1166,8 @@
     "@arethetypeswrong/core/typescript": ["typescript@5.6.1-rc", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-E3b2+1zEFu84jB0YQi9BORDjz9+jGbwwy1Zi3G0LUNw7a7cePUrHMRNy8aPh53nXpkFGVHSxIZo5vKTfYaFiBQ=="],
 
     "@autono/pinbox-e2e/@cloudflare/workers-types": ["@cloudflare/workers-types@5.20260804.1", "", {}, "sha512-B1dwxpN6e5RZXZkE5zpZj+ooNeNZ1mwavLIyHDYe10ojhlGTwDfe8sAl7R1mMXc1cyIsbr+jKVdvmMEyVcdTdg=="],
+
+    "@autono/pinbox-site/@cloudflare/workers-types": ["@cloudflare/workers-types@5.20260804.1", "", {}, "sha512-B1dwxpN6e5RZXZkE5zpZj+ooNeNZ1mwavLIyHDYe10ojhlGTwDfe8sAl7R1mMXc1cyIsbr+jKVdvmMEyVcdTdg=="],
 
     "@cspotcode/source-map-support/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 

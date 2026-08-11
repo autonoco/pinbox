@@ -1,0 +1,20 @@
+{
+  "name": "@autono/pinbox-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "sync:toolbar": "bun ../../tools/validate/site-toolbar.ts --write",
+    "dev": "wrangler dev",
+    "predeploy": "bun run sync:toolbar",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "wrangler": "^4.118.0",
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@autono/pinbox-core": "workspace:*"
+  }
+}

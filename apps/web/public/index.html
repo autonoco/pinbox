@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pinbox — put a pin in it</title>
+    <meta
+      name="description"
+      content="A toolbar you drop into any project. Click anywhere to leave a comment on the thing itself. Your teammate picks it up, makes the change, and replies in the same thread."
+    />
+    <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#0f0f0f" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://pinbox.sh/" />
+    <meta property="og:title" content="pinbox — put a pin in it" />
+    <meta
+      property="og:description"
+      content="Click anywhere to leave a comment on the thing itself. Your teammate picks it up, makes the change, and replies in the same thread."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- The display font is the first thing seen, and it gates the hero. -->
+    <link rel="preload" href="/fonts/PPMonumentExtended-Light.otf" as="font" type="font/otf" crossorigin />
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <link rel="stylesheet" href="/styles/site.css" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="grain"></div>
+
+      <div class="shell">
+        <nav class="row nav">
+          <div class="nav__brand">
+            <svg width="19" height="18" viewBox="0 0 19 18" fill="none" class="icon" aria-label="Autono" role="img">
+              <path
+                d="M9.46582 0C11.2139 2.81177e-05 12.3625 0.599608 12.9619 2.17285L18.6562 17.1582H15.3848L13.9316 13.3086C11.8147 13.3191 9.3787 13.6765 7.3418 14.2637C6.30855 14.5615 5.41163 14.9086 4.72559 15.2793C4.21991 15.5526 3.89396 15.8047 3.7002 16.0078L3.24707 17.1582H0L5.91895 2.17285C6.54333 0.599424 7.69258 0 9.46582 0ZM9.44043 3.02246C9.04098 3.02255 8.76658 3.19718 8.5918 3.59668L5.03809 12.6123C5.56437 12.4065 6.12479 12.2197 6.7041 12.0527C8.67125 11.4857 10.958 11.1165 13.0703 11.0283L10.2646 3.59668C10.1148 3.19708 9.84004 3.02246 9.44043 3.02246Z"
+                fill="var(--fg-1)"
+              />
+            </svg>
+            <span class="nav__rule"></span>
+            <span class="nav__wordmark">PINBOX</span>
+          </div>
+          <div class="nav__links">
+            <a href="#demo">demo</a>
+            <a href="#how">how it works</a>
+            <a
+              class="btn-ghost"
+              href="https://github.com/autonoco/pinbox"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" class="icon" aria-hidden="true">
+                <path
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                />
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
+        </nav>
+
+        <header class="row hero">
+          <div class="hero__mark">
+            <span class="pin pin--hero" aria-hidden="true">
+              <span class="pin__stage">
+                <span class="pin__flag">01</span>
+                <span class="pin__needle"></span>
+                <span class="pin__dot"></span>
+                <span class="pin__ring"></span>
+              </span>
+            </span>
+            <div class="hero__wordmark">pinbox</div>
+          </div>
+          <h1 class="hero__title">Put a pin in it.</h1>
+          <p class="hero__lede">
+            A toolbar you drop into any project. Click anywhere to leave a comment on the thing
+            itself. Your teammate picks it up, makes the change, and replies in the same thread.
+          </p>
+          <div class="hero__actions">
+            <a
+              class="btn-primary"
+              href="https://github.com/autonoco/pinbox"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" class="icon" aria-hidden="true">
+                <path
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                />
+              </svg>
+              <span>View on GitHub</span>
+            </a>
+            <div class="command">
+              <span class="command__prompt">$</span>
+              <span>npx @autono/pinbox init</span>
+            </div>
+          </div>
+        </header>
+
+        <section class="row demo" id="demo">
+          <div class="demo__head">
+            <div class="demo__note">
+              A live hub and the real toolbar — the same component you install, not a mock. Drop a
+              pin below and it is a row in a database; reload and it is still there.
+            </div>
+            <div class="keys">
+              <span class="key">SHARED — EVERYONE SEES THESE PINS</span>
+            </div>
+          </div>
+          <div class="frame">
+            <div class="frame__bar">
+              <span class="frame__dot"></span>
+              <span class="frame__dot"></span>
+              <span class="frame__dot"></span>
+              <span class="frame__spacer"></span>
+              <span class="frame__url">MERIDIAN.CO — LOCALHOST:3000</span>
+              <span class="frame__spacer"></span>
+            </div>
+            <iframe class="frame__stage" src="/demo/" title="Pinbox demo" loading="lazy"></iframe>
+          </div>
+        </section>
+
+        <section class="row steps" id="how">
+          <div class="step">
+            <div class="eyebrow">01 — POINT</div>
+            <div class="step__title">The page is the document.</div>
+            <div class="step__body">
+              Pins attach to the element, not to a screenshot. Ship a change and the pin stays on
+              the headline it was about.
+            </div>
+          </div>
+          <div class="step">
+            <div class="eyebrow">02 — SAY IT PLAINLY</div>
+            <div class="step__title">No tickets, no repro steps.</div>
+            <div class="step__body">
+              Write the sentence you would have said out loud. The file, the line, and the
+              surrounding markup travel with it.
+            </div>
+          </div>
+          <div class="step">
+            <div class="eyebrow">03 — IT COMES BACK CHANGED</div>
+            <div class="step__title">A reply, and the work.</div>
+            <div class="step__body">
+              Your teammate answers in the thread with the change attached. Read it, apply it, keep
+              going.
+            </div>
+          </div>
+        </section>
+
+        <section class="row threads">
+          <div class="threads__copy">
+            <div class="eyebrow eyebrow--muted">CONNECTED THREADS</div>
+            <h2 class="threads__title">The conversation doesn't move.</h2>
+            <p class="threads__lede">
+              Link a pin to a channel and replies flow both directions. Whoever weighs in from Slack
+              or WhatsApp lands in the thread, next to the change they were arguing about.
+            </p>
+          </div>
+          <div class="channels">
+            <div class="channel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="#8C5A98" class="icon" aria-hidden="true">
+                <path
+                  d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
+                />
+              </svg>
+              <span class="channel__name">#design-review</span>
+              <span class="frame__spacer"></span>
+              <span class="channel__count">3 REPLIES</span>
+            </div>
+            <div class="channel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="#25D366" class="icon" aria-hidden="true">
+                <path
+                  d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"
+                />
+              </svg>
+              <span class="channel__name">Meridian rebuild</span>
+              <span class="frame__spacer"></span>
+              <span class="channel__count">1 REPLY</span>
+            </div>
+          </div>
+        </section>
+
+        <footer class="row footer">
+          <span class="footer__brand">
+            <span class="pin pin--loop" aria-hidden="true">
+              <span class="pin__stage">
+                <span class="pin__flag">01</span>
+                <span class="pin__needle"></span>
+                <span class="pin__dot"></span>
+                <span class="pin__ring"></span>
+              </span>
+            </span>
+            <span class="footer__label">PINBOX — AUTONO HOLDINGS INC.</span>
+          </span>
+          <span>2026</span>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

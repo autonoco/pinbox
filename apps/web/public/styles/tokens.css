@@ -1,0 +1,73 @@
+/* Autono design tokens, trimmed to what pinbox.sh actually uses.
+   Source of truth is the Autono design system (colors_and_type.css); this is a subset, not a
+   fork — add tokens here when a page needs them, never redefine a value. */
+
+/* PP Monument Extended is a licensed font (Pangram Pangram). Only Light 300 ships, because that
+   is the only weight the site sets. Adding a weight means adding the file AND checking the
+   webfont licence covers this domain. */
+@font-face {
+  font-family: "PP Monument Extended";
+  src: url("/fonts/PPMonumentExtended-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* DM Sans and JetBrains Mono are open-licensed and self-hosted for the same reason everything
+   else here is: no third-party request on a page whose whole point is that it is small. */
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/DMSans.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Base scale — obsidian to bone. Pure #000 is never used; it reads as missing CSS. */
+  --obsidian: #070707;
+  --ink: #0f0f0f;
+  --ink-raised: #171717;
+  --stone-500: #8a827a;
+  --stone-300: #b8b0a5;
+  --stone-700: #5a534d;
+  --bone: #f5f0e6;
+
+  /* One warm accent, used as a signal and never as a large fill. */
+  --amber: #d4a04a;
+
+  --fg-1: var(--bone);
+  --fg-2: var(--stone-300);
+  --fg-3: var(--stone-500);
+  --fg-4: var(--stone-700);
+
+  --bg-0: var(--obsidian);
+  --bg-1: var(--ink);
+  --bg-2: var(--ink-raised);
+
+  /* Borders do the work shadows do elsewhere. Always 1px. */
+  --hairline: rgba(245, 240, 230, 0.08);
+  --hairline-strong: rgba(245, 240, 230, 0.14);
+
+  /* Small radii are the corner signature — barely softened, never pills. */
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-full: 999px;
+
+  /* Slow and confident: no bounces, no springs. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-4: 800ms;
+
+  --font-display: "PP Monument Extended", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}

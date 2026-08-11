@@ -6,7 +6,12 @@
 // Pinned image, no shell: the argument vector is fixed and the SHAs are validated before they
 // reach it, because BASE_SHA/HEAD_SHA arrive from workflow context and are attacker-shaped on a
 // fork PR.
-const GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks:v8.30.1";
+// Tag *and* digest: the tag documents the version, the digest is what Docker actually resolves.
+// A tag is mutable — `v8.30.1` can be repushed at any time, and a scanner that silently becomes a
+// different binary is the one tool in CI where that matters most. Bump both together; read the
+// new digest from `docker buildx imagetools inspect ghcr.io/gitleaks/gitleaks:<tag>`.
+const GITLEAKS_IMAGE =
+  "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f";
 const SHA_RE = /^[0-9a-f]{40,64}$/u;
 const ZERO_SHA_RE = /^0+$/u;
 

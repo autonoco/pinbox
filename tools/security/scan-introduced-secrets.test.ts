@@ -30,6 +30,24 @@ describe("secret-scan workflow", () => {
     expect(Object.keys(scan?.env ?? {}).sort()).toEqual(["BASE_SHA", "HEAD_SHA"]);
   });
 
+  test("a push run is never cancelled out from under its commit range", () => {
+    // Superseding a PR run is free — the replacement scans base..head, the same span. Superseding
+    // a push run is not: it scans before..after, and the next push starts where this one died, so
+    // the killed range is scanned by nothing, ever.
+    const parsed = Bun.YAML.parse(workflow) as {
+      concurrency?: { "cancel-in-progress"?: boolean | string };
+    };
+    const cancel = parsed.concurrency?.["cancel-in-progress"];
+    expect(cancel, "missing cancel-in-progress allows unconditional cancellation").toBeDefined();
+    expect(cancel, "unconditional cancellation drops commits from every range").not.toBe(true);
+    expect(
+      cancel,
+      "cancel-in-progress must be exactly the predicate github.event_name == 'pull_request'",
+      // Escaped `\${` so this stays a literal GitHub expression rather than a JS interpolation —
+      // biome reads `${...}` in a plain string as a template literal someone forgot to backtick.
+    ).toBe(`\${{ github.event_name == 'pull_request' }}`);
+  });
+
   test("the required-check name matches the job the branch rule names", () => {
     const parsed = Bun.YAML.parse(workflow) as { jobs: Record<string, { name?: string }> };
     expect(parsed.jobs["gitleaks"]?.name).toBe("gitleaks");
@@ -61,7 +79,7 @@ describe("introduced-secret scan", () => {
       "/workspace:/repo",
       "-w",
       "/repo",
-      "ghcr.io/gitleaks/gitleaks:v8.30.1",
+      "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
       "git",
       "--redact",
       "--no-banner",

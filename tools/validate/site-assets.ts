@@ -4,26 +4,24 @@
 // that is nothing resolves imports for you, so a renamed font or a moved stylesheet fails
 // *silently* — the browser falls back to a system face and the page still loads, looking almost
 // right. This is what notices.
-import { readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../..", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: the latter stays percent-encoded, so a checkout under a path
+// with a space reads as `%20` and every file lookup misses.
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const siteRoot = `${root}apps/web/public`;
 
-/** `href="/x"`, `src="/x"`, and `url("/x")` — the three ways this site names a local file. */
-const REFERENCE = /(?:href|src)="(\/[^"#?]+)"|url\(["']?(\/[^"')?#]+)["']?\)/g;
+/** `href`/`src` in either quote style, and `url(…)` with or without quotes. */
+const REFERENCE = /(?:href|src)=(?:"([^"#?]+)"|'([^'#?]+)')|url\(\s*["']?([^"')?#]+)["']?\s*\)/g;
 
-async function filesUnder(dir: string, prefix = ""): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const found: string[] = [];
-  for (const entry of entries) {
-    const relative = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) found.push(...(await filesUnder(`${dir}/${entry.name}`, relative)));
-    else found.push(relative);
-  }
-  return found;
+/** Absolute (http:, data:, mailto:, //cdn) references are somebody else's problem. */
+function isExternal(reference: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(reference) || reference.startsWith("//");
 }
 
-const all = await filesUnder(siteRoot);
+const all = [...new Bun.Glob("**/*").scanSync({ cwd: siteRoot, dot: true })].map(
+  (path) => `/${path}`,
+);
 const present = new Set(all);
 const sources = all.filter((path) => path.endsWith(".html") || path.endsWith(".css"));
 
@@ -31,13 +29,20 @@ const broken: string[] = [];
 for (const source of sources) {
   const text = await Bun.file(`${siteRoot}${source}`).text();
   for (const match of text.matchAll(REFERENCE)) {
-    const reference = match[1] ?? match[2];
-    if (reference === undefined) continue;
-    // A directory reference (`/demo/`) resolves to its index.html, the same way the asset
-    // handler resolves it in production.
-    const candidates = reference.endsWith("/")
-      ? [`${reference}index.html`]
-      : [reference, `${reference}/index.html`];
+    const reference = match[1] ?? match[2] ?? match[3];
+    if (reference === undefined || reference.length === 0 || isExternal(reference)) continue;
+
+    // A relative reference resolves against the file that names it, exactly as a browser does.
+    const sourceDir = source.slice(0, source.lastIndexOf("/"));
+    const resolved = reference.startsWith("/")
+      ? reference
+      : new URL(reference, `file://${sourceDir}/`).pathname;
+
+    // A directory reference (`/demo/`) resolves to its index.html, the same way the asset handler
+    // resolves it in production.
+    const candidates = resolved.endsWith("/")
+      ? [`${resolved}index.html`]
+      : [resolved, `${resolved}/index.html`];
     if (!candidates.some((candidate) => present.has(candidate))) {
       broken.push(`${source} → ${reference}`);
     }

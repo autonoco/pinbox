@@ -153,7 +153,12 @@
       // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with `new URL(endpoint)`,
       // which throws on a bare path.
       const endpoint = `${location.origin}/_pinbox`;
-      fetch(`${endpoint}/health`, { headers: { authorization: "Bearer pinbox-public-demo" } })
+      // A hub that accepts the connection and then never answers would leave this pending forever,
+      // so the page would sit there looking fine and never say it is offline.
+      fetch(`${endpoint}/health`, {
+        headers: { authorization: "Bearer pinbox-public-demo" },
+        signal: AbortSignal.timeout(5000),
+      })
         .then((response) => {
           if (!response.ok) throw new Error(String(response.status));
           Pinbox.init({ endpoint, token: "pinbox-public-demo" });

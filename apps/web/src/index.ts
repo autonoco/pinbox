@@ -28,17 +28,47 @@ function stripPrefix(req: Request): Request {
   return new Request(url.toString(), req);
 }
 
+/**
+ * The demo hub is unauthenticated in practice — the token is printed in the page — so the only
+ * thing standing between it and a filled Durable Object is this. A body cap is not a rate limit
+ * and does not pretend to be one; it is the cheap half, and it is the half that stops one request
+ * from writing a megabyte of pin text.
+ */
+const MAX_BODY_BYTES = 64 * 1024;
+
+function tooLarge(): Response {
+  // The hub's own machine-output envelope, so a client parses one error shape either way.
+  return Response.json(
+    {
+      ok: false,
+      error: {
+        code: "E_INVALID_INPUT",
+        message: `request body exceeds the demo hub's ${MAX_BODY_BYTES} byte limit`,
+        hint: "this is the public demo; run your own hub for real payloads",
+      },
+    },
+    { status: 413 },
+  );
+}
+
+function isHubPath(pathname: string): boolean {
+  return pathname === MOUNT || pathname.startsWith(`${MOUNT}/`);
+}
+
+function serveHub(req: Request, env: Env): Promise<Response> {
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
+    return Promise.resolve(tooLarge());
+  }
+  const id = env.PINBOX_HUB.idFromName(env.PINBOX_PROJECT ?? "site-demo");
+  // workers-types' Request/Response nominally differ from the global lib types; they are the
+  // same objects at runtime.
+  return env.PINBOX_HUB.get(id).fetch(stripPrefix(req) as never) as unknown as Promise<Response>;
+}
+
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    if (url.pathname === MOUNT || url.pathname.startsWith(`${MOUNT}/`)) {
-      const id = env.PINBOX_HUB.idFromName(env.PINBOX_PROJECT ?? "site-demo");
-      // workers-types' Request/Response nominally differ from the global lib types; they are the
-      // same objects at runtime.
-      return env.PINBOX_HUB.get(id).fetch(
-        stripPrefix(req) as never,
-      ) as unknown as Promise<Response>;
-    }
-    return env.ASSETS.fetch(req as never) as unknown as Promise<Response>;
+  fetch(req: Request, env: Env): Promise<Response> {
+    return isHubPath(new URL(req.url).pathname)
+      ? serveHub(req, env)
+      : (env.ASSETS.fetch(req as never) as unknown as Promise<Response>);
   },
 };

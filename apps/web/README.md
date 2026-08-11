@@ -52,7 +52,11 @@ hub**. Nothing on that page draws a pin, a thread, or an inbox: all of it comes 
 **The demo hub is public and writable by anyone who loads the page.** That is what a live demo is.
 It is isolated to its own project namespace (`site-demo`), and the token in `wrangler.jsonc` is
 published to every visitor — it is not a secret and must never be reused anywhere real. Wiping the
-demo is deleting one Durable Object. There is no rate limit yet; add one before this gets traffic.
+demo is deleting one Durable Object.
+
+The Worker caps request bodies at 64 KB, which stops one request writing a megabyte of pin text.
+That is not a rate limit and does not pretend to be one — **there is still no request-rate
+limit**. Add one before this gets real traffic.
 
 `endpoint` must be **absolute**. The transport builds its WebSocket URL with `new URL(endpoint)`,
 which throws on a bare path — a relative endpoint leaves the toolbar mounted and permanently

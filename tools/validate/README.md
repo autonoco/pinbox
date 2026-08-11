@@ -18,3 +18,7 @@ standalone Bun script that exits non-zero with the fix in the message.
   file. The site ships with no build step, so nothing else resolves those paths: a renamed font or
   a moved stylesheet fails silently, the browser substitutes a system face, and the page still
   loads looking almost right.
+- `site-toolbar.ts` — the toolbar bundle `apps/web` serves must be the one this repo builds. It is
+  a *copy* (the site has no build step), and a copy drifts: pinbox.sh would keep demonstrating an
+  old build while the repo moved on, so the one page whose job is to be the product shows
+  something that is not. `--write` refreshes it; `predeploy` runs that.

@@ -6,7 +6,11 @@
 // product is showing something that is not the product.
 //
 // `--write` refreshes the copy (run before deploy); with no flag it asserts and exits non-zero.
-const root = new URL("../..", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+// fileURLToPath, not `.pathname`: the latter stays percent-encoded, so a checkout under a path
+// with a space reads as `%20` and every file lookup misses.
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const built = `${root}packages/toolbar/dist/toolbar.iife.js`;
 const shipped = `${root}apps/web/public/pinbox/toolbar.iife.js`;
 const write = process.argv.includes("--write");

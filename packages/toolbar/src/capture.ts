@@ -114,7 +114,10 @@ function buildContext(win: BrowserWindow, el: Element): TargetContext | undefine
 }
 
 /** Fills PinInput.target/env from a chosen element (shapes come from the pin schema). */
-export function captureTarget(el: Element, opts?: { anchor?: string }): CaptureResult {
+export function captureTarget(
+  el: Element,
+  opts?: { anchor?: string; at?: { x: number; y: number } },
+): CaptureResult {
   const doc = el.ownerDocument;
   const win = doc.defaultView as BrowserWindow;
   const r = el.getBoundingClientRect();
@@ -127,6 +130,14 @@ export function captureTarget(el: Element, opts?: { anchor?: string }): CaptureR
     fixed: isFixed(win, el),
   };
   if (opts?.anchor !== undefined) target.anchor = opts.anchor;
+  // Where in the element you clicked, as a fraction of its box. Stored as a fraction rather than
+  // pixels so it survives the element being resized or reflowed — the pin still binds to the
+  // element, it just stops jumping to the middle of it.
+  if (opts?.at !== undefined && r.width > 0 && r.height > 0) {
+    const fx = (opts.at.x - (r.left + win.scrollX)) / r.width;
+    const fy = (opts.at.y - (r.top + win.scrollY)) / r.height;
+    if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) target.spot = { x: fx, y: fy };
+  }
   const context = buildContext(win, el);
   if (context !== undefined) target.context = context;
   return {

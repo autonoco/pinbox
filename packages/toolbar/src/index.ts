@@ -18,6 +18,15 @@ export interface PinboxConfig {
   anchorAttribute?: string;
   /** Reserved; the realtime topic is fixed server-side. */
   project?: string;
+  /**
+   * Attach a screenshot to new pins. Default true.
+   *
+   * Capturing one means asking the browser to share the tab, and that permission prompt is the
+   * first thing a visitor sees — fine in a project you already trust, hostile on a public page.
+   * Set false and pins ship with their structured capture (selector, markup, viewport) and no
+   * pixels.
+   */
+  screenshots?: boolean;
 }
 
 /** Register <pinbox-toolbar>; no-op outside a browser or when already defined. */

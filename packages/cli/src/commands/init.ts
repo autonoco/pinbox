@@ -29,6 +29,7 @@ import {
   installViaShell,
 } from "../init/plugin-install.ts";
 import { askLine, askYesNo } from "../init/prompt.ts";
+import { installClaudeSettings, type SettingsOutcome } from "../init/settings-install.ts";
 import { spawnIntegrationAgent } from "../init/spawn.ts";
 import { ensurePinboxDir } from "../init/state-dir.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
@@ -85,6 +86,8 @@ export type InitData = {
   agents: InstallOutcome[];
   markers: MarkerResult[];
   gitHook: Awaited<ReturnType<typeof installGitHook>>;
+  /** Hook registration + the `pinbox` allow rule in .claude/settings.json. */
+  claudeSettings: SettingsOutcome;
   /** Present when the caller continues the integration: --dry-run, or an agent invocation. */
   brief?: string;
   /** Present only when a headless agent was handed the brief. */
@@ -275,7 +278,11 @@ async function initLayer1(
     notes.push("nothing installed — re-run with --agent <list> or --yes to install");
   }
   const gitHook = await installGitHook(ctx.projectDir, { dryRun });
-  return { data: { pinboxDir, gitignore, agents, markers, gitHook }, notes };
+  // Only meaningful once the skill's hook scripts exist on disk, so this runs after the agents.
+  const claudeSettings = agents.some((a) => a.agent === "claude" && a.ok)
+    ? await installClaudeSettings(ctx.projectDir, { dryRun })
+    : "unchanged";
+  return { data: { pinboxDir, gitignore, agents, markers, gitHook, claudeSettings }, notes };
 }
 
 /**
@@ -434,6 +441,13 @@ function surfaceExists(projectDir: string, target: "cursor" | "copilot"): boolea
   }
 }
 
+const SETTINGS_DETAIL: Record<SettingsOutcome, string> = {
+  installed: "registered pin delivery in .claude/settings.json",
+  updated: "registered pin delivery in .claude/settings.json",
+  unchanged: ".claude/settings.json already wired",
+  failed: ".claude/settings.json is unreadable — hooks NOT registered, fix the JSON and re-run",
+};
+
 const GIT_HOOK_DETAIL: Record<InitData["gitHook"], string> = {
   installed: "installed .git/hooks/post-commit",
   kept: "kept existing .git/hooks/post-commit",
@@ -449,6 +463,7 @@ function renderLayer1(data: InitData): string {
       (outcome) => `${outcome.ok ? "ok" : "no"}  ${outcome.agent.padEnd(8)}  ${outcome.detail}`,
     ),
     `ok  ${"git-hook".padEnd(8)}  ${GIT_HOOK_DETAIL[data.gitHook]}`,
+    `ok  ${"hooks".padEnd(8)}  ${SETTINGS_DETAIL[data.claudeSettings]}`,
   ].join("\n");
 }
 

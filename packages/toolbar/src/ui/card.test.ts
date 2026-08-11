@@ -77,14 +77,20 @@ describe("renderCard thread patching", () => {
     const state = stateWith({ pins: [pin], activePinId: pin.id, threads });
     renderCard(shadow, state, spyActions());
     const before = [...shadow.querySelectorAll("[data-iid]")];
-    expect(before.length).toBe(2);
+    // The pin's own text leads the thread, so a two-message thread draws three nodes.
+    expect(before.map((n) => n.getAttribute("data-iid"))).toEqual([
+      `pin:${pin.id}`,
+      "msg_1111111111",
+      "msg_2222222222",
+    ]);
     thread.push(makeMsg("msg_3333333333", pin.id, "mirror", "third"));
     renderCard(shadow, state, spyActions());
     const after = [...shadow.querySelectorAll("[data-iid]")];
-    expect(after.length).toBe(3);
+    expect(after.length).toBe(4);
     expect(after[0]).toBe(before[0] as Element); // node identity — patched, never rebuilt
     expect(after[1]).toBe(before[1] as Element);
-    expect(after[2]?.getAttribute("data-iid")).toBe("msg_3333333333");
+    expect(after[2]).toBe(before[2] as Element);
+    expect(after[3]?.getAttribute("data-iid")).toBe("msg_3333333333");
   });
 });
 
@@ -190,5 +196,21 @@ describe("renderCard draft card", () => {
     // empty text never sends
     send.click();
     expect(actions.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("renderCard typing indicator", () => {
+  test("shows while the agent owes a reply, and clears once it answers", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const thread = [makeMsg("msg_1111111111", pin.id, "human", "first")];
+    const threads = new Map([[pin.id, thread]]);
+    const state = stateWith({ pins: [pin], activePinId: pin.id, threads });
+    renderCard(shadow, state, spyActions());
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).not.toBeNull();
+
+    thread.push(makeMsg("msg_2222222222", pin.id, "agent", "second"));
+    renderCard(shadow, state, spyActions());
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
   });
 });

@@ -131,6 +131,35 @@ function messageHtml(m: ThreadMessage): string {
   );
 }
 
+/** The agent has the message and has not answered yet. Its own node, so patching never rebuilds. */
+const TYPING_HTML =
+  '<div class="pb-typing"><div class="pb-av agent">AI</div>' +
+  '<div class="dots"><i></i><i></i><i></i></div><div class="lbl">THINKING</div></div>';
+
+/**
+ * Show or hide the "working on it" row.
+ *
+ * Without it the card sits silent from the moment you comment until the answer lands, which reads
+ * as nothing happening — the single most common report on the demo.
+ */
+function patchTyping(threadEl: HTMLElement, pending: boolean): void {
+  const existing = threadEl.querySelector<HTMLElement>('[data-iid="pb-typing"]');
+  if (!pending) {
+    existing?.remove();
+    return;
+  }
+  if (existing) {
+    threadEl.appendChild(existing); // stay last as messages arrive
+    return;
+  }
+  const node = threadEl.ownerDocument.createElement("div");
+  node.className = "pb-msg-w";
+  node.setAttribute("data-iid", "pb-typing");
+  node.innerHTML = TYPING_HTML;
+  threadEl.appendChild(node);
+  threadEl.scrollTop = threadEl.scrollHeight;
+}
+
 /** Keyed thread patching: appends/patches [data-iid] nodes only, never rebuilds. */
 function patchThread(threadEl: HTMLElement, messages: ThreadMessage[]): void {
   let appended = false;
@@ -358,6 +387,23 @@ function viewOf(state: ToolbarState): CardView | null {
 }
 
 /** Render the thread card for a state snapshot: the active pin, or the draft. */
+/**
+ * The pin's own text, as the first message in its thread.
+ *
+ * A pin stores what you wrote on the pin itself, not in the thread — so a card that renders only
+ * `thread` shows an empty box the moment you hit Comment, and your words look lost. They are not
+ * lost; they were never drawn.
+ */
+function pinAsMessage(pin: Pin): ThreadMessage {
+  return {
+    id: `pin:${pin.id}`,
+    pinId: pin.id,
+    role: "human",
+    text: pin.text,
+    at: pin.createdAt,
+  };
+}
+
 export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardActions): void {
   const card = ensureShell(root);
   const ctx = ctxByCard.get(card) as CardCtx;
@@ -371,7 +417,8 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   if (ctx.pid !== view.pid) {
     ctx.pid = view.pid;
     ctx.parts = {};
-    buildSkeleton(card, ctx, view.pid === "draft", view.thread.length > 0);
+    // A committed pin always has at least its own message, so the thread area always exists.
+    buildSkeleton(card, ctx, view.pid === "draft", view.pin !== null || view.thread.length > 0);
   }
   card.hidden = false;
   // Outbox-queued pin: pending sync — labeled QUEUED, unresolvable until the hub knows it.
@@ -381,8 +428,14 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
   setPart(card, ctx, "link", linkHtml(view.pin));
   setPart(card, ctx, "verify", verifyHtml(view.status));
-  setPart(card, ctx, "row", rowHtml(view.thread.length > 0));
+  const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
+  setPart(card, ctx, "row", rowHtml(messages.length > 0));
   const threadEl = card.querySelector<HTMLElement>('[data-ref="thread"]');
-  if (threadEl) patchThread(threadEl, view.thread);
+  if (threadEl) {
+    patchThread(threadEl, messages);
+    // Pending exactly when the last word is yours and the pin is still open — the same condition
+    // that makes the status "waiting", so the chip and the row can never disagree.
+    patchTyping(threadEl, !queued && view.pin?.status === "open" && view.status === "waiting");
+  }
   position(card, view.at);
 }

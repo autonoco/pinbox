@@ -233,6 +233,8 @@ export class PinboxToolbarElement extends BaseElement {
   async #screenshot(selector: string): Promise<Attachment | null> {
     const cfg = this.config;
     if (cfg === null) return null;
+    // Opted out: never call getDisplayMedia, so the tab-share prompt never appears.
+    if (cfg.screenshots === false) return null;
     try {
       const el = document.querySelector(selector);
       if (el === null) return null;
@@ -347,7 +349,10 @@ export class PinboxToolbarElement extends BaseElement {
     e.preventDefault();
     e.stopPropagation();
     const el = this.#hover ?? document.body;
-    this.store.place({ target: captureTarget(el), placedAt: { x: e.pageX, y: e.pageY } });
+    this.store.place({
+      target: captureTarget(el, { at: { x: e.pageX, y: e.pageY } }),
+      placedAt: { x: e.pageX, y: e.pageY },
+    });
     this.#reticle?.release();
   }
 

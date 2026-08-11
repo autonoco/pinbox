@@ -178,6 +178,14 @@ var Pinbox = (function(exports) {
 			fixed: isFixed(win, el)
 		};
 		if (opts?.anchor !== void 0) target.anchor = opts.anchor;
+		if (opts?.at !== void 0 && r.width > 0 && r.height > 0) {
+			const fx = (opts.at.x - (r.left + win.scrollX)) / r.width;
+			const fy = (opts.at.y - (r.top + win.scrollY)) / r.height;
+			if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) target.spot = {
+				x: fx,
+				y: fy
+			};
+		}
 		const context = buildContext(win, el);
 		if (context !== void 0) target.context = context;
 		return {
@@ -1050,6 +1058,31 @@ var Pinbox = (function(exports) {
 		const via = origin ? `<span class="via-tag"><span>${esc(origin)}</span></span>` : "";
 		return `<div class="pb-msg you"><div class="pb-av${mirror ? " via" : ""}">${esc(initials)}</div><div class="col"><div class="line"><span class="who">${esc(who)}</span><span class="tm">${esc(timeOf(m.at))}</span>${via}</div><div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`;
 	}
+	/** The agent has the message and has not answered yet. Its own node, so patching never rebuilds. */
+	const TYPING_HTML = "<div class=\"pb-typing\"><div class=\"pb-av agent\">AI</div><div class=\"dots\"><i></i><i></i><i></i></div><div class=\"lbl\">THINKING</div></div>";
+	/**
+	* Show or hide the "working on it" row.
+	*
+	* Without it the card sits silent from the moment you comment until the answer lands, which reads
+	* as nothing happening — the single most common report on the demo.
+	*/
+	function patchTyping(threadEl, pending) {
+		const existing = threadEl.querySelector("[data-iid=\"pb-typing\"]");
+		if (!pending) {
+			existing?.remove();
+			return;
+		}
+		if (existing) {
+			threadEl.appendChild(existing);
+			return;
+		}
+		const node = threadEl.ownerDocument.createElement("div");
+		node.className = "pb-msg-w";
+		node.setAttribute("data-iid", "pb-typing");
+		node.innerHTML = TYPING_HTML;
+		threadEl.appendChild(node);
+		threadEl.scrollTop = threadEl.scrollHeight;
+	}
 	/** Keyed thread patching: appends/patches [data-iid] nodes only, never rebuilds. */
 	function patchThread(threadEl, messages) {
 		let appended = false;
@@ -1215,6 +1248,22 @@ var Pinbox = (function(exports) {
 		};
 	}
 	/** Render the thread card for a state snapshot: the active pin, or the draft. */
+	/**
+	* The pin's own text, as the first message in its thread.
+	*
+	* A pin stores what you wrote on the pin itself, not in the thread — so a card that renders only
+	* `thread` shows an empty box the moment you hit Comment, and your words look lost. They are not
+	* lost; they were never drawn.
+	*/
+	function pinAsMessage(pin) {
+		return {
+			id: `pin:${pin.id}`,
+			pinId: pin.id,
+			role: "human",
+			text: pin.text,
+			at: pin.createdAt
+		};
+	}
 	function renderCard(root, state, actions) {
 		const card = ensureShell(root);
 		const ctx = ctxByCard.get(card);
@@ -1228,7 +1277,7 @@ var Pinbox = (function(exports) {
 		if (ctx.pid !== view.pid) {
 			ctx.pid = view.pid;
 			ctx.parts = {};
-			buildSkeleton(card, ctx, view.pid === "draft", view.thread.length > 0);
+			buildSkeleton(card, ctx, view.pid === "draft", view.pin !== null || view.thread.length > 0);
 		}
 		card.hidden = false;
 		const queued = view.pin !== null && state.queuedIds.has(view.pin.id);
@@ -1237,9 +1286,13 @@ var Pinbox = (function(exports) {
 		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
 		setPart(card, ctx, "link", linkHtml(view.pin));
 		setPart(card, ctx, "verify", verifyHtml(view.status));
-		setPart(card, ctx, "row", rowHtml(view.thread.length > 0));
+		const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
+		setPart(card, ctx, "row", rowHtml(messages.length > 0));
 		const threadEl = card.querySelector("[data-ref=\"thread\"]");
-		if (threadEl) patchThread(threadEl, view.thread);
+		if (threadEl) {
+			patchThread(threadEl, messages);
+			patchTyping(threadEl, !queued && view.pin?.status === "open" && view.status === "waiting");
+		}
 		position(card, view.at);
 	}
 	//#endregion
@@ -1339,11 +1392,19 @@ var Pinbox = (function(exports) {
 	//#region src/ui/pins.ts
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const chipMemo = /* @__PURE__ */ new WeakMap();
-	/** Needle anchor point for a committed pin: center of the captured target rect. */
-	function pinPoint(r) {
+	/**
+	* Where the needle lands: the point inside the element that was actually clicked, when the pin
+	* recorded one, else the centre of its box.
+	*
+	* `spot` is a fraction of the element, so the pin still tracks the element when it moves or
+	* resizes — it just stops sliding to the middle of a wide block the moment you commit it.
+	*/
+	function pinPoint(r, spot) {
+		const fx = spot?.x ?? .5;
+		const fy = spot?.y ?? .5;
 		return {
-			x: r.x + r.width / 2,
-			y: r.y + r.height / 2
+			x: r.x + r.width * fx,
+			y: r.y + r.height * fy
 		};
 	}
 	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
@@ -1385,21 +1446,28 @@ var Pinbox = (function(exports) {
 		const placed = [];
 		visible.forEach((pin, i) => {
 			const rect = pin.target?.rect;
-			if (rect !== void 0) placed.push({
+			if (rect === void 0) return;
+			const spot = pin.target?.spot;
+			placed.push(spot === void 0 ? {
 				pin,
 				n: i + 1,
 				rect
+			} : {
+				pin,
+				n: i + 1,
+				rect,
+				spot
 			});
 		});
 		const keys = new Set(placed.map((entry) => entry.pin.id));
 		if (state.draft) keys.add("draft");
 		for (const node of [...layer.children]) if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
-		for (const { pin, n, rect } of placed) {
+		for (const { pin, n, rect, spot } of placed) {
 			const node = ensureNode(layer, pin.id, false);
 			const hot = pin.id === state.activePinId;
 			const queued = state.queuedIds.has(pin.id);
 			node.classList.toggle("queued", queued);
-			patchNode(node, pinPoint(rect), hot, chipInner(n, pin, queued));
+			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
 		}
 		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(visible.length + 1, null));
 	}
@@ -1575,6 +1643,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-msg-w { animation: pb-in 260ms var(--pb-ease) both; }
 .pb-msg { padding: 13px 14px; display: flex; gap: 10px; }
 .pb-msg.you { border-bottom: 1px solid var(--pb-line); }
+.pb-typing { padding: 13px 14px; display: flex; gap: 10px; align-items: center; }
+.pb-typing .dots { display: flex; gap: 4px; }
+.pb-typing .dots i { width: 4px; height: 4px; border-radius: 999px; background: var(--pb-amber); animation: pb-pulse 1.1s var(--pb-ease) infinite; }
+.pb-typing .dots i:nth-child(2) { animation-delay: .18s; }
+.pb-typing .dots i:nth-child(3) { animation-delay: .36s; }
+.pb-typing .lbl { font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg3); }
 .pb-msg .steps { display: flex; flex-direction: column; gap: 7px; }
 .pb-av { flex: none; width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .04em; background: var(--pb-invert-bg); color: var(--pb-invert-fg); border: 1px solid var(--pb-invert-bg); }
 .pb-av.via { background: transparent; color: var(--pb-info); border-color: var(--pb-info); }
@@ -1832,6 +1906,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		async #screenshot(selector) {
 			const cfg = this.config;
 			if (cfg === null) return null;
+			if (cfg.screenshots === false) return null;
 			try {
 				const el = document.querySelector(selector);
 				if (el === null) return null;
@@ -1936,7 +2011,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			e.stopPropagation();
 			const el = this.#hover ?? document.body;
 			this.store.place({
-				target: captureTarget(el),
+				target: captureTarget(el, { at: {
+					x: e.pageX,
+					y: e.pageY
+				} }),
 				placedAt: {
 					x: e.pageX,
 					y: e.pageY

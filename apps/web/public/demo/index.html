@@ -263,7 +263,9 @@
       })
         .then((response) => {
           if (!response.ok) throw new Error(String(response.status));
-          Pinbox.init({ endpoint, token: "pinbox-public-demo" });
+          // screenshots: false — capturing one means asking to share the tab, and that prompt is the
+          // first thing a visitor sees. Pins still carry the selector, markup, and viewport.
+          Pinbox.init({ endpoint, token: "pinbox-public-demo", screenshots: false });
         })
         .catch(() => {
           document.getElementById("offline").classList.add("is-shown");

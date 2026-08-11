@@ -65,21 +65,39 @@ describe("signature", () => {
 describe("which events get answered", () => {
   const pin = (payload: unknown) => JSON.stringify({ event: { type: "pin.created", payload } });
 
-  test("a new pin is answered, and names where it points", () => {
+  test("the element's own text reaches the agent, not just a selector", () => {
+    // The bug this pins down: a pin on the element containing "1997" reached the model as a bare
+    // CSS path, so "change this to 20 not 19" was unanswerable and the agent asked what was meant.
+    const target = {
+      selector: "body > div > div:nth-of-type(4) > div",
+      tag: "div",
+      context: { classes: ["m-metric__v"], nearbyText: "1997", styles: { "font-size": "34px" } },
+    };
+    const where = parseDelivery(pin({ id: "pin_a", text: "change to 20", target }))?.where ?? "";
+    expect(where).toContain('"1997"');
+    expect(where).toContain("m-metric__v");
+    expect(where).toContain("font-size: 34px");
+    expect(where).toContain("<div>");
+  });
+
+  test("a pin with only a selector still names where it points", () => {
     expect(
       parseDelivery(pin({ id: "pin_a", text: "cut off", target: { selector: "button.pay" } })),
-    ).toEqual({ pinId: "pin_a", text: "cut off", where: "button.pay" });
+    ).toEqual({ pinId: "pin_a", text: "cut off", where: "selector: button.pay" });
   });
 
   test("a pin with no target still gets answered", () => {
     expect(parseDelivery(pin({ id: "pin_a", text: "cut off" }))?.where).toBe("the page");
   });
 
-  test("a human reply is answered on its own pin", () => {
+  test("a reply carries no context of its own — it must be hydrated from the pin", () => {
+    // The bug this pins down: "do it" reached the model as two words plus the string "the page",
+    // so the only possible answer was "what would you like changed?". `where` is empty here on
+    // purpose; handleDelivery fills it from the pin, its element, and the conversation so far.
     const body = JSON.stringify({
-      event: { type: "thread.message", payload: { pinId: "pin_b", role: "human", text: "still?" } },
+      event: { type: "thread.message", payload: { pinId: "pin_b", role: "human", text: "do it" } },
     });
-    expect(parseDelivery(body)).toEqual({ pinId: "pin_b", text: "still?", where: "the page" });
+    expect(parseDelivery(body)).toEqual({ pinId: "pin_b", text: "do it", where: "" });
   });
 
   test("the agent never answers itself", () => {

@@ -10,9 +10,17 @@ import { esc, pinNumber } from "./html.ts";
 /** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 const chipMemo = new WeakMap<Element, string>();
 
-/** Needle anchor point for a committed pin: center of the captured target rect. */
-function pinPoint(r: Rect): { x: number; y: number } {
-  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+/**
+ * Where the needle lands: the point inside the element that was actually clicked, when the pin
+ * recorded one, else the centre of its box.
+ *
+ * `spot` is a fraction of the element, so the pin still tracks the element when it moves or
+ * resizes — it just stops sliding to the middle of a wide block the moment you commit it.
+ */
+function pinPoint(r: Rect, spot?: { x: number; y: number }): { x: number; y: number } {
+  const fx = spot?.x ?? 0.5;
+  const fy = spot?.y ?? 0.5;
+  return { x: r.x + r.width * fx, y: r.y + r.height * fy };
 }
 
 /** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
@@ -64,22 +72,24 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
   // A pin with no captured rect — a terminal `pinbox pin` — has no place on the page,
   // so the overlay draws no needle for it. It keeps its ordinal (the drawer lists it).
-  const placed: { pin: Pin; n: number; rect: Rect }[] = [];
+  const placed: { pin: Pin; n: number; rect: Rect; spot?: { x: number; y: number } }[] = [];
   visible.forEach((pin, i) => {
     const rect = pin.target?.rect;
-    if (rect !== undefined) placed.push({ pin, n: i + 1, rect });
+    if (rect === undefined) return;
+    const spot = pin.target?.spot;
+    placed.push(spot === undefined ? { pin, n: i + 1, rect } : { pin, n: i + 1, rect, spot });
   });
   const keys = new Set(placed.map((entry) => entry.pin.id));
   if (state.draft) keys.add("draft");
   for (const node of [...layer.children]) {
     if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
   }
-  for (const { pin, n, rect } of placed) {
+  for (const { pin, n, rect, spot } of placed) {
     const node = ensureNode(layer, pin.id, false);
     const hot = pin.id === state.activePinId;
     const queued = state.queuedIds.has(pin.id);
     node.classList.toggle("queued", queued);
-    patchNode(node, pinPoint(rect), hot, chipInner(n, pin, queued));
+    patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
   }
   if (state.draft) {
     const node = ensureNode(layer, "draft", true);

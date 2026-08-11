@@ -9,7 +9,13 @@
 // wiping it is deleting one Durable Object. Do not point anything real at it.
 import { type PinboxDoEnv, PinboxHubDO } from "@autono/pinbox-core/do";
 import type { DurableObjectNamespace, Fetcher } from "@cloudflare/workers-types";
-import { type AgentEnv, type HubPost, handleDelivery, registerSession } from "./agent.ts";
+import {
+  type AgentEnv,
+  type HubGet,
+  type HubPost,
+  handleDelivery,
+  registerSession,
+} from "./agent.ts";
 
 export { PinboxHubDO };
 
@@ -39,8 +45,14 @@ function stripPrefix(req: Request): Request {
  * from writing a megabyte of pin text.
  */
 const MAX_BODY_BYTES = 64 * 1024;
+/** Screenshots and other attachments are legitimately far larger than a pin. */
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
-function tooLarge(): Response {
+async function tooLarge(req: Request): Promise<Response> {
+  // Drain first. Answering while the body is still streaming kills the whole Worker with
+  // "Can't read from request stream after response has been sent" — which took the socket, the
+  // queued pin, and the dev server with it.
+  await req.body?.cancel().catch(() => {});
   // The hub's own machine-output envelope, so a client parses one error shape either way.
   return Response.json(
     {
@@ -65,10 +77,11 @@ export function routeFor(pathname: string): Route {
   return "asset";
 }
 
-function serveHub(req: Request, env: Env): Promise<Response> {
-  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
-    return Promise.resolve(tooLarge());
-  }
+async function serveHub(req: Request, env: Env): Promise<Response> {
+  const limit = new URL(req.url).pathname.startsWith(`${MOUNT}/attachments`)
+    ? MAX_ATTACHMENT_BYTES
+    : MAX_BODY_BYTES;
+  if (Number(req.headers.get("content-length") ?? 0) > limit) return tooLarge(req);
   const id = env.PINBOX_HUB.idFromName(env.PINBOX_PROJECT ?? "site-demo");
   // workers-types' Request/Response nominally differ from the global lib types; they are the
   // same objects at runtime.
@@ -94,11 +107,24 @@ function hubPost(env: Env, origin: string): HubPost {
   };
 }
 
+/** The read side of the same direct line. */
+function hubGet(env: Env, origin: string): HubGet {
+  return (path) =>
+    serveHub(
+      new Request(`${origin}${MOUNT}${path}`, {
+        headers: { authorization: `Bearer ${env.PINBOX_TOKEN ?? ""}` },
+      }),
+      env,
+    );
+}
+
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname, origin } = new URL(req.url);
     const route = routeFor(pathname);
-    if (route === "agent") return handleDelivery(req, env, hubPost(env, origin));
+    if (route === "agent") {
+      return handleDelivery(req, env, hubPost(env, origin), hubGet(env, origin));
+    }
     if (route === "hub") return serveHub(req, env);
     // Loading the demo registers the agent session, so a pin dropped a moment later has somewhere
     // to be delivered. Upsert by (agent, key), so repeat loads cost nothing; a pin that lands

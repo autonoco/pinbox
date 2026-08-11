@@ -108,6 +108,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-msg-w { animation: pb-in 260ms var(--pb-ease) both; }
 .pb-msg { padding: 13px 14px; display: flex; gap: 10px; }
 .pb-msg.you { border-bottom: 1px solid var(--pb-line); }
+.pb-typing { padding: 13px 14px; display: flex; gap: 10px; align-items: center; }
+.pb-typing .dots { display: flex; gap: 4px; }
+.pb-typing .dots i { width: 4px; height: 4px; border-radius: 999px; background: var(--pb-amber); animation: pb-pulse 1.1s var(--pb-ease) infinite; }
+.pb-typing .dots i:nth-child(2) { animation-delay: .18s; }
+.pb-typing .dots i:nth-child(3) { animation-delay: .36s; }
+.pb-typing .lbl { font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg3); }
 .pb-msg .steps { display: flex; flex-direction: column; gap: 7px; }
 .pb-av { flex: none; width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .04em; background: var(--pb-invert-bg); color: var(--pb-invert-fg); border: 1px solid var(--pb-invert-bg); }
 .pb-av.via { background: transparent; color: var(--pb-info); border-color: var(--pb-info); }

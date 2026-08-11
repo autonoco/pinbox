@@ -85,6 +85,8 @@ const TargetSchema = z.object({
   selector: z.string().optional(),
   tag: z.string().optional(),
   rect: RectSchema.optional(),
+  /** Where inside `rect` the click landed, 0–1 on each axis. Absent ⇒ anchor at the centre. */
+  spot: z.object({ x: z.number(), y: z.number() }).optional(),
   fixed: z.boolean().optional(),
   anchor: z.string().optional(),
   source: SourceSchema.optional(),

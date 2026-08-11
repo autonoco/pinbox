@@ -6,8 +6,9 @@
     <title>Meridian — pinbox demo</title>
     <link rel="stylesheet" href="/styles/tokens.css" />
     <style>
-      /* A stand-in for "some app you are working on". Everything pinbox-shaped on this page comes
-         from the real toolbar bundle below — nothing here draws a pin, a thread, or an inbox. */
+      /* The page under review: Meridian, a private capital firm — copy and layout taken from the
+         Pinbox prototype in Claude Design, not invented here. Everything pinbox-shaped comes from
+         the real toolbar bundle at the bottom; nothing on this page draws a pin, thread, or inbox. */
       * {
         box-sizing: border-box;
       }
@@ -21,90 +22,153 @@
         color: var(--fg-1);
         font-family: var(--font-body);
         -webkit-font-smoothing: antialiased;
-        padding: clamp(28px, 5vw, 56px);
         display: flex;
         flex-direction: column;
-        gap: clamp(28px, 4vw, 44px);
+        align-items: center;
+        padding: clamp(28px, 5vw, 56px) clamp(20px, 6vw, 72px) 120px;
+      }
+      .m-row {
+        width: 100%;
+        max-width: 1180px;
       }
       .m-nav {
         display: flex;
         align-items: center;
-        gap: 22px;
-        font-size: 13px;
-        color: var(--fg-3);
+        justify-content: space-between;
+        padding-bottom: clamp(40px, 6vw, 74px);
       }
-      .m-logo {
-        font-family: var(--font-display);
-        font-weight: 300;
-        font-size: 15px;
-        letter-spacing: -0.02em;
+      .m-wordmark {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.24em;
         color: var(--fg-1);
       }
-      .m-hero {
+      .m-links {
+        display: flex;
+        gap: clamp(18px, 3vw, 34px);
+        font-size: 13px;
+        letter-spacing: -0.005em;
+        color: var(--fg-2);
+      }
+      .m-main {
         display: flex;
         flex-direction: column;
-        gap: 18px;
-        max-width: 44ch;
+        gap: clamp(40px, 6vw, 72px);
+      }
+      .m-header {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+        max-width: 860px;
+      }
+      .m-eyebrow {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        color: var(--fg-3);
       }
       .m-title {
         margin: 0;
         font-family: var(--font-display);
         font-weight: 300;
-        font-size: clamp(30px, 4.6vw, 52px);
+        font-size: clamp(34px, 5.4vw, 66px);
         line-height: 1.02;
         letter-spacing: -0.03em;
+        text-wrap: pretty;
       }
-      .m-lede {
+      .m-sub {
         margin: 0;
+        max-width: 470px;
         font-size: 15px;
-        line-height: 1.6;
+        line-height: 1.62;
+        letter-spacing: -0.005em;
         color: var(--fg-2);
+        text-wrap: pretty;
       }
-      .m-pay {
-        align-self: flex-start;
-        height: 42px;
+      .m-buttons {
+        display: flex;
+        gap: 10px;
+        padding-top: 6px;
+      }
+      .m-btn {
+        display: flex;
+        align-items: center;
+        height: 38px;
         padding: 0 20px;
-        border: none;
         border-radius: var(--radius-1);
-        background: var(--amber);
-        color: #141414;
-        font: inherit;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
+        font-size: 13px;
+        letter-spacing: -0.005em;
       }
-      .m-cards {
+      .m-btn--solid {
+        background: var(--fg-1);
+        color: var(--bg-1);
+      }
+      .m-btn--ghost {
+        border: 1px solid var(--hairline-strong);
+        color: var(--fg-1);
+      }
+      .m-metrics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-        gap: 1px;
-        background: var(--hairline);
-        border: 1px solid var(--hairline);
-        border-radius: var(--radius-2);
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+        border-top: 1px solid var(--hairline);
       }
-      .m-card {
-        background: var(--bg-2);
-        padding: 20px;
+      .m-metric {
+        padding: 22px 24px 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
+        border-left: 1px solid var(--hairline);
       }
-      .m-card__k {
-        font-family: var(--font-mono);
-        font-size: 10px;
-        letter-spacing: 0.18em;
-        color: var(--fg-4);
+      .m-metric:first-child {
+        padding-left: 0;
+        border-left: none;
       }
-      .m-card__v {
+      .m-metric__v {
         font-family: var(--font-display);
         font-weight: 300;
-        font-size: 22px;
-        letter-spacing: -0.02em;
+        font-size: clamp(26px, 3vw, 34px);
+        letter-spacing: -0.03em;
+      }
+      .m-metric__k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--fg-3);
+      }
+      .m-pillars {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+        gap: 16px;
+      }
+      .m-pillar {
+        padding: 24px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-2);
+        background: var(--bg-2);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 150px;
+      }
+      .m-pillar__k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--fg-3);
+      }
+      .m-pillar__b {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--fg-2);
+        text-wrap: pretty;
       }
       /* Shown only if the hub is unreachable, so a dead demo says so instead of looking broken. */
       .m-offline {
         display: none;
         align-items: center;
         gap: 10px;
+        margin-top: 24px;
         padding: 10px 14px;
         border: 1px solid var(--hairline-strong);
         border-radius: var(--radius-1);
@@ -119,39 +183,77 @@
     </style>
   </head>
   <body>
-    <nav class="m-nav">
-      <span class="m-logo">meridian</span>
-      <span>Product</span>
-      <span>Pricing</span>
-      <span>Docs</span>
+    <nav class="m-row m-nav">
+      <div class="m-wordmark">MERIDIAN</div>
+      <div class="m-links">
+        <span>work</span><span>approach</span><span>people</span><span>contact</span>
+      </div>
     </nav>
 
-    <div class="m-hero">
-      <h1 class="m-title">Freight, settled the same day.</h1>
-      <p class="m-lede">
-        One ledger for every carrier, every lane, every invoice. Reconciled before the truck is
-        unloaded.
-      </p>
-      <button class="m-pay" type="button">Start settlement</button>
-    </div>
+    <div class="m-row m-main">
+      <header class="m-header">
+        <div class="m-eyebrow">PRIVATE CAPITAL — EST. 1997</div>
+        <h1 class="m-title">capital, deployed<br />with conviction.</h1>
+        <p class="m-sub">
+          We hold positions for a decade, not a quarter. Twelve companies. One thesis. No outside
+          capital.
+        </p>
+        <div class="m-buttons">
+          <div class="m-btn m-btn--solid">The thesis</div>
+          <div class="m-btn m-btn--ghost">Portfolio</div>
+        </div>
+      </header>
 
-    <div class="m-cards">
-      <div class="m-card"><span class="m-card__k">LANES</span><span class="m-card__v">1,284</span></div>
-      <div class="m-card">
-        <span class="m-card__k">SETTLED TODAY</span><span class="m-card__v">$2.4M</span>
+      <div class="m-metrics">
+        <div class="m-metric">
+          <div class="m-metric__v">$4.2B</div>
+          <div class="m-metric__k">UNDER MANAGEMENT</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">12</div>
+          <div class="m-metric__k">ACTIVE POSITIONS</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">11.4</div>
+          <div class="m-metric__k">AVG. HOLD, YEARS</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">1997</div>
+          <div class="m-metric__k">FIRST CLOSE</div>
+        </div>
       </div>
-      <div class="m-card"><span class="m-card__k">DISPUTES</span><span class="m-card__v">3</span></div>
-    </div>
 
-    <div class="m-offline" id="offline">DEMO HUB UNREACHABLE — THE TOOLBAR IS NOT CONNECTED</div>
+      <div class="m-pillars">
+        <div class="m-pillar">
+          <div class="m-pillar__k">01 — CONTROL</div>
+          <div class="m-pillar__b">
+            We take board seats and operating roles. Passive capital is not our instrument.
+          </div>
+        </div>
+        <div class="m-pillar">
+          <div class="m-pillar__k">02 — DURATION</div>
+          <div class="m-pillar__b">
+            No fund life, no forced exit. The clock belongs to the business.
+          </div>
+        </div>
+        <div class="m-pillar">
+          <div class="m-pillar__k">03 — CONCENTRATION</div>
+          <div class="m-pillar__b">
+            Twelve positions, deliberately. Diversification is a tax on conviction.
+          </div>
+        </div>
+      </div>
+
+      <div class="m-offline" id="offline">DEMO HUB UNREACHABLE — THE TOOLBAR IS NOT CONNECTED</div>
+    </div>
 
     <!-- The shipped component, byte for byte: packages/toolbar's IIFE bundle, kept in step by
          tools/validate/site-toolbar.ts. -->
     <script src="/pinbox/toolbar.iife.js"></script>
     <script>
       // Same origin as the hub, so no CORS. The token is public by design — see wrangler.jsonc.
-      // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with `new URL(endpoint)`,
-      // which throws on a bare path.
+      // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with
+      // `new URL(endpoint)`, which throws on a bare path.
       const endpoint = `${location.origin}/_pinbox`;
       // A hub that accepts the connection and then never answers would leave this pending forever,
       // so the page would sit there looking fine and never say it is offline.

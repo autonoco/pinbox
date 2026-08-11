@@ -5,6 +5,33 @@ documented default. Agents are markedly better at CLI tools than MCP: use the `p
 the pinbox skill; this server exists for environments that cannot shell out. Mutating tools
 require `--allow-mutations`.
 
+## Protocol
+
+Implements MCP: protocol version `2026-07-28`, the string a client carries in each request's
+`_meta`. MCP is stateless — no handshake, no session — so a client may send `tools/call` as its
+very first message, and requests are answered independently of one another. `server/discover`
+reports supported versions, capabilities, and identity.
+
+Requests naming any other protocol version are refused with `-32022` and the supported list.
+
+Every tool declares an output schema and returns its data in `structuredContent`, so a client
+reads fields rather than parsing a JSON string out of message text. The schemas are permissive by
+design: the CLI's machine output is a versioned contract that gains fields, and a strict schema
+would strip anything new on the way through.
+
+Pins are published as resources — `pinbox://pins` for the queue, `pinbox://pins/{id}` for one pin
+and its thread — and this server holds a socket to the local hub, which broadcasts every store
+change. Subscribe with `subscriptions/listen` and a new pin arrives as a notification instead of
+something you have to poll for. Reads still go through the CLI: the socket is a change signal, not
+a second way to read the database.
+
+Not implemented, because nothing here needs them: mid-request user input (no tool asks the user
+anything — pin text arrives with the pin) and background tasks (every call is a local SQLite read
+behind a CLI invocation).
+
+`protocol.test.ts` is the contract: it drives the server as raw JSON-RPC, with no client library
+in between.
+
 ## Usage
 
 ```jsonc

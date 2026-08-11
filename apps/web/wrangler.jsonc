@@ -4,11 +4,16 @@
   "name": "pinbox-site",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
+  // The Anthropic SDK reaches for node builtins; without this the agent module fails to load.
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    // Static assets are served WITHOUT invoking the Worker by default — the demo page needs the
+    // Worker to run first so it can register the agent session before anyone drops a pin.
+    "run_worker_first": ["/demo", "/demo/"]
   },
   "durable_objects": {
     "bindings": [{ "name": "PINBOX_HUB", "class_name": "PinboxHubDO" }]
@@ -23,7 +28,15 @@
     "PINBOX_TOKEN": "pinbox-public-demo",
     // One namespace for the demo, separate from anything else. Wiping the demo is deleting this
     // Durable Object.
-    "PINBOX_PROJECT": "site-demo"
+    "PINBOX_PROJECT": "site-demo",
+    // Where the hub delivers pins. Same Worker, one route over: the DO posts here, the agent
+    // replies on the pin's thread. Without both WEBHOOK_ vars the hub wires no delivery adapter
+    // at all and pins are stored and never answered.
+    "WEBHOOK_URL": "https://pinbox.sh/_pinbox-agent"
   },
+  // Secrets — `wrangler secret put <NAME>`, never vars:
+  //   ANTHROPIC_API_KEY  the agent's key; it is what answers a pin
+  //   WEBHOOK_SECRET     HMAC shared with the hub, so only the hub can trigger a reply
+
   "alias": { "bun:sqlite": "../../examples/worker/src/shims/bun-sqlite.ts" }
 }

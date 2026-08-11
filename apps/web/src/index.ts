@@ -9,17 +9,21 @@
 // wiping it is deleting one Durable Object. Do not point anything real at it.
 import { type PinboxDoEnv, PinboxHubDO } from "@autono/pinbox-core/do";
 import type { DurableObjectNamespace, Fetcher } from "@cloudflare/workers-types";
+import { type AgentEnv, type HubPost, handleDelivery, registerSession } from "./agent.ts";
 
 export { PinboxHubDO };
 
-export type Env = PinboxDoEnv & {
-  /** Static assets binding — everything in `public/`. */
-  ASSETS: Fetcher;
-  PINBOX_HUB: DurableObjectNamespace;
-  PINBOX_PROJECT?: string;
-};
+export type Env = PinboxDoEnv &
+  AgentEnv & {
+    /** Static assets binding — everything in `public/`. */
+    ASSETS: Fetcher;
+    PINBOX_HUB: DurableObjectNamespace;
+    PINBOX_PROJECT?: string;
+  };
 
 const MOUNT = "/_pinbox";
+/** Where the hub delivers pins. Same Worker, so the round trip never leaves Cloudflare. */
+const AGENT_MOUNT = "/_pinbox-agent";
 
 /** The DO expects hub-root paths: /_pinbox/pins becomes /pins, upgrade headers and all. */
 function stripPrefix(req: Request): Request {
@@ -51,8 +55,14 @@ function tooLarge(): Response {
   );
 }
 
-function isHubPath(pathname: string): boolean {
-  return pathname === MOUNT || pathname.startsWith(`${MOUNT}/`);
+/** What a path is for. Pure, so the routing table is testable without booting a Worker. */
+export type Route = "agent" | "hub" | "demo" | "asset";
+
+export function routeFor(pathname: string): Route {
+  if (pathname === AGENT_MOUNT) return "agent";
+  if (pathname === MOUNT || pathname.startsWith(`${MOUNT}/`)) return "hub";
+  if (pathname === "/demo" || pathname === "/demo/") return "demo";
+  return "asset";
 }
 
 function serveHub(req: Request, env: Env): Promise<Response> {
@@ -65,10 +75,35 @@ function serveHub(req: Request, env: Env): Promise<Response> {
   return env.PINBOX_HUB.get(id).fetch(stripPrefix(req) as never) as unknown as Promise<Response>;
 }
 
+/**
+ * A direct line to the hub Durable Object: no network hop and no self-subrequest (a Worker
+ * fetching its own hostname can be refused or loop). The bearer token is still required — the hub
+ * authenticates every request without exception, including one that never left the isolate.
+ */
+function hubPost(env: Env, origin: string): HubPost {
+  return (path, body) => {
+    const request = new Request(`${origin}${MOUNT}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.PINBOX_TOKEN ?? ""}`,
+      },
+      body: JSON.stringify(body),
+    });
+    return serveHub(request, env);
+  };
+}
+
 export default {
-  fetch(req: Request, env: Env): Promise<Response> {
-    return isHubPath(new URL(req.url).pathname)
-      ? serveHub(req, env)
-      : (env.ASSETS.fetch(req as never) as unknown as Promise<Response>);
+  fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const { pathname, origin } = new URL(req.url);
+    const route = routeFor(pathname);
+    if (route === "agent") return handleDelivery(req, env, hubPost(env, origin));
+    if (route === "hub") return serveHub(req, env);
+    // Loading the demo registers the agent session, so a pin dropped a moment later has somewhere
+    // to be delivered. Upsert by (agent, key), so repeat loads cost nothing; a pin that lands
+    // first is held unassigned and picked up by the next drain rather than lost.
+    if (route === "demo") ctx.waitUntil(registerSession(hubPost(env, origin)).catch(() => {}));
+    return env.ASSETS.fetch(req as never) as unknown as Promise<Response>;
   },
 };

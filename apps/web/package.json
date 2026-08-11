@@ -12,9 +12,11 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "wrangler": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@types/bun": "catalog:"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@autono/pinbox-core": "workspace:*"
   }
 }

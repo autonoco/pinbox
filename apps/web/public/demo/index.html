@@ -258,6 +258,23 @@
       const token = "pinbox-public-demo";
 
       /**
+       * The elements holding this element's text, in document order — the same split the toolbar
+       * captured, so run 3 here is run 3 there. A leaf is itself; a container is its parts.
+       */
+      function textRunTargets(root) {
+        const out = [];
+        const walk = (node) => {
+          if (node.children.length === 0) {
+            if ((node.textContent ?? "").trim().length > 0) out.push(node);
+            return;
+          }
+          for (const child of node.children) walk(child);
+        };
+        walk(root);
+        return out;
+      }
+
+      /**
        * Apply a change the agent made, to the page you are looking at.
        *
        * On a project with a repo the agent edits your source and the dev server reloads — that is
@@ -265,22 +282,28 @@
        * this is the same idea with the only surface it has: the agent names the element and the
        * words, and the page changes in front of you.
        *
-       * Deliberately narrow. `textContent`, never `innerHTML`, so nothing here can inject markup or
-       * script no matter what a visitor writes in a pin. An element that contains other elements is
-       * left alone — replacing its text would delete its children. And this runs on LIVE events
+       * Deliberately narrow. `textContent` on the elements that already hold text, never
+       * `innerHTML` and never on a container, so nothing here can inject markup or script and no
+       * element is ever destroyed by an edit. All or nothing: a list that does not line up with
+       * what is on the page is discarded rather than half-applied. And this runs on LIVE events
        * only, never on history: your session sees your changes, and a stranger's edit cannot greet
        * the next visitor.
        */
       function applyEdit(edit) {
-        if (!edit || typeof edit.selector !== "string" || typeof edit.text !== "string") return;
-        let el;
+        if (!edit || typeof edit.selector !== "string" || !Array.isArray(edit.texts)) return;
+        let root;
         try {
-          el = document.querySelector(edit.selector);
+          root = document.querySelector(edit.selector);
         } catch {
           return; // a selector the browser will not parse
         }
-        if (!el || el.closest("pinbox-toolbar") || el.children.length > 0) return;
-        el.textContent = edit.text;
+        if (!root || root.closest("pinbox-toolbar")) return;
+        const targets = textRunTargets(root);
+        if (targets.length === 0 || targets.length !== edit.texts.length) return;
+        if (!edit.texts.every((t) => typeof t === "string")) return;
+        targets.forEach((el, i) => {
+          el.textContent = edit.texts[i];
+        });
       }
 
       /**

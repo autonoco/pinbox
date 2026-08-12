@@ -88,6 +88,7 @@ describe("which events get answered", () => {
       text: "cut off",
       where: "selector: button.pay",
       selector: "button.pay",
+      runs: 0,
     });
   });
 
@@ -107,6 +108,7 @@ describe("which events get answered", () => {
       text: "do it",
       where: "",
       selector: null,
+      runs: 0,
     });
   });
 
@@ -152,17 +154,35 @@ describe("routing", () => {
 });
 
 describe("what the agent is allowed to change", () => {
-  test("new text for the pinned element becomes an edit the page can apply", () => {
-    const raw = JSON.stringify({ reply: "Changed it to 13.", newText: "13" });
-    expect(parseDrafted(raw, ".m-metric__v")).toEqual({
+  test("new words for the pinned element become an edit the page can apply", () => {
+    const raw = JSON.stringify({ reply: "Changed it to 13.", newTexts: ["13"] });
+    expect(parseDrafted(raw, ".m-metric__v", 1)).toEqual({
       reply: "Changed it to 13.",
-      edit: { selector: ".m-metric__v", text: "13" },
+      edit: { selector: ".m-metric__v", texts: ["13"] },
     });
   });
 
+  test("pinning a group edits every item in it", () => {
+    // The whole point of pinning the container: "capitalise these" is one pin, four links.
+    const raw = JSON.stringify({
+      reply: "Capitalised all four.",
+      newTexts: ["Work", "Approach", "People", "Contact"],
+    });
+    expect(parseDrafted(raw, ".m-links", 4)?.edit).toEqual({
+      selector: ".m-links",
+      texts: ["Work", "Approach", "People", "Contact"],
+    });
+  });
+
+  test("a list that does not cover every run is dropped, never half-applied", () => {
+    // Applying two strings to four links would blank the other two.
+    const raw = JSON.stringify({ reply: "Done.", newTexts: ["Work", "Approach"] });
+    expect(parseDrafted(raw, ".m-links", 4)?.edit).toBeNull();
+  });
+
   test("no edit when the model asks for one — the reply still posts", () => {
-    const raw = JSON.stringify({ reply: "I can't change the colour here.", newText: null });
-    expect(parseDrafted(raw, ".m-metric__v")).toEqual({
+    const raw = JSON.stringify({ reply: "I can't change the colour here.", newTexts: null });
+    expect(parseDrafted(raw, ".m-metric__v", 1)).toEqual({
       reply: "I can't change the colour here.",
       edit: null,
     });
@@ -170,12 +190,12 @@ describe("what the agent is allowed to change", () => {
 
   test("an edit with nowhere to land is dropped, never guessed at", () => {
     // A terminal-created pin captures no element. Applying its edit would mean inventing a target.
-    const raw = JSON.stringify({ reply: "Changed it.", newText: "13" });
-    expect(parseDrafted(raw, null)?.edit).toBeNull();
+    const raw = JSON.stringify({ reply: "Changed it.", newTexts: ["13"] });
+    expect(parseDrafted(raw, null, 1)?.edit).toBeNull();
   });
 
   test("output that is not the agreed shape posts nothing at all", () => {
-    expect(parseDrafted("sorry, I can't do that", ".x")).toBeNull();
-    expect(parseDrafted(JSON.stringify({ newText: "13" }), ".x")).toBeNull();
+    expect(parseDrafted("sorry, I can't do that", ".x", 1)).toBeNull();
+    expect(parseDrafted(JSON.stringify({ newTexts: ["13"] }), ".x", 1)).toBeNull();
   });
 });

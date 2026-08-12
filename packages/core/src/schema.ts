@@ -36,13 +36,16 @@ export const AttachmentSchema = z.object({
  *
  * On a project with a repo the agent edits source and the dev server reloads, so the change needs
  * no wire representation. A hosted page has no repo to edit, so the only way an agent can actually
- * change what you are looking at is to say which element and what it should now read. `selector`
- * is the pin's own captured selector; `text` replaces the element's text and nothing else — never
- * markup, so this can carry no script.
+ * change what you are looking at is to say which element and what it should now read.
+ *
+ * `selector` is the pin's own captured selector, never one the agent chose. `texts` lines up with
+ * that element's captured `textRuns`, so pinning a nav bar and asking for all four labels to
+ * change is a single edit. Text only, never markup, so this can carry no script.
  */
 export const AppliedEditSchema = z.object({
   selector: z.string(),
-  text: z.string(),
+  /** New text for each of the element's text runs, in order. Length must match, or nothing is applied. */
+  texts: z.array(z.string()),
 });
 
 export const ThreadMessageSchema = z.object({
@@ -68,6 +71,15 @@ const ContextSchema = z.object({
   aria: z.record(z.string(), z.string()).optional(),
   nearbyText: z.string().optional(),
   selectedText: z.string().optional(),
+  /**
+   * The pinned element's text, split the way the markup splits it — one entry per element that
+   * actually holds words. A heading is one entry; a nav bar is one per link.
+   *
+   * `nearbyText` runs them together, which is fine to read and useless to edit: it cannot tell an
+   * agent that "work approach people contact" is four separate elements. This can, and it is what
+   * lets feedback on a group ("capitalise these") reach every item in it.
+   */
+  textRuns: z.array(z.string()).optional(),
 });
 
 // ── Widened in place at v1 — `pinbox pin` (terminal-created pins) ────────────────

@@ -148,6 +148,32 @@ var Pinbox = (function(exports) {
 		}
 		return false;
 	}
+	/** How many text runs are worth carrying, and how long each may be. A pin is not a page dump. */
+	const MAX_RUNS = 24;
+	const MAX_RUN_LENGTH = 200;
+	/**
+	* The element's text, split the way the markup splits it: one entry per descendant that actually
+	* holds words, or the element itself when it holds them directly.
+	*
+	* This is what makes feedback on a group actionable. Pin a nav bar and `nearbyText` gives you
+	* "work approach people contact" — one string, no way to tell it is four links. This gives four
+	* entries, so a change can be applied to each of them.
+	*/
+	function textRuns(el) {
+		const runs = [];
+		const walk = (node) => {
+			if (runs.length >= MAX_RUNS) return;
+			const children = [...node.children];
+			if (children.length === 0) {
+				const text = (node.textContent ?? "").trim();
+				if (text.length > 0) runs.push(text.slice(0, MAX_RUN_LENGTH));
+				return;
+			}
+			for (const child of children) walk(child);
+		};
+		walk(el);
+		return runs.length > 0 ? runs : void 0;
+	}
 	function buildContext(win, el) {
 		const context = {};
 		if (el.classList.length > 0) context.classes = [...el.classList];
@@ -159,6 +185,8 @@ var Pinbox = (function(exports) {
 		if (nearby !== void 0) context.nearbyText = nearby;
 		const selected = selectedText(win, el);
 		if (selected !== void 0) context.selectedText = selected;
+		const runs = textRuns(el);
+		if (runs !== void 0) context.textRuns = runs;
 		return Object.keys(context).length > 0 ? context : void 0;
 	}
 	/** Fills PinInput.target/env from a chosen element (shapes come from the pin schema). */

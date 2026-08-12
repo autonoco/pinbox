@@ -19,7 +19,7 @@ Three things live outside the repo and are set once:
 
 | What | Where | Why |
 | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub → the `production` environment | What lets CI deploy. Scoped to that environment, not the whole repo. |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub → the `production` environment | What lets CI deploy. Scoped to that environment, not the whole repo, and to the one job that needs them — the test suite runs in a separate job that cannot see them. |
 | `ANTHROPIC_API_KEY`, `WEBHOOK_SECRET` | `wrangler secret put <NAME>` | The demo agent's key, and the HMAC that proves a delivery came from the hub. Worker secrets survive deploys, so CI never needs to see them. |
 | `pinbox.sh` as a zone | The same Cloudflare account as the token | `wrangler.jsonc` claims the apex as a custom domain. If the zone is not on that account the deploy fails rather than silently serving from a `workers.dev` URL. |
 

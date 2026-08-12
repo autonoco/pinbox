@@ -26,13 +26,17 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  # Everything that runs the repo's own code runs HERE, where there are no deploy credentials.
+  # The test suite is by far the largest body of code executed by this pipeline, and it has no
+  # business running in the same job that can reach Cloudflare.
+  verify:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Named so the deploy can be gated on a reviewer or restricted to this branch in repo settings,
-    # and so the Cloudflare credentials are scoped to it rather than every workflow in the repo.
-    environment: production
     steps:
       - uses: actions/checkout@v5
+        with:
+          # This job pushes nothing. A checkout token left in .git/config is one `run:` step away
+          # from being read by anything the build happens to execute.
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
       # tsdown's bin runs under system Node and loads tsdown.config.ts with native type
       # stripping, which needs Node >= 23.6; pin 24 rather than trust the image's Node.
@@ -45,19 +49,41 @@ jobs:
       # on the PR" is not enough — main is what ships, and this is what proves main is shippable.
       - run: bun run ci:validate
 
-      # The Worker imports @autono/pinbox-core by its published entry points, which are `dist`.
-      # Without this the bundle is either stale or missing, and the failure is silent: the site
-      # serves, the hub does not.
-      - run: bun run build
-
-      # Verify, never write. `bun run deploy` would rewrite the committed toolbar bundle as a
+      # Verify, never write. `bun run deploy` rewrites the committed toolbar bundle as a local
       # convenience; here that would quietly paper over a drifted commit and ship bytes nobody
       # reviewed. Fail instead.
       - run: bun tools/validate/site-toolbar.ts
 
+  deploy:
+    needs: verify
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Named so the deploy can be gated on a reviewer or restricted to this branch in repo settings,
+    # and so the Cloudflare credentials are scoped to it rather than every workflow in the repo.
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+
+      # The Worker imports @autono/pinbox-core by its published entry points, which are `dist`.
+      # Without this the bundle is either stale or missing, and the failure is silent: the site
+      # serves, the hub does not.
+      #
+      # This and wrangler's own bundler are the only repo code that runs beside the credentials.
+      # It cannot be moved to `verify` — wrangler bundles from source at deploy time, so the
+      # sources and node_modules have to be present here regardless.
+      - run: bun run build
+
       - name: Deploy to Cloudflare
-        working-directory: apps/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: bunx wrangler deploy
+        # `bun run`, not `bunx`: this resolves the wrangler the lockfile pinned and installed.
+        # `bunx wrangler` will reach for the registry when the local copy is not where it expects,
+        # which turns a deploy into an unpinned download that holds the account token.
+        run: bun run --filter '@autono/pinbox-site' deploy:ci

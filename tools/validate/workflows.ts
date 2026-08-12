@@ -22,7 +22,25 @@ const BUN_VERSION = "1.3.14";
 
 type Step = { uses?: string; with?: Record<string, unknown>; run?: string; name?: string };
 type Job = { "timeout-minutes"?: number; steps?: Step[]; uses?: string };
-type Triggers = Record<string, Record<string, unknown> | Record<string, unknown>[] | null>;
+/** `on:` in all three spellings GitHub accepts: one event, a list of events, or a mapping. */
+type Triggers =
+  | string
+  | string[]
+  | Record<string, Record<string, unknown> | Record<string, unknown>[] | null>;
+
+/**
+ * Every `on:` spelling reduced to the mapping form.
+ *
+ * `on: push` and `on: [push, pull_request]` are as valid as the mapping, and both name events with
+ * no config at all. Iterating them directly walks a string's characters or a list's indexes, so the
+ * key check below would have reported "0" as a bad trigger key and failed a workflow that is
+ * perfectly correct — the validator becoming the bug it exists to catch.
+ */
+function normalizeTriggers(on: Triggers): Record<string, unknown> {
+  if (typeof on === "string") return { [on]: null };
+  if (Array.isArray(on)) return Object.fromEntries(on.map((event) => [event, null]));
+  return on;
+}
 
 const problems: string[] = [];
 
@@ -45,7 +63,7 @@ for (const file of files) {
   // ignores it — the workflow still runs, just not when or how you meant. Caught here because a
   // bulk edit put `timeout-minutes` under `push:` in all five files at once and every one of them
   // still parsed as valid YAML.
-  const triggers = (parsed.on ?? parsed.true ?? {}) as Record<string, unknown>;
+  const triggers = normalizeTriggers(parsed.on ?? parsed.true ?? {});
   const TRIGGER_KEYS = new Set([
     "branches",
     "branches-ignore",

@@ -204,6 +204,36 @@ test("every checkout in the tree states what it does with the token", async () =
   }
 });
 
+/** Every `on:` spelling GitHub accepts, run through the real validator. */
+async function validatorAccepts(name: string, yaml: string): Promise<{ ok: boolean; out: string }> {
+  const { $ } = await import("bun");
+  const dir = `${import.meta.dir}/../../.github/workflows`;
+  const probe = `${dir}/zz-${name}-probe.yml`;
+  await Bun.write(probe, yaml);
+  try {
+    const result = await $`bun ${import.meta.dir}/workflows.ts`.nothrow().quiet();
+    return { ok: result.exitCode === 0, out: result.stderr.toString() + result.stdout.toString() };
+  } finally {
+    await Bun.file(probe).delete();
+  }
+}
+
+const JOB =
+  'jobs:\n  x:\n    timeout-minutes: 5\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n';
+
+test("`on: push` — a single event, named with no config", async () => {
+  // Iterating a string walks its characters, so this reported "0" as a bad trigger key and failed
+  // a workflow that is entirely correct: the validator becoming the bug it exists to catch.
+  const { ok, out } = await validatorAccepts("scalar", `name: probe\non: push\n${JOB}`);
+  expect(ok, out).toBe(true);
+});
+
+test("`on: [push, pull_request]` — a list of events", async () => {
+  const yaml = `name: probe\non: [push, pull_request]\n${JOB}`;
+  const { ok, out } = await validatorAccepts("list", yaml);
+  expect(ok, out).toBe(true);
+});
+
 test("a scheduled workflow is not rejected for its cron list", async () => {
   // `on.schedule` is a LIST of `{ cron }`, so its keys are "0", "1", … — checking those against
   // trigger-key names would reject every scheduled workflow the moment one is added.

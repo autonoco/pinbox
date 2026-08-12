@@ -103,7 +103,8 @@ test("release compiles the version `plan` decided on, passed through env", async
   expect(script).not.toContain("${{");
   // One place decides what is being released, and everything downstream reads that decision —
   // rather than each job re-deriving a version from whatever ref it happens to see.
-  expect(Object.values(build?.env ?? {}).join(" ")).toContain("needs.plan.outputs.version");
+  // The exact variable the script reads. Joining every env value would pass on an unrelated one.
+  expect(build?.env?.["VERSION"]).toContain("needs.plan.outputs.version");
   expect(needsClosure(release.jobs, "compile")).toContain("plan");
 });
 
@@ -115,7 +116,7 @@ test("release publishes the version `plan` decided on too", async () => {
   const script = publish?.run ?? "";
   expect(script).toMatch(/release:publish\s+"?\$\{?VERSION/);
   expect(script).not.toContain("${{");
-  expect(Object.values(publish?.env ?? {}).join(" ")).toContain("needs.plan.outputs.version");
+  expect(publish?.env?.["VERSION"]).toContain("needs.plan.outputs.version");
   expect(needsClosure(release.jobs, "publish")).toContain("plan");
 });
 
@@ -129,7 +130,10 @@ test("release only ships what `plan` said to ship", async () => {
 
   const script = runsOf(plan?.steps ?? []);
   expect(script).not.toContain("${{");
-  expect(Object.values(plan?.steps?.at(-1)?.env ?? {}).join(" ")).toContain("github.ref_type");
+  // Bound to the step that evaluates it: `runsOf` flattens every script, so asserting against the
+  // last step's env would pass even if some other step were the one branching on REF_TYPE.
+  const decide = plan?.steps?.find((step) => (step.run ?? "").includes('"$REF_TYPE" = "tag"'));
+  expect(decide?.env?.["REF_TYPE"]).toContain("github.ref_type");
   // A tag names its own version; a branch does not, so the manifest is read instead — and only
   // ships when that version has never been tagged, so an ordinary merge releases nothing.
   expect(script).toContain('"$REF_TYPE" = "tag"');
@@ -208,7 +212,19 @@ test("a scheduled workflow is not rejected for its cron list", async () => {
   const probe = `${dir}/zz-schedule-probe.yml`;
   await Bun.write(
     probe,
-    'name: probe\non:\n  schedule:\n    - cron: "0 0 * * *"\njobs:\n  x:\n    timeout-minutes: 5\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n',
+    [
+      "name: probe",
+      "on:",
+      "  schedule:",
+      '    - cron: "0 0 * * *"',
+      "jobs:",
+      "  x:",
+      "    timeout-minutes: 5",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      '      - run: "true"',
+      "",
+    ].join("\n"),
   );
   try {
     const result = await $`bun ${import.meta.dir}/workflows.ts`.nothrow().quiet();

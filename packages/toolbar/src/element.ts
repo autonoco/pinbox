@@ -61,6 +61,8 @@ export class PinboxToolbarElement extends BaseElement {
   #pinsLayer: HTMLElement | null = null;
   #drawer: Drawer | null = null;
   #aim: Aim | null = null;
+  /** Pending viewport-refresh frame, 0 when none is queued. */
+  #viewportFrame = 0;
   #modal: ShortcutsModal | null = null;
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
@@ -101,6 +103,9 @@ export class PinboxToolbarElement extends BaseElement {
     style.textContent = PAGE_CSS;
     document.head.appendChild(style);
     this.#pageStyle = style;
+    // `#build` runs once; the aim controller's listeners do not survive a disconnect, so it is
+    // rebuilt here rather than there.
+    if (this.#aim === null) this.#mountAim();
     document.addEventListener("mousemove", this.#onMouseMove);
     // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
     window.addEventListener("scroll", this.#onViewportChange, { passive: true });
@@ -120,6 +125,8 @@ export class PinboxToolbarElement extends BaseElement {
     window.removeEventListener("resize", this.#onViewportChange);
     document.removeEventListener("click", this.#onClickCapture, true);
     document.removeEventListener("keydown", this.#onKeyDown);
+    if (this.#viewportFrame !== 0) cancelAnimationFrame(this.#viewportFrame);
+    this.#viewportFrame = 0;
     this.#aim?.destroy();
     this.#aim = null;
     this.#unsubscribe?.();
@@ -127,6 +134,26 @@ export class PinboxToolbarElement extends BaseElement {
     this.#pageStyle?.remove();
     this.#pageStyle = null;
     document.body.classList.remove(PAGE_PLACING_CLASS);
+  }
+
+  /**
+   * Create the aim controller and put its layer in the shadow root.
+   *
+   * Separate from `#build` because the two have different lifetimes: `#build` runs once, but
+   * `disconnectedCallback` tears this controller's window listeners down. A re-parented element
+   * would otherwise come back with no controller and its markup still in place — a grip that
+   * renders and does nothing, with no error to explain it.
+   */
+  #mountAim(): void {
+    const shadow = this.shadowRoot;
+    if (!shadow) return;
+    shadow.querySelector(".pb-aim")?.remove();
+    this.#aim = createAim(document, {
+      onAim: (x, y) => this.#probe(x, y),
+      onConfirm: () => this.#confirmAim(),
+      onCancel: () => this.#dismiss(),
+    });
+    shadow.appendChild(this.#aim.root);
   }
 
   #build(): void {
@@ -166,12 +193,7 @@ export class PinboxToolbarElement extends BaseElement {
       onClose: () => this.store.update({ inboxOpen: false }),
     });
     shadow.appendChild(this.#drawer.root);
-    this.#aim = createAim(document, {
-      onAim: (x, y) => this.#probe(x, y),
-      onConfirm: () => this.#confirmAim(),
-      onCancel: () => this.#dismiss(),
-    });
-    shadow.appendChild(this.#aim.root);
+    this.#mountAim();
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
     shadow.appendChild(this.#modal.root);
     this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
@@ -376,10 +398,18 @@ export class PinboxToolbarElement extends BaseElement {
    * dragged narrow) can both strand it off-screen and flip which way of aiming applies.
    */
   #onViewportChange = (): void => {
-    if (this.store.get().mode !== "placing") return;
-    this.#syncAim(true);
-    const aim = this.#aim;
-    if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+    if (this.store.get().mode !== "placing" || this.#viewportFrame !== 0) return;
+    // One probe per frame, not per event. `#probe` hit-tests, reads a rect and then writes inline
+    // styles — read-then-write, so once per event it thrashes layout, and momentum scrolling on a
+    // phone dispatches faster than frames. A frame is all the reticle can show anyway, and this is
+    // the primary touch path: you scroll to bring the target under the reticle.
+    this.#viewportFrame = requestAnimationFrame(() => {
+      this.#viewportFrame = 0;
+      if (this.store.get().mode !== "placing") return;
+      this.#syncAim(true);
+      const aim = this.#aim;
+      if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+    });
   };
 
   #onMouseMove = (e: MouseEvent): void => {

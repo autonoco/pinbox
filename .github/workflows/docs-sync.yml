@@ -68,15 +68,15 @@ jobs:
           bun tools/skillgen/generate.ts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # The checkout persists no credentials, so the push is authenticated here and only here
-          # — for the one command that needs it, rather than for everything the build runs.
-          git remote set-url origin \
-            "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
           git checkout -b "$BRANCH"
           git add -A
           git --no-pager diff --cached --stat
           git commit -m "docs(skill): regenerate plugin artifacts from the CLI command tree"
-          git push origin "$BRANCH"
+          # Authenticated for this one process and nothing else. `git remote set-url` with the
+          # token in it would write the credential into .git/config in plaintext, where it stays
+          # for every step that follows — the exact on-disk state persist-credentials:false removes.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            push "https://github.com/$GITHUB_REPOSITORY.git" "$BRANCH"
           gh pr create \
             --base main \
             --head "$BRANCH" \

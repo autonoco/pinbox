@@ -10,7 +10,8 @@
       "!docs/design",
       "!.fallow",
       "!apps/web/public/pinbox",
-      "!apps/web/public/fonts"
+      "!apps/web/public/fonts",
+      "!apps/web/public/brand"
     ]
   },
   "formatter": {

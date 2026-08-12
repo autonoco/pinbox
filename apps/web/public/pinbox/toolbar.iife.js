@@ -2,13 +2,20 @@ var Pinbox = (function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 	//#region src/targeting/dom.ts
 	/**
-	* Deepest element under (clientX, clientY), or null when the hit is the page
-	* chrome itself (html/body) or something the caller ignores (our own overlay).
+	* Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
+	* nothing there but page chrome (html/body).
+	*
+	* Looks THROUGH our own overlay rather than giving up at it. The single-element form could not:
+	* the drag-aim grip sits exactly on the point being aimed at, so it is always the topmost thing
+	* under the crosshair, and every probe came back "nothing" the moment touch aiming existed.
 	*/
 	function hitTest(doc, x, y, ignore) {
-		const el = doc.elementFromPoint(x, y);
-		if (!el || el === doc.body || el === doc.documentElement) return null;
-		return ignore(el) ? null : el;
+		const stack = doc.elementsFromPoint?.(x, y) ?? [doc.elementFromPoint(x, y)];
+		for (const el of stack) {
+			if (!el || el === doc.body || el === doc.documentElement) return null;
+			if (!ignore(el)) return el;
+		}
+		return null;
 	}
 	/** CLASS-or-TAG display name with a sibling index when needed (prototype nodeName). */
 	function nodeName(el) {
@@ -990,6 +997,118 @@ var Pinbox = (function(exports) {
 		}
 	};
 	//#endregion
+	//#region src/ui/aim.ts
+	/**
+	* True when aiming has to be done by dragging rather than by pointing.
+	*
+	* Two independent reasons, either of which is sufficient. A coarse pointer means there is no
+	* hover to follow at all — the mouse crosshair cannot work, whatever the screen size. The width
+	* check is the design's own rule (720px) and catches the case a media query cannot: a device that
+	* reports a fine pointer but is being used at phone width.
+	*/
+	function needsDragAim(win) {
+		return win.matchMedia?.("(pointer: coarse)").matches === true || win.innerWidth < 720;
+	}
+	/**
+	* Where the reticle starts.
+	*
+	* Slightly above centre: the confirm bar owns the bottom of the screen, and a reticle that opens
+	* underneath your own thumb is one you have to move before you can even see it.
+	*/
+	function startPoint(win) {
+		return {
+			x: win.innerWidth / 2,
+			y: win.innerHeight * .42
+		};
+	}
+	const MARKUP = "<div class=\"h\"></div><div class=\"v\"></div><div class=\"grip\" aria-label=\"Pin position — arrow keys to aim\" tabindex=\"0\"><i></i></div><div class=\"bar\"><span class=\"lab\" role=\"status\" aria-live=\"polite\"></span><button type=\"button\" class=\"cancel\" data-aim=\"cancel\">CANCEL</button><button type=\"button\" class=\"ok\" data-aim=\"confirm\">PIN IT HERE</button></div>";
+	function createAim(doc, handlers) {
+		const win = doc.defaultView;
+		const root = doc.createElement("div");
+		root.className = "pb-aim";
+		root.innerHTML = MARKUP;
+		const h = root.querySelector(".h");
+		const v = root.querySelector(".v");
+		const grip = root.querySelector(".grip");
+		const label = root.querySelector(".lab");
+		const point = {
+			x: 0,
+			y: 0
+		};
+		/** Grab offset, so the reticle does not jump to your fingertip when you take hold of it. */
+		let grab = null;
+		function put(x, y) {
+			point.x = Math.max(0, Math.min(win.innerWidth, x));
+			point.y = Math.max(0, Math.min(win.innerHeight, y));
+			h.style.top = `${point.y}px`;
+			v.style.left = `${point.x}px`;
+			grip.style.left = `${point.x}px`;
+			grip.style.top = `${point.y}px`;
+		}
+		const onPointerMove = (e) => {
+			if (grab === null) return;
+			e.preventDefault();
+			put(e.clientX + grab.dx, e.clientY + grab.dy);
+			handlers.onAim(point.x, point.y);
+		};
+		const onPointerUp = () => {
+			grab = null;
+		};
+		grip.addEventListener("pointerdown", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			grab = {
+				dx: point.x - e.clientX,
+				dy: point.y - e.clientY
+			};
+			grip.setPointerCapture?.(e.pointerId);
+		});
+		grip.addEventListener("keydown", (e) => {
+			const step = e.shiftKey ? 20 : 2;
+			const delta = {
+				ArrowLeft: [-step, 0],
+				ArrowRight: [step, 0],
+				ArrowUp: [0, -step],
+				ArrowDown: [0, step]
+			}[e.key];
+			if (!delta) return;
+			e.preventDefault();
+			put(point.x + delta[0], point.y + delta[1]);
+			handlers.onAim(point.x, point.y);
+		});
+		root.addEventListener("click", (e) => {
+			const action = e.target.closest?.("[data-aim]")?.getAttribute("data-aim");
+			if (!action) return;
+			e.preventDefault();
+			e.stopPropagation();
+			if (action === "confirm") handlers.onConfirm();
+			else handlers.onCancel();
+		});
+		win.addEventListener("pointermove", onPointerMove, { passive: false });
+		win.addEventListener("pointerup", onPointerUp);
+		win.addEventListener("pointercancel", onPointerUp);
+		return {
+			root,
+			point,
+			show(x, y) {
+				put(x, y);
+				root.classList.add("on");
+			},
+			hide() {
+				grab = null;
+				root.classList.remove("on");
+			},
+			setLabel(text) {
+				label.textContent = text;
+			},
+			destroy() {
+				win.removeEventListener("pointermove", onPointerMove);
+				win.removeEventListener("pointerup", onPointerUp);
+				win.removeEventListener("pointercancel", onPointerUp);
+			}
+		};
+	}
+	//#endregion
 	//#region src/ui/bar.ts
 	const PIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const INBOX_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
@@ -1648,6 +1767,26 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-reticle .box { position: absolute; width: 15px; height: 15px; margin: -8px 0 0 -8px; border: 1px solid var(--pb-amber); border-radius: 2px; }
 .pb-reticle .ro { position: absolute; margin: 14px 0 0 14px; padding: 3px 6px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .12em; border-radius: 2px; white-space: nowrap; }
 
+/* Drag-to-aim, for touch. The layer never takes pointer events — only the grip and the bar do —
+   so what is under the crosshair can still be probed, and the page underneath is still visible. */
+/* Above the command bar (90), below the shortcuts modal (120). The confirm bar sits at the very
+   bottom of the screen, where the command bar already is — under it, CONFIRM was unclickable. */
+.pb-aim { position: fixed; inset: 0; z-index: 100; display: none; pointer-events: none; }
+.pb-aim.on { display: block; animation: pb-fade 160ms ease-out both; }
+.pb-aim .h { position: absolute; left: 0; right: 0; height: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
+.pb-aim .v { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
+/* 72px: a finger-sized target, per the design. Smaller and you cannot hold it accurately;
+   touch-action:none is what stops the page scrolling instead of the reticle moving. */
+.pb-aim .grip { position: absolute; width: 72px; height: 72px; margin: -36px 0 0 -36px; border-radius: 999px; border: 1px solid var(--pb-amber); background: var(--pb-amber-soft); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; touch-action: none; cursor: grab; }
+.pb-aim .grip:active { cursor: grabbing; }
+.pb-aim .grip i { width: 10px; height: 10px; border-radius: 999px; background: var(--pb-amber); box-shadow: 0 0 0 3px var(--pb-canvas); }
+.pb-aim .bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; padding: 7px; background: var(--pb-bar); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); pointer-events: auto; }
+.pb-aim .bar .lab { flex: 1; min-width: 0; padding-left: 8px; font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: .14em; color: var(--pb-fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 48px tall: the minimum a thumb hits reliably. */
+.pb-aim .bar button { height: 48px; border-radius: 2px; font-family: var(--pb-font-mono); font-size: 11px; letter-spacing: .16em; cursor: pointer; }
+.pb-aim .bar .cancel { flex: none; padding: 0 18px; border: 1px solid var(--pb-line-2); background: transparent; color: var(--pb-fg2); }
+.pb-aim .bar .ok { flex: none; padding: 0 20px; border: none; background: var(--pb-amber); color: var(--pb-amber-ink); }
+
 .pb-pin { position: absolute; }
 .pb-pin.resolving { animation: pb-resolve 380ms var(--pb-ease) forwards; }
 .pb-pin .ring { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border: 1px solid var(--pb-amber); border-radius: 999px; animation: pb-ring 900ms var(--pb-ease) forwards; pointer-events: none; }
@@ -1797,6 +1936,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#reticle = null;
 		#pinsLayer = null;
 		#drawer = null;
+		#aim = null;
+		/** Pending viewport-refresh frame, 0 when none is queued. */
+		#viewportFrame = 0;
 		#modal = null;
 		#helpOpen = false;
 		#pageStyle = null;
@@ -1836,7 +1978,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			style.textContent = PAGE_CSS;
 			document.head.appendChild(style);
 			this.#pageStyle = style;
+			if (this.#aim === null) this.#mountAim();
 			document.addEventListener("mousemove", this.#onMouseMove);
+			window.addEventListener("scroll", this.#onViewportChange, { passive: true });
+			window.addEventListener("resize", this.#onViewportChange);
 			document.addEventListener("click", this.#onClickCapture, true);
 			document.addEventListener("keydown", this.#onKeyDown);
 			this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
@@ -1847,13 +1992,38 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#transport?.close();
 			this.#transport = null;
 			document.removeEventListener("mousemove", this.#onMouseMove);
+			window.removeEventListener("scroll", this.#onViewportChange);
+			window.removeEventListener("resize", this.#onViewportChange);
 			document.removeEventListener("click", this.#onClickCapture, true);
 			document.removeEventListener("keydown", this.#onKeyDown);
+			if (this.#viewportFrame !== 0) cancelAnimationFrame(this.#viewportFrame);
+			this.#viewportFrame = 0;
+			this.#aim?.destroy();
+			this.#aim = null;
 			this.#unsubscribe?.();
 			this.#unsubscribe = null;
 			this.#pageStyle?.remove();
 			this.#pageStyle = null;
 			document.body.classList.remove(PAGE_PLACING_CLASS);
+		}
+		/**
+		* Create the aim controller and put its layer in the shadow root.
+		*
+		* Separate from `#build` because the two have different lifetimes: `#build` runs once, but
+		* `disconnectedCallback` tears this controller's window listeners down. A re-parented element
+		* would otherwise come back with no controller and its markup still in place — a grip that
+		* renders and does nothing, with no error to explain it.
+		*/
+		#mountAim() {
+			const shadow = this.shadowRoot;
+			if (!shadow) return;
+			shadow.querySelector(".pb-aim")?.remove();
+			this.#aim = createAim(document, {
+				onAim: (x, y) => this.#probe(x, y),
+				onConfirm: () => this.#confirmAim(),
+				onCancel: () => this.#dismiss()
+			});
+			shadow.appendChild(this.#aim.root);
 		}
 		#build() {
 			const shadow = this.attachShadow({ mode: "open" });
@@ -1891,6 +2061,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				onClose: () => this.store.update({ inboxOpen: false })
 			});
 			shadow.appendChild(this.#drawer.root);
+			this.#mountAim();
 			this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
 			shadow.appendChild(this.#modal.root);
 			this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
@@ -2033,21 +2204,61 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			});
 			if (this.store.get().draft) this.store.discardDraft();
 		}
+		/**
+		* Work out what sits under a viewport point and highlight it.
+		*
+		* Shared by both ways of aiming — following a mouse, and dragging the reticle — so the two can
+		* never disagree about what is under the crosshair.
+		*/
+		#probe(clientX, clientY) {
+			const el = hitTest(document, clientX, clientY, (hit) => hit === this);
+			this.#hover = el;
+			if (el) this.#reticle?.snap(el.getBoundingClientRect(), targetLabel(el), {
+				x: window.scrollX,
+				y: window.scrollY
+			});
+			else this.#reticle?.release();
+			this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
+		}
+		/**
+		* Keep the drag-aim reticle honest while the viewport moves under it.
+		*
+		* Scrolling changes what is beneath a fixed reticle, and resizing (a phone rotating, a window
+		* dragged narrow) can both strand it off-screen and flip which way of aiming applies.
+		*/
+		#onViewportChange = () => {
+			if (this.store.get().mode !== "placing" || this.#viewportFrame !== 0) return;
+			this.#viewportFrame = requestAnimationFrame(() => {
+				this.#viewportFrame = 0;
+				if (this.store.get().mode !== "placing") return;
+				this.#syncAim(true);
+				const aim = this.#aim;
+				if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+			});
+		};
 		#onMouseMove = (e) => {
 			if (this.store.get().mode !== "placing" || !this.#reticle) return;
 			this.#reticle.move(e);
-			const el = hitTest(document, e.clientX, e.clientY, (hit) => hit === this);
-			if (el) {
-				this.#hover = el;
-				this.#reticle.snap(el.getBoundingClientRect(), targetLabel(el), {
-					x: window.scrollX,
-					y: window.scrollY
-				});
-			} else {
-				this.#hover = null;
-				this.#reticle.release();
-			}
+			this.#probe(e.clientX, e.clientY);
 		};
+		/** Commit the pin the drag-aim reticle is sitting on. */
+		#confirmAim() {
+			const aim = this.#aim;
+			if (!aim) return;
+			this.#probe(aim.point.x, aim.point.y);
+			const el = this.#hover ?? document.body;
+			this.store.place({
+				target: captureTarget(el, { at: {
+					x: aim.point.x + window.scrollX,
+					y: aim.point.y + window.scrollY
+				} }),
+				placedAt: {
+					x: aim.point.x + window.scrollX,
+					y: aim.point.y + window.scrollY
+				}
+			});
+			this.#reticle?.release();
+		}
 		/** Placement click: capture the hovered target (or body) into a client-only draft. */
 		#placeDraft(e) {
 			e.preventDefault();
@@ -2069,7 +2280,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			if (e.composedPath().includes(this)) return;
 			const state = this.store.get();
 			if (state.mode === "placing") {
-				this.#placeDraft(e);
+				if (!needsDragAim(window)) this.#placeDraft(e);
 				return;
 			}
 			if (state.inboxOpen) this.store.update({ inboxOpen: false });
@@ -2089,11 +2300,33 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			if (isTextEntry(e.composedPath()[0])) return;
 			this.#shortcuts[e.key === "?" ? "?" : e.key.toLowerCase()]?.();
 		};
+		/**
+		* Bring the drag-aim reticle up with placing mode, seeded mid-screen and already showing what it
+		* is over — so the first thing you see is a live target, not an empty crosshair waiting for a
+		* mouse that is never coming.
+		*/
+		#syncAim(placing) {
+			const aim = this.#aim;
+			if (!aim) return;
+			if (!placing || !needsDragAim(window)) {
+				aim.hide();
+				return;
+			}
+			if (aim.root.classList.contains("on")) {
+				if (aim.point.x <= window.innerWidth && aim.point.y <= window.innerHeight) return;
+				aim.show(Math.min(aim.point.x, window.innerWidth), Math.min(aim.point.y, window.innerHeight));
+				return;
+			}
+			const { x, y } = startPoint(window);
+			aim.show(x, y);
+			this.#probe(x, y);
+		}
 		#render(state) {
 			const placing = state.mode === "placing";
 			this.toggleAttribute("data-placing", placing);
 			document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
 			if (!placing) this.#reticle?.release();
+			this.#syncAim(placing);
 			if (this.#pinsLayer) renderPins(this.#pinsLayer, state);
 			if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
 			this.#drawer?.update(state);

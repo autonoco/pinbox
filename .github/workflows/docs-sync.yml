@@ -25,13 +25,18 @@ permissions:
 
 jobs:
   docs-sync:
+    timeout-minutes: 20
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       # The core build below runs tsdown, which needs Node >= 23.6 to load its TS config
       # natively; pin 24 rather than trust the image's Node.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -67,7 +72,11 @@ jobs:
           git add -A
           git --no-pager diff --cached --stat
           git commit -m "docs(skill): regenerate plugin artifacts from the CLI command tree"
-          git push origin "$BRANCH"
+          # Authenticated for this one process and nothing else. `git remote set-url` with the
+          # token in it would write the credential into .git/config in plaintext, where it stays
+          # for every step that follows — the exact on-disk state persist-credentials:false removes.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            push "https://github.com/$GITHUB_REPOSITORY.git" "$BRANCH"
           gh pr create \
             --base main \
             --head "$BRANCH" \

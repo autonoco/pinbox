@@ -3,7 +3,7 @@
 // never GlobalRegistrator, which would clobber fetch for sibling hub tests.
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import { buildSelector, targetLabel } from "./dom.ts";
+import { buildSelector, hitTest, targetLabel } from "./dom.ts";
 
 function dom(html: string): Document {
   const window = new Window();
@@ -83,4 +83,22 @@ describe("buildSelector", () => {
     const el = doc.querySelector("[data-pb-el]") as Element;
     expect(doc.querySelector(buildSelector(el))).toBe(el);
   });
+});
+
+test("hit-testing sees past our own overlay to the thing underneath", () => {
+  // The drag-aim grip sits ON the point being aimed at, so it is always topmost. Stopping at the
+  // first element meant touch aiming could never find a target at all.
+  const window = new Window();
+  const page = window.document.createElement("h1");
+  const overlay = window.document.createElement("pinbox-toolbar");
+  window.document.body.append(page, overlay);
+  const doc = window.document as unknown as Document;
+  (doc as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () => [
+    overlay as unknown as Element,
+    page as unknown as Element,
+  ];
+
+  expect(hitTest(doc, 10, 10, (el) => el === (overlay as unknown as Element))).toBe(
+    page as unknown as Element,
+  );
 });

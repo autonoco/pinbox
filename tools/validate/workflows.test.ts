@@ -15,6 +15,8 @@ type Step = {
   run?: string;
   uses?: string;
   env?: Record<string, string>;
+  /** An action's inputs — `persist-credentials` among them. */
+  with?: Record<string, unknown>;
   if?: string;
 };
 type Job = { steps?: Step[]; needs?: string | string[]; if?: string };
@@ -87,7 +89,7 @@ test("docs-sync gates on skillgen's whole generated set, not skills/pinbox alone
   expect(prScript).toContain("git add -A");
 });
 
-test("release compiles the version the tag names, passed through env", async () => {
+test("release compiles the version `plan` decided on, passed through env", async () => {
   const release = await workflow("release.yml");
   const list = steps(release, "compile");
   const build = list.find((step) => (step.run ?? "").includes("release:build"));
@@ -95,64 +97,169 @@ test("release compiles the version the tag names, passed through env", async () 
   const script = build?.run ?? "";
 
   // Without an argument `compileAll`'s assertVersion compares the CLI manifest to itself and
-  // can never fail — the guard is inert and the tag binds to nothing.
-  expect(script).toMatch(/release:build\s+"?\$\{?(TAG|REF_NAME|GITHUB_REF_NAME)/);
-  // The ref is attacker-shaped input; it arrives through env, never `${{ }}` in the shell.
+  // can never fail — the guard is inert and the release binds to nothing.
+  expect(script).toMatch(/release:build\s+"?\$\{?VERSION/);
+  // Refs and versions are attacker-shaped input; they arrive through env, never `${{ }}` inline.
   expect(script).not.toContain("${{");
-  const env = build?.env ?? {};
-  // `github.ref_name` is the *tag* only when the ref is a tag; on a `workflow_dispatch` started
-  // from a branch it is the branch name. Reading it is sound only because `guard` ran first.
-  expect(Object.values(env).join(" ")).toContain("github.ref_name");
-  expect(needsClosure(release.jobs, "compile")).toContain("guard");
+  // One place decides what is being released, and everything downstream reads that decision —
+  // rather than each job re-deriving a version from whatever ref it happens to see.
+  // The exact variable the script reads. Joining every env value would pass on an unrelated one.
+  expect(build?.env?.["VERSION"]).toContain("needs.plan.outputs.version");
+  expect(needsClosure(release.jobs, "compile")).toContain("plan");
 });
 
-test("release publishes the version the tag names too", async () => {
+test("release publishes the version `plan` decided on too", async () => {
   const release = await workflow("release.yml");
   const list = steps(release, "publish");
   const publish = list.find((step) => (step.run ?? "").includes("release:publish"));
   expect(publish, "the publish job must run release:publish").toBeDefined();
   const script = publish?.run ?? "";
-  expect(script).toMatch(/release:publish\s+"?\$\{?(TAG|REF_NAME|GITHUB_REF_NAME)/);
+  expect(script).toMatch(/release:publish\s+"?\$\{?VERSION/);
   expect(script).not.toContain("${{");
-  expect(Object.values(publish?.env ?? {}).join(" ")).toContain("github.ref_name");
-  expect(needsClosure(release.jobs, "publish")).toContain("guard");
+  expect(publish?.env?.["VERSION"]).toContain("needs.plan.outputs.version");
+  expect(needsClosure(release.jobs, "publish")).toContain("plan");
 });
 
 // npm unpublish is heavily restricted, so a bogus publish is not recoverable. `workflow_dispatch`
 // is the hole: its `github.ref_name` is whatever ref the run was started from, and one click of
 // "Run workflow" on `main` would otherwise cut a Release named `main` and fan it out to npm.
-test("release can never publish under a non-tag ref", async () => {
+test("release only ships what `plan` said to ship", async () => {
   const release = await workflow("release.yml");
-  const guard = release.jobs["guard"];
-  expect(guard, "release.yml needs a `guard` job that rejects non-tag refs").toBeDefined();
+  const plan = release.jobs["plan"];
+  expect(plan, "release.yml needs a `plan` job that decides what is released").toBeDefined();
 
-  const script = runsOf(guard?.steps ?? []);
+  const script = runsOf(plan?.steps ?? []);
   expect(script).not.toContain("${{");
-  expect(Object.values(guard?.steps?.[0]?.env ?? {}).join(" ")).toContain("github.ref_type");
-  expect(script).toContain('"$REF_TYPE" != "tag"');
-  // Any tag is not enough: `TAG` has to be a real `v<semver>` release tag.
+  // Bound to the step that evaluates it: `runsOf` flattens every script, so asserting against the
+  // last step's env would pass even if some other step were the one branching on REF_TYPE.
+  const decide = plan?.steps?.find((step) => (step.run ?? "").includes('"$REF_TYPE" = "tag"'));
+  expect(decide?.env?.["REF_TYPE"]).toContain("github.ref_type");
+  // A tag names its own version; a branch does not, so the manifest is read instead — and only
+  // ships when that version has never been tagged, so an ordinary merge releases nothing.
+  expect(script).toContain('"$REF_TYPE" = "tag"');
   expect(script).toContain("^v[0-9]+\\.[0-9]+\\.[0-9]+");
+  expect(script).toContain("refs/tags/v$version");
   expect(script).toMatch(/exit 1/);
 
-  // Nothing runs ahead of the guard, so no job can act on a branch ref.
+  // Nothing runs ahead of the plan, so no job can act on a version nobody decided.
   for (const name of Object.keys(release.jobs)) {
-    if (name === "guard") continue;
-    expect(needsClosure(release.jobs, name), `job ${name} must transitively need guard`).toContain(
-      "guard",
+    if (name === "plan") continue;
+    expect(needsClosure(release.jobs, name), `job ${name} must transitively need plan`).toContain(
+      "plan",
     );
   }
 
-  // Belt and braces: the two irreversible jobs re-check the ref themselves, so neither a
-  // single-job re-run nor a future edit to `needs` can hand them a branch.
+  // Belt and braces: the two irreversible jobs re-check for themselves, so neither a single-job
+  // re-run nor a future edit to `needs` can ship something nobody decided to ship.
   for (const name of ["github-release", "publish"]) {
-    expect(release.jobs[name]?.if, `${name} must carry its own ref guard`).toContain("refs/tags/v");
+    expect(release.jobs[name]?.if, `${name} must carry its own release guard`).toContain(
+      "needs.plan.outputs.release",
+    );
   }
+});
+
+// Trusted Publishing cannot create a package that does not exist; npm answers a bare 404 on the
+// PUT, which is how the v0.1.0 release failed after signing provenance for every tarball.
+test("release checks the registry before it uploads anything", async () => {
+  const release = await workflow("release.yml");
+  const list = steps(release, "publish");
+  const names = list.map((step) => step.run ?? "");
+  const preflight = names.findIndex((run) => run.includes("release/preflight.ts"));
+  const publish = names.findIndex((run) => run.includes("release:publish"));
+  expect(preflight, "the publish job must run the registry preflight").toBeGreaterThanOrEqual(0);
+  expect(preflight).toBeLessThan(publish);
 });
 
 test("both workflows keep their release-shape guarantees", async () => {
   const release = await workflow("release.yml");
   // Ordering is the gate: nothing publishes until the compiled artifacts survived smoke.
   const jobs = release.jobs as Record<string, { needs?: string | string[] }>;
-  expect(jobs["compile"]?.needs).toBe("validate");
-  expect(jobs["publish"]?.needs).toBe("github-release");
+  expect([jobs["compile"]?.needs ?? []].flat()).toContain("validate");
+  expect([jobs["publish"]?.needs ?? []].flat()).toContain("github-release");
+});
+
+test("the workflow validator opens .yaml files too", async () => {
+  // GitHub honours both extensions. A workflow the validator never opens is one it never checks,
+  // and the failure is silent — the rules simply do not apply to that file.
+  const source = await Bun.file(`${import.meta.dir}/workflows.ts`).text();
+  expect(source).toContain('Bun.Glob("*.{yml,yaml}")');
+});
+
+test("every checkout in the tree states what it does with the token", async () => {
+  // The validator enforces this; this proves the tree currently satisfies it, so a regression
+  // shows up as a failing test rather than only as a failing CI script.
+  for (const file of new Bun.Glob("*.{yml,yaml}").scanSync({
+    cwd: `${import.meta.dir}/../../.github/workflows`,
+  })) {
+    const parsed = await workflow(file);
+    for (const [name, job] of Object.entries(parsed.jobs)) {
+      for (const step of job.steps ?? []) {
+        if (!String(step.uses ?? "").startsWith("actions/checkout")) continue;
+        expect(
+          step.with?.["persist-credentials"],
+          `${file} job ${name} must not persist the checkout token`,
+        ).toBe(false);
+      }
+    }
+  }
+});
+
+/** Every `on:` spelling GitHub accepts, run through the real validator. */
+async function validatorAccepts(name: string, yaml: string): Promise<{ ok: boolean; out: string }> {
+  const { $ } = await import("bun");
+  const dir = `${import.meta.dir}/../../.github/workflows`;
+  const probe = `${dir}/zz-${name}-probe.yml`;
+  await Bun.write(probe, yaml);
+  try {
+    const result = await $`bun ${import.meta.dir}/workflows.ts`.nothrow().quiet();
+    return { ok: result.exitCode === 0, out: result.stderr.toString() + result.stdout.toString() };
+  } finally {
+    await Bun.file(probe).delete();
+  }
+}
+
+const JOB =
+  'jobs:\n  x:\n    timeout-minutes: 5\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n';
+
+test("`on: push` — a single event, named with no config", async () => {
+  // Iterating a string walks its characters, so this reported "0" as a bad trigger key and failed
+  // a workflow that is entirely correct: the validator becoming the bug it exists to catch.
+  const { ok, out } = await validatorAccepts("scalar", `name: probe\non: push\n${JOB}`);
+  expect(ok, out).toBe(true);
+});
+
+test("`on: [push, pull_request]` — a list of events", async () => {
+  const yaml = `name: probe\non: [push, pull_request]\n${JOB}`;
+  const { ok, out } = await validatorAccepts("list", yaml);
+  expect(ok, out).toBe(true);
+});
+
+test("a scheduled workflow is not rejected for its cron list", async () => {
+  // `on.schedule` is a LIST of `{ cron }`, so its keys are "0", "1", … — checking those against
+  // trigger-key names would reject every scheduled workflow the moment one is added.
+  const { $ } = await import("bun");
+  const dir = `${import.meta.dir}/../../.github/workflows`;
+  const probe = `${dir}/zz-schedule-probe.yml`;
+  await Bun.write(
+    probe,
+    [
+      "name: probe",
+      "on:",
+      "  schedule:",
+      '    - cron: "0 0 * * *"',
+      "jobs:",
+      "  x:",
+      "    timeout-minutes: 5",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      '      - run: "true"',
+      "",
+    ].join("\n"),
+  );
+  try {
+    const result = await $`bun ${import.meta.dir}/workflows.ts`.nothrow().quiet();
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+  } finally {
+    await Bun.file(probe).delete();
+  }
 });

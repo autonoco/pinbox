@@ -21,6 +21,7 @@ import {
 } from "./state.ts";
 import { hitTest, targetLabel } from "./targeting/dom.ts";
 import { HubTransport } from "./transport.ts";
+import { type Aim, createAim, needsDragAim, startPoint } from "./ui/aim.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
@@ -59,6 +60,9 @@ export class PinboxToolbarElement extends BaseElement {
   #reticle: Reticle | null = null;
   #pinsLayer: HTMLElement | null = null;
   #drawer: Drawer | null = null;
+  #aim: Aim | null = null;
+  /** Pending viewport-refresh frame, 0 when none is queued. */
+  #viewportFrame = 0;
   #modal: ShortcutsModal | null = null;
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
@@ -99,7 +103,13 @@ export class PinboxToolbarElement extends BaseElement {
     style.textContent = PAGE_CSS;
     document.head.appendChild(style);
     this.#pageStyle = style;
+    // `#build` runs once; the aim controller's listeners do not survive a disconnect, so it is
+    // rebuilt here rather than there.
+    if (this.#aim === null) this.#mountAim();
     document.addEventListener("mousemove", this.#onMouseMove);
+    // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
+    window.addEventListener("scroll", this.#onViewportChange, { passive: true });
+    window.addEventListener("resize", this.#onViewportChange);
     document.addEventListener("click", this.#onClickCapture, true);
     document.addEventListener("keydown", this.#onKeyDown);
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
@@ -111,13 +121,39 @@ export class PinboxToolbarElement extends BaseElement {
     this.#transport?.close();
     this.#transport = null;
     document.removeEventListener("mousemove", this.#onMouseMove);
+    window.removeEventListener("scroll", this.#onViewportChange);
+    window.removeEventListener("resize", this.#onViewportChange);
     document.removeEventListener("click", this.#onClickCapture, true);
     document.removeEventListener("keydown", this.#onKeyDown);
+    if (this.#viewportFrame !== 0) cancelAnimationFrame(this.#viewportFrame);
+    this.#viewportFrame = 0;
+    this.#aim?.destroy();
+    this.#aim = null;
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#pageStyle?.remove();
     this.#pageStyle = null;
     document.body.classList.remove(PAGE_PLACING_CLASS);
+  }
+
+  /**
+   * Create the aim controller and put its layer in the shadow root.
+   *
+   * Separate from `#build` because the two have different lifetimes: `#build` runs once, but
+   * `disconnectedCallback` tears this controller's window listeners down. A re-parented element
+   * would otherwise come back with no controller and its markup still in place — a grip that
+   * renders and does nothing, with no error to explain it.
+   */
+  #mountAim(): void {
+    const shadow = this.shadowRoot;
+    if (!shadow) return;
+    shadow.querySelector(".pb-aim")?.remove();
+    this.#aim = createAim(document, {
+      onAim: (x, y) => this.#probe(x, y),
+      onConfirm: () => this.#confirmAim(),
+      onCancel: () => this.#dismiss(),
+    });
+    shadow.appendChild(this.#aim.root);
   }
 
   #build(): void {
@@ -157,6 +193,7 @@ export class PinboxToolbarElement extends BaseElement {
       onClose: () => this.store.update({ inboxOpen: false }),
     });
     shadow.appendChild(this.#drawer.root);
+    this.#mountAim();
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
     shadow.appendChild(this.#modal.root);
     this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
@@ -334,21 +371,70 @@ export class PinboxToolbarElement extends BaseElement {
     if (this.store.get().draft) this.store.discardDraft();
   }
 
-  #onMouseMove = (e: MouseEvent): void => {
-    if (this.store.get().mode !== "placing" || !this.#reticle) return;
-    this.#reticle.move(e);
-    const el = hitTest(document, e.clientX, e.clientY, (hit) => hit === this);
+  /**
+   * Work out what sits under a viewport point and highlight it.
+   *
+   * Shared by both ways of aiming — following a mouse, and dragging the reticle — so the two can
+   * never disagree about what is under the crosshair.
+   */
+  #probe(clientX: number, clientY: number): void {
+    const el = hitTest(document, clientX, clientY, (hit) => hit === this);
+    this.#hover = el;
     if (el) {
-      this.#hover = el;
-      this.#reticle.snap(el.getBoundingClientRect(), targetLabel(el), {
+      this.#reticle?.snap(el.getBoundingClientRect(), targetLabel(el), {
         x: window.scrollX,
         y: window.scrollY,
       });
     } else {
-      this.#hover = null;
-      this.#reticle.release();
+      this.#reticle?.release();
     }
+    this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
+  }
+
+  /**
+   * Keep the drag-aim reticle honest while the viewport moves under it.
+   *
+   * Scrolling changes what is beneath a fixed reticle, and resizing (a phone rotating, a window
+   * dragged narrow) can both strand it off-screen and flip which way of aiming applies.
+   */
+  #onViewportChange = (): void => {
+    if (this.store.get().mode !== "placing" || this.#viewportFrame !== 0) return;
+    // One probe per frame, not per event. `#probe` hit-tests, reads a rect and then writes inline
+    // styles — read-then-write, so once per event it thrashes layout, and momentum scrolling on a
+    // phone dispatches faster than frames. A frame is all the reticle can show anyway, and this is
+    // the primary touch path: you scroll to bring the target under the reticle.
+    this.#viewportFrame = requestAnimationFrame(() => {
+      this.#viewportFrame = 0;
+      if (this.store.get().mode !== "placing") return;
+      this.#syncAim(true);
+      const aim = this.#aim;
+      if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+    });
   };
+
+  #onMouseMove = (e: MouseEvent): void => {
+    if (this.store.get().mode !== "placing" || !this.#reticle) return;
+    this.#reticle.move(e);
+    this.#probe(e.clientX, e.clientY);
+  };
+
+  /** Commit the pin the drag-aim reticle is sitting on. */
+  #confirmAim(): void {
+    const aim = this.#aim;
+    if (!aim) return;
+    // Re-probe first. The reticle is fixed to the viewport, so anything that moves the page under
+    // it — a scroll, a late image, a reflow — leaves the last drag's target stale, and confirming
+    // would pin an element that is no longer there.
+    this.#probe(aim.point.x, aim.point.y);
+    const el = this.#hover ?? document.body;
+    this.store.place({
+      target: captureTarget(el, {
+        at: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
+      }),
+      placedAt: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
+    });
+    this.#reticle?.release();
+  }
 
   /** Placement click: capture the hovered target (or body) into a client-only draft. */
   #placeDraft(e: MouseEvent): void {
@@ -368,7 +454,10 @@ export class PinboxToolbarElement extends BaseElement {
     if (e.composedPath().includes(this)) return;
     const state = this.store.get();
     if (state.mode === "placing") {
-      this.#placeDraft(e);
+      // While drag-aiming, a tap is how you scroll and how you follow links — placing on it would
+      // pin something every time you touched the page, and always before you could see what.
+      // Placement there is the explicit confirm instead.
+      if (!needsDragAim(window)) this.#placeDraft(e);
       return;
     }
     // Anything open closes when you click away from it — the card, and the inbox with it. An inbox
@@ -393,11 +482,36 @@ export class PinboxToolbarElement extends BaseElement {
     this.#shortcuts[e.key === "?" ? "?" : e.key.toLowerCase()]?.();
   };
 
+  /**
+   * Bring the drag-aim reticle up with placing mode, seeded mid-screen and already showing what it
+   * is over — so the first thing you see is a live target, not an empty crosshair waiting for a
+   * mouse that is never coming.
+   */
+  #syncAim(placing: boolean): void {
+    const aim = this.#aim;
+    if (!aim) return;
+    if (!placing || !needsDragAim(window)) {
+      aim.hide();
+      return;
+    }
+    if (aim.root.classList.contains("on")) {
+      // Already up: only re-seat it if the viewport shrank out from under it, which a rotation
+      // does. Otherwise leave it exactly where it was put.
+      if (aim.point.x <= window.innerWidth && aim.point.y <= window.innerHeight) return;
+      aim.show(Math.min(aim.point.x, window.innerWidth), Math.min(aim.point.y, window.innerHeight));
+      return;
+    }
+    const { x, y } = startPoint(window);
+    aim.show(x, y);
+    this.#probe(x, y);
+  }
+
   #render(state: ToolbarState): void {
     const placing = state.mode === "placing";
     this.toggleAttribute("data-placing", placing);
     document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
     if (!placing) this.#reticle?.release();
+    this.#syncAim(placing);
     if (this.#pinsLayer) renderPins(this.#pinsLayer, state);
     if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
     this.#drawer?.update(state);

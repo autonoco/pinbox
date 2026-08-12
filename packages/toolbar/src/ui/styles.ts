@@ -73,6 +73,26 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-reticle .box { position: absolute; width: 15px; height: 15px; margin: -8px 0 0 -8px; border: 1px solid var(--pb-amber); border-radius: 2px; }
 .pb-reticle .ro { position: absolute; margin: 14px 0 0 14px; padding: 3px 6px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .12em; border-radius: 2px; white-space: nowrap; }
 
+/* Drag-to-aim, for touch. The layer never takes pointer events — only the grip and the bar do —
+   so what is under the crosshair can still be probed, and the page underneath is still visible. */
+/* Above the command bar (90), below the shortcuts modal (120). The confirm bar sits at the very
+   bottom of the screen, where the command bar already is — under it, CONFIRM was unclickable. */
+.pb-aim { position: fixed; inset: 0; z-index: 100; display: none; pointer-events: none; }
+.pb-aim.on { display: block; animation: pb-fade 160ms ease-out both; }
+.pb-aim .h { position: absolute; left: 0; right: 0; height: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
+.pb-aim .v { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
+/* 72px: a finger-sized target, per the design. Smaller and you cannot hold it accurately;
+   touch-action:none is what stops the page scrolling instead of the reticle moving. */
+.pb-aim .grip { position: absolute; width: 72px; height: 72px; margin: -36px 0 0 -36px; border-radius: 999px; border: 1px solid var(--pb-amber); background: var(--pb-amber-soft); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; touch-action: none; cursor: grab; }
+.pb-aim .grip:active { cursor: grabbing; }
+.pb-aim .grip i { width: 10px; height: 10px; border-radius: 999px; background: var(--pb-amber); box-shadow: 0 0 0 3px var(--pb-canvas); }
+.pb-aim .bar { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; padding: 7px; background: var(--pb-bar); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); pointer-events: auto; }
+.pb-aim .bar .lab { flex: 1; min-width: 0; padding-left: 8px; font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: .14em; color: var(--pb-fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 48px tall: the minimum a thumb hits reliably. */
+.pb-aim .bar button { height: 48px; border-radius: 2px; font-family: var(--pb-font-mono); font-size: 11px; letter-spacing: .16em; cursor: pointer; }
+.pb-aim .bar .cancel { flex: none; padding: 0 18px; border: 1px solid var(--pb-line-2); background: transparent; color: var(--pb-fg2); }
+.pb-aim .bar .ok { flex: none; padding: 0 20px; border: none; background: var(--pb-amber); color: var(--pb-amber-ink); }
+
 .pb-pin { position: absolute; }
 .pb-pin.resolving { animation: pb-resolve 380ms var(--pb-ease) forwards; }
 .pb-pin .ring { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border: 1px solid var(--pb-amber); border-radius: 999px; animation: pb-ring 900ms var(--pb-ease) forwards; pointer-events: none; }

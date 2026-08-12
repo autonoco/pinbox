@@ -11,7 +11,23 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # Dispatch is kept for re-running a release whose npm step failed after the tag was cut, but it
+    # Merging a version bump releases it. Publishing only ever ran from a hand-cut tag, and exactly
+    # one tag was ever cut — so "CI publishes the package" was never true. `plan` below decides
+    # whether a main push is a release by comparing the manifest version against the tags that
+    # already exist, so an ordinary merge does nothing and a version bump ships.
+    branches: [main]
+  # Dispatch is for releasing a tag whose run never happened. It is NOT how you recover a run that
+  # failed after the Release was cut — it starts from `github-release`, and `gh release create` is
+  # not idempotent, so it fails on the Release that already exists. Recovery depends on where it
+  # stopped, and the second case is the one that is hard to reason about under pressure:
+  #   - `publish` failed: re-run it. `release:publish` skips every name@version already on the
+  #     registry and continues with the rest.
+  #   - `github-release` failed AFTER cutting the Release: `publish` was skipped, not failed, so
+  #     "re-run failed jobs" only retries `github-release` and it fails again on the Release that
+  #     now exists. Upload whatever assets are missing with `gh release upload`, then run
+  #     `release:publish` for that version by hand.
+  #
+  # Dispatch is only ever legal from a *tag* ref, but it
   # is only ever legal from a *tag* ref (GitHub's "Run workflow" ref picker lists tags). Started
   # from a branch, `github.ref_name` is the branch — an unguarded dispatch from `main` would cut a
   # Release named `main` and fan it out to npm, and npm unpublish is heavily restricted. Hence the
@@ -28,52 +44,104 @@ permissions:
   contents: read
 
 jobs:
-  # The one gate every other job hangs off. Cheap, first, and loud: a non-tag ref fails the run
-  # rather than skipping it silently, so a mis-aimed dispatch is visible instead of looking green.
-  guard:
+  # The one gate every other job hangs off, and the only place that decides what is being released.
+  # Cheap, first, and loud: a ref it cannot make sense of fails the run rather than skipping it, so
+  # a mis-aimed dispatch is visible instead of looking green.
+  plan:
+    timeout-minutes: 5
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
     steps:
-      # The ref arrives through env, never interpolated into the shell: a ref name is
-      # attacker-shaped input the moment anyone can push a tag.
-      - name: refuse any ref that is not a v* release tag
+      - uses: actions/checkout@v7
+        with:
+          # Tags are the record of what has already shipped; without them every merge looks new.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      # Refs arrive through env, never interpolated into the shell: a ref name is attacker-shaped
+      # input the moment anyone can push a tag.
+      - id: decide
+        name: work out whether this run releases, and what
         env:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
-          if [ "$REF_TYPE" != "tag" ]; then
-            echo "release runs from a v* tag only (got $REF_TYPE $REF_NAME)" >&2
-            exit 1
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ]; then
+            # A tag says its own version. Being a tag is not enough — everything downstream strips
+            # the leading `v` and treats the rest as the version it compiles and publishes.
+            if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "tag $REF_NAME is not a v<semver> release tag" >&2
+              exit 1
+            fi
+            version="${REF_NAME#v}"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            # A branch says nothing; the manifest does. `pinbox --version` reads this file, so it
+            # is the only honest source for what a merge would ship.
+            # The same shape check the tag path gets, applied inside bun so a malformed value never
+            # reaches the shell at all. That placement is the point, not tidiness: this value
+            # becomes a tag name and an npm version, and an embedded newline would write extra keys
+            # into $GITHUB_OUTPUT — which is how a manifest could set release=true for a run that
+            # had already been decided against. A shell-side `grep -q` cannot catch that: it exits 0
+            # when ANY line of its input matches, so "1.2.3\nrelease=true" passes on line one.
+            version="$(bun -e '
+              const v = (await Bun.file("packages/cli/package.json").json()).version;
+              if (typeof v !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/.test(v)) {
+                console.error(`packages/cli/package.json version ${JSON.stringify(v)} is not a release version`);
+                process.exit(1);
+              }
+              console.log(v);
+            ')"
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              echo "v$version is already tagged — nothing to release" >&2
+              echo "release=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "release=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
-          # Being a tag is not enough — every downstream job strips the leading `v` and treats the
-          # rest as the version it compiles, releases, and publishes.
-          if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "tag $REF_NAME is not a v<semver> release tag" >&2
-            exit 1
-          fi
-          echo "releasing $REF_NAME"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "version $version"
 
   validate:
-    needs: guard
+    timeout-minutes: 20
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       # tsdown's bin runs under system Node and loads tsdown.config.ts with native type
       # stripping, which needs Node >= 23.6; pin 24 rather than trust the image's Node.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bun run ci:validate
 
   compile:
-    needs: validate
+    timeout-minutes: 30
+    needs: [plan, validate]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       # release:build rebuilds the libraries with tsdown, which needs Node >= 23.6 (see validate).
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -85,16 +153,13 @@ jobs:
       # tagging v1.2.3 over an unmerged changesets version PR would then ship 1.2.2 binaries under
       # a Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
       # ref name is attacker-shaped input the moment anyone can push a tag.
-      - name: compile every target at the tagged version
+      - name: compile every target at the version being released
         env:
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          if [ "$REF_TYPE" != "tag" ]; then
-            echo "release runs from a v* tag only (got $REF_TYPE $REF_NAME)" >&2
-            exit 1
-          fi
-          bun run release:build "${REF_NAME#v}"
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from plan" >&2 && exit 1)
+          bun run release:build "$VERSION"
       - name: checksums
         run: |
           cd dist/release/bin
@@ -106,17 +171,22 @@ jobs:
           if-no-files-found: error
 
   smoke:
-    needs: compile
+    timeout-minutes: 20
+    needs: [plan, compile]
     strategy:
       fail-fast: true
       matrix:
         os: [blacksmith-4vcpu-ubuntu-2404, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       # node + npm are what the launcher shim and the install test actually run on.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -137,37 +207,47 @@ jobs:
           PINBOX_RELEASE_BINARY="$PWD/dist/release/bin/$asset" bun test tools/release/release.test.ts
 
   github-release:
-    needs: smoke
-    # Belt and braces over `guard`: the two irreversible jobs re-check the ref themselves, so
-    # neither a single-job re-run nor a future edit to `needs` can hand them a branch.
-    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
+    needs: [plan, smoke]
+    # Belt and braces over `plan`: the two irreversible jobs re-check for themselves, so neither a
+    # single-job re-run nor a future edit to `needs` can ship something nobody decided to ship.
+    if: needs.plan.outputs.release == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: binaries
           path: dist/release/bin
       - name: publish the GitHub Release
-        # The tag arrives through env, never interpolated into the shell: a ref name is
+        # Values arrive through env, never interpolated into the shell: a ref name is
         # attacker-shaped input the moment anyone can push a tag.
+        #
+        # `--target` pins the Release to this exact commit, so releasing from a merge tags the
+        # tree that was tested rather than whatever main has moved on to.
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
           gh release create "$TAG" \
+            --target "$SHA" \
             --title "$TAG" \
             --generate-notes \
             dist/release/bin/pinbox-* \
             tools/release/install.sh
 
   publish:
-    needs: github-release
-    # See github-release: npm publishes cannot be taken back, so this ref check is duplicated
-    # rather than delegated.
-    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 20
+    needs: [plan, github-release]
+    # See github-release: npm publishes cannot be taken back, so this check is duplicated rather
+    # than delegated.
+    if: needs.plan.outputs.release == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Trusted Publishing: npm mints its credential from this OIDC token, and --provenance
     # binds every tarball to this repo, workflow, and commit. No npm token is stored.
@@ -175,9 +255,13 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v5
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -196,7 +280,12 @@ jobs:
       # Order is the contract: core → toolbar → mcp → platform packages → launcher LAST.
       # The tag is passed here too, so the same manifest-vs-tag assertion guards the artifacts
       # that actually reach the registry, not only the ones this run compiled.
-      - name: publish the tagged version
+      # Names the real blocker before anything is uploaded. Trusted Publishing cannot CREATE a
+      # scoped package — npm answers a bare 404 on the PUT, which reads like the package is
+      # missing rather than like a setting is. That exact 404 is why the last release failed.
+      - name: check every package can be published from CI
+        run: bun tools/release/preflight.ts
+      - name: publish the version being released
         env:
-          REF_NAME: ${{ github.ref_name }}
-        run: bun run release:publish "${REF_NAME#v}"
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: bun run release:publish "$VERSION"

@@ -59,7 +59,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Named so the deploy can be gated on a reviewer or restricted to this branch in repo settings,
     # and so the Cloudflare credentials are scoped to it rather than every workflow in the repo.
-    environment: production
+    # "<scope> - <stage>", matching the repo's other environments.
+    environment: "site - prod"
     steps:
       - uses: actions/checkout@v5
         with:

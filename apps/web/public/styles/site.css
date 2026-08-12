@@ -690,3 +690,47 @@ section[id] {
     display: none;
   }
 }
+
+/* ---------- narrow screens ----------
+   720px is the design's own breakpoint, not one invented here.
+
+   Almost everything above is already fluid — clamp(), wrapping rows, auto-fit grids — and that
+   carries the page down to about tablet width on its own. What it cannot do is decide, at the
+   point a row stops fitting, whether the pieces should sit side by side or stack. That decision
+   is what this block makes, and only for the four places where wrapping alone looked accidental. */
+@media (max-width: 720px) {
+  /* The nav wrapped mid-row: the brand held the first line alone and the links dropped under it,
+     shoved against the left edge as if they had fallen off. Stacked deliberately instead, with the
+     links spread across the full width so the row reads as a row. */
+  .nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .nav__links {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  /* A 44px target is the smallest a thumb hits reliably; the desktop height is 32. */
+  .nav__links .btn-ghost {
+    height: 40px;
+    padding: 0 16px;
+  }
+
+  /* The demo is a whole site inside a frame. On a phone the frame was taller than the window and
+     carried its own scrollbar, so the page scrolled inside the page — two scrollbars, neither
+     obviously yours. Bounded to the viewport, with the embedded page hiding its own (see /demo). */
+  .frame__stage {
+    height: min(62vh, 460px);
+  }
+
+  /* The footer put the wordmark and the year on one line until it could not, then dropped the year
+     alone to the right — reading as a stray number rather than the end of the line it belongs to. */
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+  }
+}

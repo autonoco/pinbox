@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/web/public/brand/github-header-1280x640.png" alt="pinbox — put a pin in it" width="100%" />
+</p>
+
 # pinbox
 
 Drop a pin on a live app, and the coding agent already working on it picks the pin up, fixes the code, replies on the thread, and resolves it.

@@ -26,6 +26,16 @@ Three things live outside the repo and are set once:
 Without the two Worker secrets the site and hub still run; the agent answers `503` and pins go
 unanswered. That is the intended degradation — the demo says nothing rather than pretending.
 
+## Brand assets
+
+`public/brand/` is exported from the "Pinbox brand assets" page in Claude Design — the OG card, the
+favicon set, the app icons, the lockups, and the GitHub header. They are deliverables, not source:
+regenerate them there and re-export, never hand-edit them here. Biome skips the directory for the
+same reason it skips `fonts/` and the toolbar bundle.
+
+The OG image is the one the social card actually needs. Before this it was missing entirely while
+the page still advertised `summary_large_image`, so every share rendered a blank card.
+
 ## No build step
 
 `public/` **is** the site. Cloudflare serves it byte for byte, so what you see on `wrangler dev`

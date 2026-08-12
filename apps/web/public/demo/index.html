@@ -180,6 +180,31 @@
       .m-offline.is-shown {
         display: flex;
       }
+      /* Embedded in the marketing page's frame: the frame is the window, so this page must not
+         carry a second scrollbar inside it. Scrolling still works — only the bar is hidden — and
+         the padding tightens so the hero fits the smaller stage. */
+      body.is-embedded {
+        scrollbar-width: none;
+        padding: clamp(20px, 4vw, 40px) clamp(16px, 5vw, 56px) 90px;
+      }
+      body.is-embedded::-webkit-scrollbar {
+        display: none;
+      }
+      /* Four metrics in a row need four columns' worth of width. Below that they wrapped into a
+         grid whose dividers ran between rows as well as columns, which read as a table nobody
+         drew. Two clean columns, and the divider only where a column actually starts. */
+      @media (max-width: 720px) {
+        .m-metrics {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .m-metric {
+          padding: 18px 16px 0;
+        }
+        .m-metric:nth-child(odd) {
+          padding-left: 0;
+          border-left: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -254,6 +279,10 @@
       // Same origin as the hub, so no CORS. The token is public by design — see wrangler.jsonc.
       // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with
       // `new URL(endpoint)`, which throws on a bare path.
+      // Rendered inside the marketing page's frame — see .frame__stage.
+      if (new URLSearchParams(location.search).has("embed")) {
+        document.body.classList.add("is-embedded");
+      }
       const endpoint = `${location.origin}/_pinbox`;
       const token = "pinbox-public-demo";
 

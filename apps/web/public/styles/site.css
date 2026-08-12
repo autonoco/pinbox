@@ -1,0 +1,692 @@
+/* pinbox.sh — the marketing page.
+   Ported from the "Pinbox site" design. The design tool emits inline styles and a `style-hover`
+   attribute it resolves at runtime; both are real CSS here, so the page needs no JavaScript. */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--fg-1);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--amber);
+}
+
+::selection {
+  background: rgba(212, 160, 74, 0.28);
+}
+
+section[id] {
+  scroll-margin-top: 40px;
+}
+
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* A very slow, very low-opacity grain breaks up the flatness on large displays. Hero surfaces
+   only — never on buttons or cards. */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  pointer-events: none;
+  background-image: url("/brand/grain.svg");
+}
+
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 clamp(20px, 5vw, 40px);
+}
+
+.row {
+  width: 100%;
+  max-width: 1240px;
+}
+
+/* ---------- nav ---------- */
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: clamp(22px, 4vw, 30px) 0;
+}
+
+.nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nav__rule {
+  width: 1px;
+  height: 16px;
+  background: var(--hairline-strong);
+}
+
+.nav__wordmark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--fg-2);
+}
+
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: clamp(18px, 3.4vw, 30px);
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+  color: var(--fg-2);
+}
+
+.nav__links a {
+  color: inherit;
+}
+
+/* Hover is a hairline shift, never a scale. */
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-1);
+  color: var(--fg-1);
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+
+.btn-ghost:hover {
+  border-color: var(--amber);
+  color: var(--fg-1);
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  padding: clamp(64px, 11vw, 118px) 0 clamp(60px, 9vw, 96px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(24px, 3.4vw, 34px);
+  animation: up var(--dur-4) var(--ease-out) both;
+}
+
+.hero__mark {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+}
+
+.hero__wordmark {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.hero__title {
+  margin: 0;
+  max-width: 19ch;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(48px, 7.4vw, 104px);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+
+.hero__lede {
+  margin: 0;
+  max-width: 88ch;
+  font-size: clamp(15.5px, 1.4vw, 17px);
+  line-height: 1.6;
+  letter-spacing: -0.005em;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 22px;
+  border-radius: var(--radius-1);
+  background: var(--fg-1);
+  color: var(--bg-1);
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  transition: opacity var(--dur-1) linear;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+  color: var(--bg-1);
+}
+
+.command {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+  background: var(--bg-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+
+.command__prompt {
+  color: var(--amber);
+}
+
+/* ---------- the pin glyph ---------- */
+
+.pin {
+  position: relative;
+  display: block;
+  flex: none;
+}
+
+.pin__stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 35px;
+  height: 60px;
+  transform-origin: left top;
+}
+
+.pin__flag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 2px;
+  border: 1px solid rgba(20, 20, 20, 0.14);
+  background: var(--bone);
+  color: #141414;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.pin__needle {
+  position: absolute;
+  left: 1px;
+  top: 26px;
+  width: 1px;
+  height: 30px;
+  background: linear-gradient(
+    to top,
+    var(--amber),
+    color-mix(in srgb, var(--amber) 35%, transparent)
+  );
+  transform-origin: top;
+}
+
+.pin__dot {
+  position: absolute;
+  left: -2px;
+  top: 53px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--amber);
+}
+
+.pin__ring {
+  position: absolute;
+  left: -11px;
+  top: 44px;
+  width: 25px;
+  height: 25px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--amber);
+  opacity: 0;
+}
+
+/* Hero: the pin drops once, then the dot keeps pinging. */
+.pin--hero {
+  width: 46px;
+  height: 78px;
+}
+.pin--hero .pin__stage {
+  transform: scale(1.3);
+}
+.pin--hero .pin__flag {
+  animation: up 600ms var(--ease-out) 200ms both;
+}
+.pin--hero .pin__needle {
+  animation: needle-in 620ms var(--ease-out) 620ms both;
+}
+.pin--hero .pin__dot {
+  animation: dot-in 420ms var(--ease-out) 1120ms both;
+}
+.pin--hero .pin__ring {
+  animation: ping 2.6s var(--ease-out) 1120ms infinite;
+}
+
+/* Footer: the whole drop loops. */
+.pin--loop {
+  width: 30px;
+  height: 51px;
+}
+.pin--loop .pin__stage {
+  transform: scale(0.85);
+}
+.pin--loop .pin__flag {
+  animation: loop-flag 4.4s var(--ease-out) infinite;
+}
+.pin--loop .pin__needle {
+  animation: loop-needle 4.4s var(--ease-out) infinite;
+}
+.pin--loop .pin__dot {
+  animation: loop-dot 4.4s var(--ease-out) infinite;
+}
+.pin--loop .pin__ring {
+  animation: loop-ring 4.4s var(--ease-out) infinite;
+}
+
+/* ---------- demo ---------- */
+
+.demo {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: clamp(72px, 10vw, 110px);
+}
+
+.demo__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.demo__note {
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  color: var(--fg-2);
+  max-width: 56ch;
+  text-wrap: pretty;
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.key {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fg-3);
+}
+
+.frame {
+  position: relative;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-2);
+  background: var(--bg-0);
+  overflow: hidden;
+}
+
+.frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.frame__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--fg-4);
+}
+
+.frame__url {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fg-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.frame__spacer {
+  flex: 1;
+}
+
+.frame__stage {
+  display: block;
+  width: 100%;
+  height: clamp(460px, 74vh, 760px);
+  border: none;
+  background: var(--bg-1);
+}
+
+/* ---------- how it works ---------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 262px), 1fr));
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-2);
+  margin-bottom: clamp(72px, 10vw, 110px);
+}
+
+.step {
+  padding: 32px;
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+}
+
+.eyebrow--muted {
+  color: var(--fg-3);
+}
+
+.step__title {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 21px;
+  letter-spacing: -0.02em;
+  color: var(--fg-1);
+}
+
+.step__body,
+.prose {
+  font-size: 14.5px;
+  line-height: 1.6;
+  letter-spacing: -0.005em;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+/* ---------- connected threads ---------- */
+
+.threads {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(32px, 5vw, 56px);
+  flex-wrap: wrap;
+  padding-bottom: clamp(72px, 10vw, 110px);
+}
+
+.threads__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 340px;
+  min-width: 0;
+  max-width: min(46ch, 100%);
+}
+
+.threads__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(28px, 4.4vw, 38px);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+
+.threads__lede {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.62;
+  letter-spacing: -0.005em;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+
+.channels {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-2);
+  flex: 1 1 320px;
+  min-width: min(320px, 100%);
+}
+
+.channel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-2);
+}
+
+.channel__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--fg-1);
+}
+
+.channel__count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fg-4);
+}
+
+/* ---------- footer ---------- */
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 30px 0 48px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--fg-4);
+}
+
+.footer__brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.footer__label {
+  display: flex;
+  align-items: center;
+  height: 22px;
+}
+
+.icon {
+  display: block;
+  flex: none;
+}
+
+/* ---------- motion ----------
+   Entrances are opacity plus an 8px translate, nothing more. */
+
+@keyframes up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes needle-in {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ping {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.25);
+  }
+  55%,
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+@keyframes loop-flag {
+  0% {
+    opacity: 0;
+    transform: translateY(-13px);
+  }
+  16%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes loop-needle {
+  0%,
+  14% {
+    transform: scaleY(0);
+  }
+  34%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+@keyframes loop-dot {
+  0%,
+  30% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  42%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes loop-ring {
+  0%,
+  32% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  40% {
+    opacity: 0.5;
+  }
+  64%,
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+/* Looping ambient motion is decoration; honour the OS setting. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  /* Specificity matched to the `.pin--hero .pin__flag` rules above, so this wins without
+     `!important`. */
+  .hero,
+  .pin--hero .pin__flag,
+  .pin--hero .pin__needle,
+  .pin--hero .pin__dot,
+  .pin--loop .pin__flag,
+  .pin--loop .pin__needle,
+  .pin--loop .pin__dot {
+    animation: none;
+  }
+  .pin__ring {
+    display: none;
+  }
+}

@@ -117,3 +117,17 @@ describe("renderPins", () => {
     expect(chip.textContent).toContain("02");
   });
 });
+
+test("a pin lands on the point that was clicked, not the middle of the element", () => {
+  const layer = layerIn();
+  const rect = { x: 100, y: 200, width: 400, height: 40 };
+  const base = makePin("pin_aaaaaaaaaa").target;
+  const centred = makePin("pin_aaaaaaaaaa", { target: { ...base, rect } });
+  const clicked = makePin("pin_bbbbbbbbbb", {
+    target: { ...base, rect, spot: { x: 0.1, y: 0.5 } },
+  });
+  renderPins(layer, { ...initialState(), pins: [centred, clicked] } as ToolbarState);
+  const nodes = [...layer.children] as HTMLElement[];
+  expect(nodes[0]?.style.left).toBe("300px"); // no spot ⇒ centre, unchanged
+  expect(nodes[1]?.style.left).toBe("140px"); // 10% across, where the click was
+});

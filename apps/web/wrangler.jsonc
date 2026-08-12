@@ -1,0 +1,47 @@
+// pinbox.sh — static site plus the demo hub, in one Worker.
+// Conventions match examples/worker: pinned compatibility_date, never "today".
+{
+  "name": "pinbox-site",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // The Anthropic SDK reaches for node builtins; without this the agent module fails to load.
+  "compatibility_flags": ["nodejs_compat"],
+  // The site's home. `custom_domain` makes Cloudflare own the DNS record and the certificate for
+  // this hostname, so there is no route pattern to keep in step and no proxied A record to forget.
+  // It requires pinbox.sh to be a zone on the SAME Cloudflare account the deploy token belongs to
+  // — if it is not, the deploy fails loudly rather than shipping to a workers.dev URL nobody uses.
+  "routes": [{ "pattern": "pinbox.sh", "custom_domain": true }],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page",
+    // Static assets are served WITHOUT invoking the Worker by default — the demo page needs the
+    // Worker to run first so it can register the agent session before anyone drops a pin.
+    "run_worker_first": ["/demo", "/demo/"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PINBOX_HUB", "class_name": "PinboxHubDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PinboxHubDO"] }],
+  "vars": {
+    // NOT A SECRET, and must never be treated as one: the demo page ships this token to every
+    // visitor, because a live demo anyone can try is a hub anyone can write to. It exists so the
+    // hub runs its normal token path rather than the unauthenticated mode the DO refuses without
+    // an explicit override — not to keep anyone out. Never reuse this value anywhere real.
+    "AUTH_STRATEGY": "token",
+    "PINBOX_TOKEN": "pinbox-public-demo",
+    // One namespace for the demo, separate from anything else. Wiping the demo is deleting this
+    // Durable Object.
+    "PINBOX_PROJECT": "site-demo",
+    // Where the hub delivers pins. Same Worker, one route over: the DO posts here, the agent
+    // replies on the pin's thread. Without both WEBHOOK_ vars the hub wires no delivery adapter
+    // at all and pins are stored and never answered.
+    "WEBHOOK_URL": "https://pinbox.sh/_pinbox-agent"
+  },
+  // Secrets — `wrangler secret put <NAME>`, never vars:
+  //   ANTHROPIC_API_KEY  the agent's key; it is what answers a pin
+  //   WEBHOOK_SECRET     HMAC shared with the hub, so only the hub can trigger a reply
+
+  "alias": { "bun:sqlite": "../../examples/worker/src/shims/bun-sqlite.ts" }
+}

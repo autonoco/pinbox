@@ -15,7 +15,15 @@ import {
   DoSessionStore,
 } from "./do-store-registries.ts";
 import { newId } from "./id.ts";
-import type { Attachment, Link, Pin, PinInput, SessionRef, ThreadMessage } from "./schema.ts";
+import type {
+  AppliedEdit,
+  Attachment,
+  Link,
+  Pin,
+  PinInput,
+  SessionRef,
+  ThreadMessage,
+} from "./schema.ts";
 import { PinInputSchema, PinSchema, SessionRefSchema, ThreadMessageSchema } from "./schema.ts";
 import type { SessionStore } from "./sessions.ts";
 import {
@@ -38,7 +46,7 @@ export interface DoPinStore extends PinStore {
     pinId: string,
     role: "human" | "agent" | "mirror",
     text: string,
-    opts?: { origin?: string; attachments?: Attachment[] },
+    opts?: { origin?: string; attachments?: Attachment[]; edit?: AppliedEdit },
   ): ThreadMessage;
   /** @throws NotFoundError @throws ConflictError — trailing commit param is additive */
   resolvePin(id: string, by: "human" | "agent", note?: string, commit?: string): Pin;
@@ -180,7 +188,7 @@ class DoSqlitePinStore implements DoPinStore {
     pinId: string,
     role: "human" | "agent" | "mirror",
     text: string,
-    opts?: { origin?: string; attachments?: Attachment[] },
+    opts?: { origin?: string; attachments?: Attachment[]; edit?: AppliedEdit },
   ): ThreadMessage {
     const message = ThreadMessageSchema.parse({
       id: newId("msg"),
@@ -189,6 +197,7 @@ class DoSqlitePinStore implements DoPinStore {
       text,
       ...(opts?.origin !== undefined ? { origin: opts.origin } : {}),
       ...(opts?.attachments !== undefined ? { attachments: opts.attachments } : {}),
+      ...(opts?.edit !== undefined ? { edit: opts.edit } : {}),
       at: new Date().toISOString(),
     });
     return this.mutate(() => {

@@ -30,19 +30,49 @@
     "packages/toolbar/src/plugins/next.ts",
     "packages/mcp/src/main.ts"
   ],
-  "ignorePatterns": ["docs/design/**", "packages/cli/templates/**", "examples/**"],
+  "ignorePatterns": [
+    "docs/design/**",
+    "packages/cli/templates/**",
+    "examples/**",
+    "apps/web/public/**"
+  ],
   "boundaries": {
     "zones": [
-      { "name": "core", "patterns": ["packages/core/src/**"] },
-      { "name": "cli", "patterns": ["packages/cli/src/**"] },
-      { "name": "toolbar", "patterns": ["packages/toolbar/src/**"] },
-      { "name": "mcp", "patterns": ["packages/mcp/src/**"] }
+      {
+        "name": "core",
+        "patterns": ["packages/core/src/**"]
+      },
+      {
+        "name": "cli",
+        "patterns": ["packages/cli/src/**"]
+      },
+      {
+        "name": "toolbar",
+        "patterns": ["packages/toolbar/src/**"]
+      },
+      {
+        "name": "mcp",
+        "patterns": ["packages/mcp/src/**"]
+      }
     ],
     "rules": [
-      { "from": "core", "allow": [] },
-      { "from": "cli", "allow": ["core"] },
-      { "from": "mcp", "allow": ["core"] },
-      { "from": "toolbar", "allow": [], "allowTypeOnly": ["core"] }
+      {
+        "from": "core",
+        "allow": []
+      },
+      {
+        "from": "cli",
+        "allow": ["core"]
+      },
+      {
+        "from": "mcp",
+        "allow": ["core"]
+      },
+      {
+        "from": "toolbar",
+        "allow": [],
+        "allowTypeOnly": ["core"]
+      }
     ]
   }
 }

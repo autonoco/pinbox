@@ -99,6 +99,45 @@ function isFixed(win: BrowserWindow, el: Element): boolean {
   return false;
 }
 
+/** Beyond this an element is not a thing you pinned, it is a region. Too many to rewrite as a set. */
+const MAX_RUNS = 40;
+const MAX_RUN_LENGTH = 200;
+
+/** Text that is not content: a script body or a stylesheet is not something to rewrite. */
+const NON_CONTENT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+
+/**
+ * The element's text, split the way the browser stores it: one entry per run of characters.
+ *
+ * This walks TEXT NODES, not elements, and that distinction is the whole point — it makes no
+ * assumption about how a site is built. A heading is one run. A nav bar is one per link. A
+ * paragraph with a bold word in the middle is three, in reading order, including the halves either
+ * side of the bold. An earlier version keyed off "elements with no element children", which
+ * quietly lost the "Hello " in `<p>Hello <b>world</b></p>` — text a person can obviously see and
+ * would obviously expect to be able to change.
+ *
+ * `nearbyText` runs them all together, which is fine to read and useless to edit: it cannot tell
+ * an agent that "work approach people contact" is four separate places. This can.
+ */
+function textRuns(el: Element): string[] | undefined {
+  const runs: string[] = [];
+  const walk = (node: Node): boolean => {
+    if (node.nodeType === 3) {
+      const text = (node.nodeValue ?? "").trim();
+      if (text.length > 0) runs.push(text.slice(0, MAX_RUN_LENGTH));
+      return runs.length <= MAX_RUNS;
+    }
+    if (node.nodeType !== 1 || NON_CONTENT.has((node as Element).tagName)) return true;
+    for (const child of node.childNodes) if (!walk(child)) return false;
+    return true;
+  };
+  // Over the cap we return nothing rather than a truncated list: a partial list cannot be applied
+  // (the lengths would never line up) and offering one would only invite an edit that silently
+  // does nothing.
+  if (!walk(el) || runs.length === 0) return undefined;
+  return runs;
+}
+
 function buildContext(win: BrowserWindow, el: Element): TargetContext | undefined {
   const context: TargetContext = {};
   if (el.classList.length > 0) context.classes = [...el.classList];
@@ -110,11 +149,16 @@ function buildContext(win: BrowserWindow, el: Element): TargetContext | undefine
   if (nearby !== undefined) context.nearbyText = nearby;
   const selected = selectedText(win, el);
   if (selected !== undefined) context.selectedText = selected;
+  const runs = textRuns(el);
+  if (runs !== undefined) context.textRuns = runs;
   return Object.keys(context).length > 0 ? context : undefined;
 }
 
 /** Fills PinInput.target/env from a chosen element (shapes come from the pin schema). */
-export function captureTarget(el: Element, opts?: { anchor?: string }): CaptureResult {
+export function captureTarget(
+  el: Element,
+  opts?: { anchor?: string; at?: { x: number; y: number } },
+): CaptureResult {
   const doc = el.ownerDocument;
   const win = doc.defaultView as BrowserWindow;
   const r = el.getBoundingClientRect();
@@ -127,6 +171,14 @@ export function captureTarget(el: Element, opts?: { anchor?: string }): CaptureR
     fixed: isFixed(win, el),
   };
   if (opts?.anchor !== undefined) target.anchor = opts.anchor;
+  // Where in the element you clicked, as a fraction of its box. Stored as a fraction rather than
+  // pixels so it survives the element being resized or reflowed — the pin still binds to the
+  // element, it just stops jumping to the middle of it.
+  if (opts?.at !== undefined && r.width > 0 && r.height > 0) {
+    const fx = (opts.at.x - (r.left + win.scrollX)) / r.width;
+    const fy = (opts.at.y - (r.top + win.scrollY)) / r.height;
+    if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) target.spot = { x: fx, y: fy };
+  }
   const context = buildContext(win, el);
   if (context !== undefined) target.context = context;
   return {

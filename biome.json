@@ -1,6 +1,18 @@
 {
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!docs/design", "!.fallow"] },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!docs/design",
+      "!.fallow",
+      "!apps/web/public/pinbox",
+      "!apps/web/public/fonts"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -8,21 +20,40 @@
     "lineWidth": 100
   },
   "javascript": {
-    "formatter": { "quoteStyle": "double", "semicolons": "always" }
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
   },
   "linter": {
     "enabled": true,
     "rules": {
       "preset": "recommended",
-      "suspicious": { "noExplicitAny": "warn" },
-      "complexity": { "useLiteralKeys": "off" }
+      "suspicious": {
+        "noExplicitAny": "warn"
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
+      }
     }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "overrides": [
     {
       "includes": ["**/*.test.ts"],
-      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     }
   ]
 }

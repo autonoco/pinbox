@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meridian — pinbox demo</title>
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <style>
+      /* The page under review: Meridian, a private capital firm — copy and layout taken from the
+         Pinbox prototype in Claude Design, not invented here. Everything pinbox-shaped comes from
+         the real toolbar bundle at the bottom; nothing on this page draws a pin, thread, or inbox. */
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background: var(--bg-1);
+        color: var(--fg-1);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: clamp(28px, 5vw, 56px) clamp(20px, 6vw, 72px) 120px;
+      }
+      .m-row {
+        width: 100%;
+        max-width: 1180px;
+      }
+      .m-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: clamp(40px, 6vw, 74px);
+      }
+      .m-wordmark {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.24em;
+        color: var(--fg-1);
+      }
+      .m-links {
+        display: flex;
+        gap: clamp(18px, 3vw, 34px);
+        font-size: 13px;
+        letter-spacing: -0.005em;
+        color: var(--fg-2);
+      }
+      .m-main {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(40px, 6vw, 72px);
+      }
+      .m-header {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+        max-width: 860px;
+      }
+      .m-eyebrow {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        color: var(--fg-3);
+      }
+      .m-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-weight: 300;
+        font-size: clamp(34px, 5.4vw, 66px);
+        line-height: 1.02;
+        letter-spacing: -0.03em;
+        text-wrap: pretty;
+      }
+      .m-sub {
+        margin: 0;
+        max-width: 470px;
+        font-size: 15px;
+        line-height: 1.62;
+        letter-spacing: -0.005em;
+        color: var(--fg-2);
+        text-wrap: pretty;
+      }
+      .m-buttons {
+        display: flex;
+        gap: 10px;
+        padding-top: 6px;
+      }
+      .m-btn {
+        display: flex;
+        align-items: center;
+        height: 38px;
+        padding: 0 20px;
+        border-radius: var(--radius-1);
+        font-size: 13px;
+        letter-spacing: -0.005em;
+      }
+      .m-btn--solid {
+        background: var(--fg-1);
+        color: var(--bg-1);
+      }
+      .m-btn--ghost {
+        border: 1px solid var(--hairline-strong);
+        color: var(--fg-1);
+      }
+      .m-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+        border-top: 1px solid var(--hairline);
+      }
+      .m-metric {
+        padding: 22px 24px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        border-left: 1px solid var(--hairline);
+      }
+      .m-metric:first-child {
+        padding-left: 0;
+        border-left: none;
+      }
+      .m-metric__v {
+        font-family: var(--font-display);
+        font-weight: 300;
+        font-size: clamp(26px, 3vw, 34px);
+        letter-spacing: -0.03em;
+      }
+      .m-metric__k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--fg-3);
+      }
+      .m-pillars {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+        gap: 16px;
+      }
+      .m-pillar {
+        padding: 24px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-2);
+        background: var(--bg-2);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 150px;
+      }
+      .m-pillar__k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--fg-3);
+      }
+      .m-pillar__b {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--fg-2);
+        text-wrap: pretty;
+      }
+      /* Shown only if the hub is unreachable, so a dead demo says so instead of looking broken. */
+      .m-offline {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        margin-top: 24px;
+        padding: 10px 14px;
+        border: 1px solid var(--hairline-strong);
+        border-radius: var(--radius-1);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--fg-3);
+      }
+      .m-offline.is-shown {
+        display: flex;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="m-row m-nav">
+      <div class="m-wordmark">MERIDIAN</div>
+      <div class="m-links">
+        <span>work</span><span>approach</span><span>people</span><span>contact</span>
+      </div>
+    </nav>
+
+    <div class="m-row m-main">
+      <header class="m-header">
+        <div class="m-eyebrow">PRIVATE CAPITAL — EST. 1997</div>
+        <h1 class="m-title">capital, deployed<br />with conviction.</h1>
+        <p class="m-sub">
+          We hold positions for a decade, not a quarter. Twelve companies. One thesis. No outside
+          capital.
+        </p>
+        <div class="m-buttons">
+          <div class="m-btn m-btn--solid">The thesis</div>
+          <div class="m-btn m-btn--ghost">Portfolio</div>
+        </div>
+      </header>
+
+      <div class="m-metrics">
+        <div class="m-metric">
+          <div class="m-metric__v">$4.2B</div>
+          <div class="m-metric__k">UNDER MANAGEMENT</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">12</div>
+          <div class="m-metric__k">ACTIVE POSITIONS</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">11.4</div>
+          <div class="m-metric__k">AVG. HOLD, YEARS</div>
+        </div>
+        <div class="m-metric">
+          <div class="m-metric__v">1997</div>
+          <div class="m-metric__k">FIRST CLOSE</div>
+        </div>
+      </div>
+
+      <div class="m-pillars">
+        <div class="m-pillar">
+          <div class="m-pillar__k">01 — CONTROL</div>
+          <div class="m-pillar__b">
+            We take board seats and operating roles. Passive capital is not our instrument.
+          </div>
+        </div>
+        <div class="m-pillar">
+          <div class="m-pillar__k">02 — DURATION</div>
+          <div class="m-pillar__b">
+            No fund life, no forced exit. The clock belongs to the business.
+          </div>
+        </div>
+        <div class="m-pillar">
+          <div class="m-pillar__k">03 — CONCENTRATION</div>
+          <div class="m-pillar__b">
+            Twelve positions, deliberately. Diversification is a tax on conviction.
+          </div>
+        </div>
+      </div>
+
+      <div class="m-offline" id="offline">DEMO HUB UNREACHABLE — THE TOOLBAR IS NOT CONNECTED</div>
+    </div>
+
+    <!-- The shipped component, byte for byte: packages/toolbar's IIFE bundle, kept in step by
+         tools/validate/site-toolbar.ts. -->
+    <script src="/pinbox/toolbar.iife.js"></script>
+    <script>
+      // Same origin as the hub, so no CORS. The token is public by design — see wrangler.jsonc.
+      // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with
+      // `new URL(endpoint)`, which throws on a bare path.
+      const endpoint = `${location.origin}/_pinbox`;
+      const token = "pinbox-public-demo";
+
+      // Text that is not content — mirrors the toolbar's capture rule exactly, or the runs the
+      // agent was shown would not be the runs we write to.
+      const NON_CONTENT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+
+      /**
+       * This element's text nodes, in reading order — the same split the toolbar captured, so run
+       * 3 here is the run 3 the agent was given. Text nodes, never elements: no assumption about
+       * how the page is built, and writing to one can never remove an element.
+       */
+      function textRunNodes(root) {
+        const out = [];
+        const walk = (node) => {
+          if (node.nodeType === 3) {
+            if ((node.nodeValue ?? "").trim().length > 0) out.push(node);
+            return;
+          }
+          if (node.nodeType !== 1 || NON_CONTENT.has(node.tagName)) return;
+          for (const child of node.childNodes) walk(child);
+        };
+        walk(root);
+        return out;
+      }
+
+      /**
+       * Apply a change the agent made, to the page you are looking at.
+       *
+       * On a project with a repo the agent edits your source and the dev server reloads — that is
+       * the real loop, and it needs nothing like this. A hosted demo page has no source to edit, so
+       * this is the same idea with the only surface it has: the agent names the element and the
+       * words, and the page changes in front of you.
+       *
+       * Deliberately narrow. It writes text, and only text: no markup, no styles, no structure, so
+       * nothing here can inject script and no element can be destroyed by an edit. All or nothing:
+       * a list that does not line up with what is on the page is discarded rather than
+       * half-applied. And this runs on LIVE events only, never on history — your session sees your
+       * changes, and a stranger's edit cannot greet the next visitor.
+       */
+      function applyEdit(edit) {
+        if (!edit || typeof edit.selector !== "string" || !Array.isArray(edit.texts)) return;
+        let root;
+        try {
+          root = document.querySelector(edit.selector);
+        } catch {
+          return; // a selector the browser will not parse
+        }
+        if (!root || root.closest("pinbox-toolbar")) return;
+        const nodes = textRunNodes(root);
+        if (nodes.length === 0 || nodes.length !== edit.texts.length) return;
+        if (!edit.texts.every((t) => typeof t === "string")) return;
+        nodes.forEach((node, i) => {
+          node.nodeValue = edit.texts[i];
+        });
+      }
+
+      /**
+       * A second, read-only socket beside the toolbar's own.
+       *
+       * The toolbar keeps its events to itself, and it should — applying edits to a customer's DOM
+       * is not something the shipped component should ever decide to do. This page opts in for
+       * itself.
+       */
+      function watchForEdits() {
+        const url = new URL(endpoint);
+        url.pathname = `${url.pathname.replace(/\/+$/, "")}/ws`;
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(url.toString(), [`pinbox.token.${token}`]);
+        ws.onopen = () => {
+          // The hub replays from `lastSeq` and there is no "start from now" — so it sends the
+          // history once and we drop it on the floor below, taking only live frames. That is the
+          // point: past edits must not re-apply. The cost is one catch-up frame per page load.
+          ws.send(
+            JSON.stringify({ type: "hello", protocol: 1, consumerId: "demo-page", lastSeq: 0 }),
+          );
+        };
+        ws.onmessage = (ev) => {
+          let frame;
+          try {
+            frame = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          // "event" only. A "catch-up" frame is history, and history must never re-apply.
+          if (frame.type === "event" && frame.eventType === "thread.message") {
+            applyEdit(frame.payload?.edit);
+          }
+        };
+        // A dropped socket costs live edits, not the demo. Reconnect quietly.
+        ws.onclose = () => setTimeout(watchForEdits, 2000);
+      }
+
+      // A hub that accepts the connection and then never answers would leave this pending forever,
+      // so the page would sit there looking fine and never say it is offline.
+      fetch(`${endpoint}/health`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000),
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          // screenshots: false — capturing one means asking to share the tab, and that prompt is the
+          // first thing a visitor sees. Pins still carry the selector, markup, and viewport.
+          Pinbox.init({ endpoint, token, screenshots: false });
+          watchForEdits();
+        })
+        .catch(() => {
+          document.getElementById("offline").classList.add("is-shown");
+        });
+    </script>
+  </body>
+</html>

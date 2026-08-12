@@ -31,12 +31,30 @@ export const AttachmentSchema = z.object({
   height: z.number().int().optional(),
 });
 
+/**
+ * A change an agent made directly to the live page, rather than to a file.
+ *
+ * On a project with a repo the agent edits source and the dev server reloads, so the change needs
+ * no wire representation. A hosted page has no repo to edit, so the only way an agent can actually
+ * change what you are looking at is to say which element and what it should now read.
+ *
+ * `selector` is the pin's own captured selector, never one the agent chose. `texts` lines up with
+ * that element's captured `textRuns`, so pinning a nav bar and asking for all four labels to
+ * change is a single edit. Text only, never markup, so this can carry no script.
+ */
+export const AppliedEditSchema = z.object({
+  selector: z.string(),
+  /** New text for each of the element's text runs, in order. Length must match, or nothing is applied. */
+  texts: z.array(z.string()),
+});
+
 export const ThreadMessageSchema = z.object({
   id: z.string(),
   pinId: z.string(),
   role: z.enum(["human", "agent", "mirror"]),
   origin: z.string().optional(),
   text: z.string(),
+  edit: AppliedEditSchema.optional(),
   attachments: z.array(AttachmentSchema).optional(),
   at: z.string(),
 });
@@ -53,6 +71,15 @@ const ContextSchema = z.object({
   aria: z.record(z.string(), z.string()).optional(),
   nearbyText: z.string().optional(),
   selectedText: z.string().optional(),
+  /**
+   * The pinned element's text, split the way the markup splits it — one entry per element that
+   * actually holds words. A heading is one entry; a nav bar is one per link.
+   *
+   * `nearbyText` runs them together, which is fine to read and useless to edit: it cannot tell an
+   * agent that "work approach people contact" is four separate elements. This can, and it is what
+   * lets feedback on a group ("capitalise these") reach every item in it.
+   */
+  textRuns: z.array(z.string()).optional(),
 });
 
 // ── Widened in place at v1 — `pinbox pin` (terminal-created pins) ────────────────
@@ -85,6 +112,8 @@ const TargetSchema = z.object({
   selector: z.string().optional(),
   tag: z.string().optional(),
   rect: RectSchema.optional(),
+  /** Where inside `rect` the click landed, 0–1 on each axis. Absent ⇒ anchor at the centre. */
+  spot: z.object({ x: z.number(), y: z.number() }).optional(),
   fixed: z.boolean().optional(),
   anchor: z.string().optional(),
   source: SourceSchema.optional(),
@@ -156,6 +185,7 @@ export type Rect = z.infer<typeof RectSchema>;
 export type Pin = z.infer<typeof PinSchema>;
 export type PinInput = z.infer<typeof PinInputSchema>;
 export type ThreadMessage = z.infer<typeof ThreadMessageSchema>;
+export type AppliedEdit = z.infer<typeof AppliedEditSchema>;
 export type SessionRef = z.infer<typeof SessionRefSchema>;
 export type Attachment = z.infer<typeof AttachmentSchema>;
 export type Link = z.infer<typeof LinkSchema>;

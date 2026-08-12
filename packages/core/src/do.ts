@@ -12,6 +12,8 @@ import type {
 } from "@cloudflare/workers-types";
 import { verifyJwt } from "./auth/jwt.ts";
 import { verifyNone, verifyToken } from "./auth/verify.ts";
+import { DeliveryRouter } from "./delivery/router.ts";
+import { createWebhookAdapter } from "./delivery/webhook.ts";
 import { type DoPinStore, openDoStore } from "./do-store.ts";
 import { createHubHandler, err, type Identity, ok, type VerifyFn } from "./hub.ts";
 import { newId } from "./id.ts";
@@ -41,6 +43,10 @@ export type PinboxDoEnv = {
   PINBOX_TOKEN?: string; // token strategy secret
   AUTH_STRATEGY?: "none" | "token" | "jwt"; // default "token"; "none" requires ALLOW_UNAUTHENTICATED=1
   ALLOW_UNAUTHENTICATED?: string;
+  // Cloud delivery. Both required together: without them the adapter set is empty and no
+  // delivery row is ever enqueued, which is a hub that stores pins and reaches nobody.
+  WEBHOOK_URL?: string;
+  WEBHOOK_SECRET?: string;
   JWT_ISSUER?: string;
   JWT_JWKS_URL?: string;
   JWT_AUDIENCE?: string;
@@ -190,6 +196,24 @@ export class DoBroadcaster implements Broadcaster {
   }
 }
 
+/** Retry cadence for the delivery queue. Coarse: the receiver being down is not urgent. */
+const DRAIN_INTERVAL_MS = 30_000;
+/** Later than any due_at this hub can write, so `due()` answers "anything pending?". */
+const FAR_FUTURE = "9999-12-31T23:59:59.999Z";
+
+/**
+ * The cloud adapter set: `[webhook]` when configured, nothing otherwise.
+ *
+ * Returning undefined rather than an empty router is deliberate — a router with no adapters
+ * still writes pending rows, and nothing would ever drain them.
+ */
+function buildRouter(store: DoPinStore, env: PinboxDoEnv): DeliveryRouter | undefined {
+  const url = env.WEBHOOK_URL;
+  const secret = env.WEBHOOK_SECRET;
+  if (url === undefined || url === "" || secret === undefined || secret === "") return undefined;
+  return new DeliveryRouter({ store, adapters: [createWebhookAdapter({ url, secret })] });
+}
+
 export class PinboxHubDO {
   readonly store: DoPinStore;
   readonly broadcaster: DoBroadcaster;
@@ -199,6 +223,8 @@ export class PinboxHubDO {
   private readonly env: PinboxDoEnv;
   private readonly strategy: AuthStrategy;
   private readonly handler: (req: Request) => Promise<Response>;
+  /** Undefined when no adapter is configured — the hub then stores pins and delivers nothing. */
+  private readonly router: DeliveryRouter | undefined;
 
   constructor(ctx: DurableObjectState, env: PinboxDoEnv) {
     this.ctx = ctx;
@@ -212,10 +238,20 @@ export class PinboxHubDO {
       token: env.PINBOX_TOKEN ?? "",
       ...("verify" in this.strategy ? { verify: this.strategy.verify } : {}),
     });
-    // Wiring rule: exactly one store.subscribe listener feeds the Broadcaster;
-    // the hub handler never touches it. (The second listener — router.dispatch — awaits
-    // a cloud adapter set, not the router itself; see alarm() below.)
+    // Wiring rule: exactly one store.subscribe listener feeds the Broadcaster; the hub handler
+    // never touches it. The second listener is the delivery router, registered only when an
+    // adapter exists — a router with no adapters would write pending rows nothing can ever drain.
     this.store.subscribe((event) => this.broadcaster.publish(this.topic, encodeWsEvent(event)));
+    this.router = buildRouter(this.store, env);
+    if (this.router !== undefined) {
+      const router = this.router;
+      this.store.subscribe((event) => {
+        void router.dispatch(event).then(() => this.scheduleDrain());
+      });
+      // Events appended while this DO was evicted are replayed from the deliveries cursor on
+      // the next alarm, so waking is enough — no boot drain in the constructor.
+      void this.scheduleDrain();
+    }
     // Keepalive is transport-level: no ping message exists at
     // protocol 1; hibernated sockets answer without waking the DO.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -297,15 +333,25 @@ export class PinboxHubDO {
     // runtime forgets closed sockets; cursors are durable diagnostics, not liveness.
   }
 
+  /**
+   * Retry/escalation for the delivery queue. DO alarms, never cron (deep-dive §1.14): the alarm
+   * survives eviction, so a webhook receiver that is down when a pin lands is retried after this
+   * DO has been unloaded and woken again.
+   */
   async alarm(): Promise<void> {
-    // Still a no-op, and no longer for the reason originally written here: the
-    // DeliveryRouter HAS merged (delivery/router.ts, workers-safe by construction).
-    // What is missing is the cloud adapter set — [webhook] needs its
-    // endpoint/secret configuration surfaced through PinboxDoEnv, which is a contract
-    // decision, not wiring. Until an adapter exists no dispatch listener is registered,
-    // so no delivery row is ever enqueued and there is nothing to drain. When one does:
-    // `await router.drainDue()` here + reschedule via ctx.storage.setAlarm while pending
-    // rows remain (deep-dive §1.14 — DO alarms, never cron).
+    if (this.router === undefined) return;
+    await this.router.drainDue();
+    await this.scheduleDrain();
+  }
+
+  /** Re-arm while work remains. Setting an alarm that already exists is a no-op. */
+  private async scheduleDrain(): Promise<void> {
+    if (this.router === undefined) return;
+    // `due()` is "pending AND due_at <= now", so a timestamp past every possible due_at asks the
+    // one question the interface does not expose directly: is there any pending row at all?
+    if (this.store.deliveries.due(FAR_FUTURE).length === 0) return;
+    if ((await this.ctx.storage.getAlarm()) !== null) return;
+    await this.ctx.storage.setAlarm(Date.now() + DRAIN_INTERVAL_MS);
   }
 
   private async upgrade(req: Request, url: URL, verify: VerifyFn): Promise<Response> {

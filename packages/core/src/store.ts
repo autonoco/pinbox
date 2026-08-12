@@ -7,7 +7,15 @@
 // sessions.ts and store-deliveries.ts so this file keeps interfaces + wiring only.
 import { Database } from "bun:sqlite";
 import { newId } from "./id.ts";
-import type { Attachment, Link, Pin, PinInput, SessionRef, ThreadMessage } from "./schema.ts";
+import type {
+  AppliedEdit,
+  Attachment,
+  Link,
+  Pin,
+  PinInput,
+  SessionRef,
+  ThreadMessage,
+} from "./schema.ts";
 import {
   LinkSchema,
   PinInputSchema,
@@ -38,7 +46,7 @@ export interface PinStore {
     pinId: string,
     role: "human" | "agent" | "mirror",
     text: string,
-    opts?: { origin?: string; attachments?: Attachment[] },
+    opts?: { origin?: string; attachments?: Attachment[]; edit?: AppliedEdit },
   ): ThreadMessage;
   getThread(pinId: string): ThreadMessage[];
   /** @throws NotFoundError @throws ConflictError — the trailing commit param is additive */
@@ -423,7 +431,7 @@ class SqlitePinStore implements PinStore {
     pinId: string,
     role: "human" | "agent" | "mirror",
     text: string,
-    opts?: { origin?: string; attachments?: Attachment[] },
+    opts?: { origin?: string; attachments?: Attachment[]; edit?: AppliedEdit },
   ): ThreadMessage {
     const message = ThreadMessageSchema.parse({
       id: newId("msg"),
@@ -432,6 +440,7 @@ class SqlitePinStore implements PinStore {
       ...(opts?.origin !== undefined ? { origin: opts.origin } : {}),
       text,
       ...(opts?.attachments !== undefined ? { attachments: opts.attachments } : {}),
+      ...(opts?.edit !== undefined ? { edit: opts.edit } : {}),
       at: new Date().toISOString(),
     });
     this.mutate(() => {

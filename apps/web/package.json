@@ -1,0 +1,23 @@
+{
+  "name": "@autono/pinbox-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "sync:toolbar": "bun ../../tools/validate/site-toolbar.ts --write",
+    "dev": "wrangler dev",
+    "predeploy": "bun run sync:toolbar",
+    "deploy": "wrangler deploy",
+    "deploy:ci": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "wrangler": "catalog:",
+    "typescript": "catalog:",
+    "@types/bun": "catalog:"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
+    "@autono/pinbox-core": "workspace:*"
+  }
+}

@@ -199,7 +199,13 @@ export class PinboxToolbarElement extends BaseElement {
     this.actions.verify = (pinId, outcome) =>
       void transport
         .verify(pinId, outcome)
-        .then((pin) => upsertPin(this.store, pin))
+        .then((pin) => {
+          upsertPin(this.store, pin);
+          // Accepting is the end of the pin: it closes the card and takes the marker off the page
+          // with it. Leaving the thread sitting open on a pin you just signed off reads as though
+          // the click did not land. Reopening is the opposite — the card stays, composer focused.
+          if (outcome === "accepted") this.#dismiss();
+        })
         .catch(() => {});
     transport.connect();
   }
@@ -233,6 +239,8 @@ export class PinboxToolbarElement extends BaseElement {
   async #screenshot(selector: string): Promise<Attachment | null> {
     const cfg = this.config;
     if (cfg === null) return null;
+    // Opted out: never call getDisplayMedia, so the tab-share prompt never appears.
+    if (cfg.screenshots === false) return null;
     try {
       const el = document.querySelector(selector);
       if (el === null) return null;
@@ -347,7 +355,10 @@ export class PinboxToolbarElement extends BaseElement {
     e.preventDefault();
     e.stopPropagation();
     const el = this.#hover ?? document.body;
-    this.store.place({ target: captureTarget(el), placedAt: { x: e.pageX, y: e.pageY } });
+    this.store.place({
+      target: captureTarget(el, { at: { x: e.pageX, y: e.pageY } }),
+      placedAt: { x: e.pageX, y: e.pageY },
+    });
     this.#reticle?.release();
   }
 
@@ -356,8 +367,14 @@ export class PinboxToolbarElement extends BaseElement {
   #onClickCapture = (e: MouseEvent): void => {
     if (e.composedPath().includes(this)) return;
     const state = this.store.get();
-    if (state.mode === "placing") this.#placeDraft(e);
-    else if (state.activePinId || state.draft) this.#dismiss();
+    if (state.mode === "placing") {
+      this.#placeDraft(e);
+      return;
+    }
+    // Anything open closes when you click away from it — the card, and the inbox with it. An inbox
+    // that only closed from its own X meant clicking the page did nothing and it just sat there.
+    if (state.inboxOpen) this.store.update({ inboxOpen: false });
+    if (state.activePinId || state.draft) this.#dismiss();
   };
 
   /** Prototype keyboard map (v2-command-bar.html lines 701–712). */

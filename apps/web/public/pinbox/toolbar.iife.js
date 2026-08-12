@@ -148,31 +148,43 @@ var Pinbox = (function(exports) {
 		}
 		return false;
 	}
-	/** How many text runs are worth carrying, and how long each may be. A pin is not a page dump. */
-	const MAX_RUNS = 24;
+	/** Beyond this an element is not a thing you pinned, it is a region. Too many to rewrite as a set. */
+	const MAX_RUNS = 40;
 	const MAX_RUN_LENGTH = 200;
+	/** Text that is not content: a script body or a stylesheet is not something to rewrite. */
+	const NON_CONTENT = /* @__PURE__ */ new Set([
+		"SCRIPT",
+		"STYLE",
+		"NOSCRIPT",
+		"TEMPLATE"
+	]);
 	/**
-	* The element's text, split the way the markup splits it: one entry per descendant that actually
-	* holds words, or the element itself when it holds them directly.
+	* The element's text, split the way the browser stores it: one entry per run of characters.
 	*
-	* This is what makes feedback on a group actionable. Pin a nav bar and `nearbyText` gives you
-	* "work approach people contact" — one string, no way to tell it is four links. This gives four
-	* entries, so a change can be applied to each of them.
+	* This walks TEXT NODES, not elements, and that distinction is the whole point — it makes no
+	* assumption about how a site is built. A heading is one run. A nav bar is one per link. A
+	* paragraph with a bold word in the middle is three, in reading order, including the halves either
+	* side of the bold. An earlier version keyed off "elements with no element children", which
+	* quietly lost the "Hello " in `<p>Hello <b>world</b></p>` — text a person can obviously see and
+	* would obviously expect to be able to change.
+	*
+	* `nearbyText` runs them all together, which is fine to read and useless to edit: it cannot tell
+	* an agent that "work approach people contact" is four separate places. This can.
 	*/
 	function textRuns(el) {
 		const runs = [];
 		const walk = (node) => {
-			if (runs.length >= MAX_RUNS) return;
-			const children = [...node.children];
-			if (children.length === 0) {
-				const text = (node.textContent ?? "").trim();
+			if (node.nodeType === 3) {
+				const text = (node.nodeValue ?? "").trim();
 				if (text.length > 0) runs.push(text.slice(0, MAX_RUN_LENGTH));
-				return;
+				return runs.length <= MAX_RUNS;
 			}
-			for (const child of children) walk(child);
+			if (node.nodeType !== 1 || NON_CONTENT.has(node.tagName)) return true;
+			for (const child of node.childNodes) if (!walk(child)) return false;
+			return true;
 		};
-		walk(el);
-		return runs.length > 0 ? runs : void 0;
+		if (!walk(el) || runs.length === 0) return void 0;
+		return runs;
 	}
 	function buildContext(win, el) {
 		const context = {};
@@ -2056,8 +2068,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#onClickCapture = (e) => {
 			if (e.composedPath().includes(this)) return;
 			const state = this.store.get();
-			if (state.mode === "placing") this.#placeDraft(e);
-			else if (state.activePinId || state.draft) this.#dismiss();
+			if (state.mode === "placing") {
+				this.#placeDraft(e);
+				return;
+			}
+			if (state.inboxOpen) this.store.update({ inboxOpen: false });
+			if (state.activePinId || state.draft) this.#dismiss();
 		};
 		/** Prototype keyboard map (v2-command-bar.html lines 701–712). */
 		#shortcuts = {

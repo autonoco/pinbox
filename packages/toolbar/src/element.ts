@@ -367,8 +367,14 @@ export class PinboxToolbarElement extends BaseElement {
   #onClickCapture = (e: MouseEvent): void => {
     if (e.composedPath().includes(this)) return;
     const state = this.store.get();
-    if (state.mode === "placing") this.#placeDraft(e);
-    else if (state.activePinId || state.draft) this.#dismiss();
+    if (state.mode === "placing") {
+      this.#placeDraft(e);
+      return;
+    }
+    // Anything open closes when you click away from it — the card, and the inbox with it. An inbox
+    // that only closed from its own X meant clicking the page did nothing and it just sat there.
+    if (state.inboxOpen) this.store.update({ inboxOpen: false });
+    if (state.activePinId || state.draft) this.#dismiss();
   };
 
   /** Prototype keyboard map (v2-command-bar.html lines 701–712). */

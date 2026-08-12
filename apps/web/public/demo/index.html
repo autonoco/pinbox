@@ -257,18 +257,24 @@
       const endpoint = `${location.origin}/_pinbox`;
       const token = "pinbox-public-demo";
 
+      // Text that is not content — mirrors the toolbar's capture rule exactly, or the runs the
+      // agent was shown would not be the runs we write to.
+      const NON_CONTENT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+
       /**
-       * The elements holding this element's text, in document order — the same split the toolbar
-       * captured, so run 3 here is run 3 there. A leaf is itself; a container is its parts.
+       * This element's text nodes, in reading order — the same split the toolbar captured, so run
+       * 3 here is the run 3 the agent was given. Text nodes, never elements: no assumption about
+       * how the page is built, and writing to one can never remove an element.
        */
-      function textRunTargets(root) {
+      function textRunNodes(root) {
         const out = [];
         const walk = (node) => {
-          if (node.children.length === 0) {
-            if ((node.textContent ?? "").trim().length > 0) out.push(node);
+          if (node.nodeType === 3) {
+            if ((node.nodeValue ?? "").trim().length > 0) out.push(node);
             return;
           }
-          for (const child of node.children) walk(child);
+          if (node.nodeType !== 1 || NON_CONTENT.has(node.tagName)) return;
+          for (const child of node.childNodes) walk(child);
         };
         walk(root);
         return out;
@@ -282,12 +288,11 @@
        * this is the same idea with the only surface it has: the agent names the element and the
        * words, and the page changes in front of you.
        *
-       * Deliberately narrow. `textContent` on the elements that already hold text, never
-       * `innerHTML` and never on a container, so nothing here can inject markup or script and no
-       * element is ever destroyed by an edit. All or nothing: a list that does not line up with
-       * what is on the page is discarded rather than half-applied. And this runs on LIVE events
-       * only, never on history: your session sees your changes, and a stranger's edit cannot greet
-       * the next visitor.
+       * Deliberately narrow. It writes text, and only text: no markup, no styles, no structure, so
+       * nothing here can inject script and no element can be destroyed by an edit. All or nothing:
+       * a list that does not line up with what is on the page is discarded rather than
+       * half-applied. And this runs on LIVE events only, never on history — your session sees your
+       * changes, and a stranger's edit cannot greet the next visitor.
        */
       function applyEdit(edit) {
         if (!edit || typeof edit.selector !== "string" || !Array.isArray(edit.texts)) return;
@@ -298,11 +303,11 @@
           return; // a selector the browser will not parse
         }
         if (!root || root.closest("pinbox-toolbar")) return;
-        const targets = textRunTargets(root);
-        if (targets.length === 0 || targets.length !== edit.texts.length) return;
+        const nodes = textRunNodes(root);
+        if (nodes.length === 0 || nodes.length !== edit.texts.length) return;
         if (!edit.texts.every((t) => typeof t === "string")) return;
-        targets.forEach((el, i) => {
-          el.textContent = edit.texts[i];
+        nodes.forEach((node, i) => {
+          node.nodeValue = edit.texts[i];
         });
       }
 

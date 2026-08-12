@@ -103,3 +103,41 @@ describe("captureTarget", () => {
     expect(captureTarget(el, { anchor: "hero" }).target.anchor).toBe("hero");
   });
 });
+
+describe("the text a pin can offer up for editing", () => {
+  function runsFor(html: string): string[] | undefined {
+    const window = new Window();
+    window.document.body.innerHTML = html;
+    const el = window.document.body.firstElementChild as unknown as Element;
+    return captureTarget(el).target.context?.textRuns;
+  }
+
+  test("a plain element is one run", () => {
+    expect(runsFor("<h1>capital, deployed</h1>")).toEqual(["capital, deployed"]);
+  });
+
+  test("a group is one run per piece of text in it", () => {
+    expect(runsFor("<nav><a>work</a><a>approach</a><a>people</a></nav>")).toEqual([
+      "work",
+      "approach",
+      "people",
+    ]);
+  });
+
+  test("text either side of an inline element survives", () => {
+    // The case the old element-based walk dropped: "Hello" was invisible to it, so it could
+    // never be edited and the agent was never told it existed.
+    expect(runsFor("<p>Hello <b>world</b> again</p>")).toEqual(["Hello", "world", "again"]);
+  });
+
+  test("scripts and styles are not content", () => {
+    expect(
+      runsFor("<div>real<script>var x = 1;</script><style>a{color:red}</style></div>"),
+    ).toEqual(["real"]);
+  });
+
+  test("a region too large to rewrite as a set offers nothing", () => {
+    const many = Array.from({ length: 60 }, (_, i) => `<span>${i}</span>`).join("");
+    expect(runsFor(`<div>${many}</div>`)).toBeUndefined();
+  });
+});

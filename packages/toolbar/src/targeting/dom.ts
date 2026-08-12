@@ -5,8 +5,12 @@
 // the page-specific ignore list generalized into a caller-supplied predicate.
 
 /**
- * Deepest element under (clientX, clientY), or null when the hit is the page
- * chrome itself (html/body) or something the caller ignores (our own overlay).
+ * Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
+ * nothing there but page chrome (html/body).
+ *
+ * Looks THROUGH our own overlay rather than giving up at it. The single-element form could not:
+ * the drag-aim grip sits exactly on the point being aimed at, so it is always the topmost thing
+ * under the crosshair, and every probe came back "nothing" the moment touch aiming existed.
  */
 export function hitTest(
   doc: Document,
@@ -14,9 +18,12 @@ export function hitTest(
   y: number,
   ignore: (el: Element) => boolean,
 ): Element | null {
-  const el = doc.elementFromPoint(x, y);
-  if (!el || el === doc.body || el === doc.documentElement) return null;
-  return ignore(el) ? null : el;
+  const stack = doc.elementsFromPoint?.(x, y) ?? [doc.elementFromPoint(x, y)];
+  for (const el of stack) {
+    if (!el || el === doc.body || el === doc.documentElement) return null;
+    if (!ignore(el)) return el;
+  }
+  return null;
 }
 
 /** CLASS-or-TAG display name with a sibling index when needed (prototype nodeName). */

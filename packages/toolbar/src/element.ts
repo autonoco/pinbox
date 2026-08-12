@@ -21,6 +21,7 @@ import {
 } from "./state.ts";
 import { hitTest, targetLabel } from "./targeting/dom.ts";
 import { HubTransport } from "./transport.ts";
+import { type Aim, createAim, needsDragAim, startPoint } from "./ui/aim.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
@@ -59,6 +60,7 @@ export class PinboxToolbarElement extends BaseElement {
   #reticle: Reticle | null = null;
   #pinsLayer: HTMLElement | null = null;
   #drawer: Drawer | null = null;
+  #aim: Aim | null = null;
   #modal: ShortcutsModal | null = null;
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
@@ -113,6 +115,8 @@ export class PinboxToolbarElement extends BaseElement {
     document.removeEventListener("mousemove", this.#onMouseMove);
     document.removeEventListener("click", this.#onClickCapture, true);
     document.removeEventListener("keydown", this.#onKeyDown);
+    this.#aim?.destroy();
+    this.#aim = null;
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#pageStyle?.remove();
@@ -157,6 +161,12 @@ export class PinboxToolbarElement extends BaseElement {
       onClose: () => this.store.update({ inboxOpen: false }),
     });
     shadow.appendChild(this.#drawer.root);
+    this.#aim = createAim(document, {
+      onAim: (x, y) => this.#probe(x, y),
+      onConfirm: () => this.#confirmAim(),
+      onCancel: () => this.#dismiss(),
+    });
+    shadow.appendChild(this.#aim.root);
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
     shadow.appendChild(this.#modal.root);
     this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
@@ -334,21 +344,45 @@ export class PinboxToolbarElement extends BaseElement {
     if (this.store.get().draft) this.store.discardDraft();
   }
 
-  #onMouseMove = (e: MouseEvent): void => {
-    if (this.store.get().mode !== "placing" || !this.#reticle) return;
-    this.#reticle.move(e);
-    const el = hitTest(document, e.clientX, e.clientY, (hit) => hit === this);
+  /**
+   * Work out what sits under a viewport point and highlight it.
+   *
+   * Shared by both ways of aiming — following a mouse, and dragging the reticle — so the two can
+   * never disagree about what is under the crosshair.
+   */
+  #probe(clientX: number, clientY: number): void {
+    const el = hitTest(document, clientX, clientY, (hit) => hit === this);
+    this.#hover = el;
     if (el) {
-      this.#hover = el;
-      this.#reticle.snap(el.getBoundingClientRect(), targetLabel(el), {
+      this.#reticle?.snap(el.getBoundingClientRect(), targetLabel(el), {
         x: window.scrollX,
         y: window.scrollY,
       });
     } else {
-      this.#hover = null;
-      this.#reticle.release();
+      this.#reticle?.release();
     }
+    this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
+  }
+
+  #onMouseMove = (e: MouseEvent): void => {
+    if (this.store.get().mode !== "placing" || !this.#reticle) return;
+    this.#reticle.move(e);
+    this.#probe(e.clientX, e.clientY);
   };
+
+  /** Commit the pin the drag-aim reticle is sitting on. */
+  #confirmAim(): void {
+    const aim = this.#aim;
+    if (!aim) return;
+    const el = this.#hover ?? document.body;
+    this.store.place({
+      target: captureTarget(el, {
+        at: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
+      }),
+      placedAt: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
+    });
+    this.#reticle?.release();
+  }
 
   /** Placement click: capture the hovered target (or body) into a client-only draft. */
   #placeDraft(e: MouseEvent): void {
@@ -368,7 +402,10 @@ export class PinboxToolbarElement extends BaseElement {
     if (e.composedPath().includes(this)) return;
     const state = this.store.get();
     if (state.mode === "placing") {
-      this.#placeDraft(e);
+      // While drag-aiming, a tap is how you scroll and how you follow links — placing on it would
+      // pin something every time you touched the page, and always before you could see what.
+      // Placement there is the explicit confirm instead.
+      if (!needsDragAim(window)) this.#placeDraft(e);
       return;
     }
     // Anything open closes when you click away from it — the card, and the inbox with it. An inbox
@@ -393,11 +430,30 @@ export class PinboxToolbarElement extends BaseElement {
     this.#shortcuts[e.key === "?" ? "?" : e.key.toLowerCase()]?.();
   };
 
+  /**
+   * Bring the drag-aim reticle up with placing mode, seeded mid-screen and already showing what it
+   * is over — so the first thing you see is a live target, not an empty crosshair waiting for a
+   * mouse that is never coming.
+   */
+  #syncAim(placing: boolean): void {
+    const aim = this.#aim;
+    if (!aim) return;
+    if (!placing || !needsDragAim(window)) {
+      aim.hide();
+      return;
+    }
+    if (aim.root.classList.contains("on")) return;
+    const { x, y } = startPoint(window);
+    aim.show(x, y);
+    this.#probe(x, y);
+  }
+
   #render(state: ToolbarState): void {
     const placing = state.mode === "placing";
     this.toggleAttribute("data-placing", placing);
     document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
     if (!placing) this.#reticle?.release();
+    this.#syncAim(placing);
     if (this.#pinsLayer) renderPins(this.#pinsLayer, state);
     if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
     this.#drawer?.update(state);

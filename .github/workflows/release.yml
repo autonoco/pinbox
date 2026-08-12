@@ -16,7 +16,13 @@ on:
     # whether a main push is a release by comparing the manifest version against the tags that
     # already exist, so an ordinary merge does nothing and a version bump ships.
     branches: [main]
-  # Dispatch is kept for re-running a release whose npm step failed after the tag was cut, but it
+  # Dispatch is for releasing a tag whose run never happened. It is NOT how you recover a run that
+  # failed after the Release was cut — it starts from `github-release`, and `gh release create` is
+  # not idempotent, so it fails on the Release that already exists. To finish a partial publish,
+  # re-run the failed `publish` job: `release:publish` skips every name@version already on the
+  # registry and continues with the rest.
+  #
+  # Dispatch is only ever legal from a *tag* ref, but it
   # is only ever legal from a *tag* ref (GitHub's "Run workflow" ref picker lists tags). Started
   # from a branch, `github.ref_name` is the branch — an unguarded dispatch from `main` would cut a
   # Release named `main` and fan it out to npm, and npm unpublish is heavily restricted. Hence the
@@ -74,6 +80,14 @@ jobs:
             # A branch says nothing; the manifest does. `pinbox --version` reads this file, so it
             # is the only honest source for what a merge would ship.
             version="$(bun -e 'console.log((await Bun.file("packages/cli/package.json").json()).version)')"
+            # The same shape check the tag path gets. This value becomes a tag name and an npm
+            # version, so a malformed one fails late — after compile and smoke have burned their
+            # time — and a newline in it would write extra keys into $GITHUB_OUTPUT, which is how a
+            # manifest could set release=true for a run that should not release.
+            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "packages/cli/package.json version '$version' is not a release version" >&2
+              exit 1
+            fi
             if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
               echo "v$version is already tagged — nothing to release" >&2
               echo "release=false" >> "$GITHUB_OUTPUT"

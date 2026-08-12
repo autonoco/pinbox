@@ -22,7 +22,7 @@ const BUN_VERSION = "1.3.14";
 
 type Step = { uses?: string; with?: Record<string, unknown>; run?: string; name?: string };
 type Job = { "timeout-minutes"?: number; steps?: Step[]; uses?: string };
-type Triggers = Record<string, Record<string, unknown> | null>;
+type Triggers = Record<string, Record<string, unknown> | Record<string, unknown>[] | null>;
 
 const problems: string[] = [];
 
@@ -45,7 +45,7 @@ for (const file of files) {
   // ignores it — the workflow still runs, just not when or how you meant. Caught here because a
   // bulk edit put `timeout-minutes` under `push:` in all five files at once and every one of them
   // still parsed as valid YAML.
-  const triggers = parsed.on ?? parsed.true ?? {};
+  const triggers = (parsed.on ?? parsed.true ?? {}) as Record<string, unknown>;
   const TRIGGER_KEYS = new Set([
     "branches",
     "branches-ignore",
@@ -62,8 +62,17 @@ for (const file of files) {
     "outputs",
   ]);
   for (const [event, config] of Object.entries(triggers)) {
-    for (const key of Object.keys(config ?? {})) {
-      check(file, TRIGGER_KEYS.has(key), `"${key}" under trigger "${event}" is not a trigger key`);
+    // `schedule` is a LIST of `{ cron }`, not a keyed config: its indexes are "0", "1", … and
+    // checking them against key names would reject every scheduled workflow ever added.
+    const entries = Array.isArray(config) ? (config as Record<string, unknown>[]) : [config ?? {}];
+    for (const entry of entries) {
+      for (const key of Object.keys(entry)) {
+        check(
+          file,
+          TRIGGER_KEYS.has(key),
+          `"${key}" under trigger "${event}" is not a trigger key`,
+        );
+      }
     }
   }
   const jobs = Object.entries(parsed.jobs ?? {});

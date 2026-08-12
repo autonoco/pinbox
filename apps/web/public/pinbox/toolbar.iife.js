@@ -1021,7 +1021,7 @@ var Pinbox = (function(exports) {
 			y: win.innerHeight * .42
 		};
 	}
-	const MARKUP = "<div class=\"h\"></div><div class=\"v\"></div><div class=\"grip\" role=\"slider\" aria-label=\"Pin position\" tabindex=\"0\"><i></i></div><div class=\"bar\"><span class=\"lab\"></span><button type=\"button\" class=\"cancel\" data-aim=\"cancel\">CANCEL</button><button type=\"button\" class=\"ok\" data-aim=\"confirm\">PIN IT HERE</button></div>";
+	const MARKUP = "<div class=\"h\"></div><div class=\"v\"></div><div class=\"grip\" aria-label=\"Pin position — arrow keys to aim\" tabindex=\"0\"><i></i></div><div class=\"bar\"><span class=\"lab\" role=\"status\" aria-live=\"polite\"></span><button type=\"button\" class=\"cancel\" data-aim=\"cancel\">CANCEL</button><button type=\"button\" class=\"ok\" data-aim=\"confirm\">PIN IT HERE</button></div>";
 	function createAim(doc, handlers) {
 		const win = doc.defaultView;
 		const root = doc.createElement("div");

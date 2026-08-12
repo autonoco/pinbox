@@ -199,3 +199,21 @@ test("every checkout in the tree states what it does with the token", async () =
     }
   }
 });
+
+test("a scheduled workflow is not rejected for its cron list", async () => {
+  // `on.schedule` is a LIST of `{ cron }`, so its keys are "0", "1", … — checking those against
+  // trigger-key names would reject every scheduled workflow the moment one is added.
+  const { $ } = await import("bun");
+  const dir = `${import.meta.dir}/../../.github/workflows`;
+  const probe = `${dir}/zz-schedule-probe.yml`;
+  await Bun.write(
+    probe,
+    'name: probe\non:\n  schedule:\n    - cron: "0 0 * * *"\njobs:\n  x:\n    timeout-minutes: 5\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n',
+  );
+  try {
+    const result = await $`bun ${import.meta.dir}/workflows.ts`.nothrow().quiet();
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+  } finally {
+    await Bun.file(probe).delete();
+  }
+});

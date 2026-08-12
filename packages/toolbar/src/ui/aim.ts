@@ -57,10 +57,14 @@ export function startPoint(win: Window): { x: number; y: number } {
   return { x: win.innerWidth / 2, y: win.innerHeight * 0.42 };
 }
 
+// Not `role="slider"`: a slider reports one value on one axis, and this moves on two with no
+// value to report. A plain focusable control with a name is the honest description. The label is
+// a live region so a screen reader hears what the reticle is over as it moves — otherwise aiming
+// is the one thing here you could only do by sight.
 const MARKUP =
   '<div class="h"></div><div class="v"></div>' +
-  '<div class="grip" role="slider" aria-label="Pin position" tabindex="0"><i></i></div>' +
-  '<div class="bar"><span class="lab"></span>' +
+  '<div class="grip" aria-label="Pin position — arrow keys to aim" tabindex="0"><i></i></div>' +
+  '<div class="bar"><span class="lab" role="status" aria-live="polite"></span>' +
   '<button type="button" class="cancel" data-aim="cancel">CANCEL</button>' +
   '<button type="button" class="ok" data-aim="confirm">PIN IT HERE</button></div>';
 

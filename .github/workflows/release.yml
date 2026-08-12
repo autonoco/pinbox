@@ -92,6 +92,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
@@ -109,6 +111,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
@@ -152,6 +156,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
@@ -187,6 +193,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: binaries
@@ -224,6 +232,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"

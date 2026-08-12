@@ -4,11 +4,10 @@
 // that is nothing resolves imports for you, so a renamed font or a moved stylesheet fails
 // *silently* — the browser falls back to a system face and the page still loads, looking almost
 // right. This is what notices.
-import { fileURLToPath } from "node:url";
 
 // fileURLToPath, not `.pathname`: the latter stays percent-encoded, so a checkout under a path
 // with a space reads as `%20` and every file lookup misses.
-const root = fileURLToPath(new URL("../..", import.meta.url));
+const root = Bun.fileURLToPath(new URL("../..", import.meta.url));
 const siteRoot = `${root}apps/web/public`;
 
 /** `href`/`src` in either quote style, and `url(…)` with or without quotes. */

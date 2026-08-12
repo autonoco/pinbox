@@ -102,6 +102,9 @@ export class PinboxToolbarElement extends BaseElement {
     document.head.appendChild(style);
     this.#pageStyle = style;
     document.addEventListener("mousemove", this.#onMouseMove);
+    // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
+    window.addEventListener("scroll", this.#onViewportChange, { passive: true });
+    window.addEventListener("resize", this.#onViewportChange);
     document.addEventListener("click", this.#onClickCapture, true);
     document.addEventListener("keydown", this.#onKeyDown);
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
@@ -113,6 +116,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#transport?.close();
     this.#transport = null;
     document.removeEventListener("mousemove", this.#onMouseMove);
+    window.removeEventListener("scroll", this.#onViewportChange);
+    window.removeEventListener("resize", this.#onViewportChange);
     document.removeEventListener("click", this.#onClickCapture, true);
     document.removeEventListener("keydown", this.#onKeyDown);
     this.#aim?.destroy();
@@ -364,6 +369,19 @@ export class PinboxToolbarElement extends BaseElement {
     this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
   }
 
+  /**
+   * Keep the drag-aim reticle honest while the viewport moves under it.
+   *
+   * Scrolling changes what is beneath a fixed reticle, and resizing (a phone rotating, a window
+   * dragged narrow) can both strand it off-screen and flip which way of aiming applies.
+   */
+  #onViewportChange = (): void => {
+    if (this.store.get().mode !== "placing") return;
+    this.#syncAim(true);
+    const aim = this.#aim;
+    if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+  };
+
   #onMouseMove = (e: MouseEvent): void => {
     if (this.store.get().mode !== "placing" || !this.#reticle) return;
     this.#reticle.move(e);
@@ -374,6 +392,10 @@ export class PinboxToolbarElement extends BaseElement {
   #confirmAim(): void {
     const aim = this.#aim;
     if (!aim) return;
+    // Re-probe first. The reticle is fixed to the viewport, so anything that moves the page under
+    // it — a scroll, a late image, a reflow — leaves the last drag's target stale, and confirming
+    // would pin an element that is no longer there.
+    this.#probe(aim.point.x, aim.point.y);
     const el = this.#hover ?? document.body;
     this.store.place({
       target: captureTarget(el, {
@@ -442,7 +464,13 @@ export class PinboxToolbarElement extends BaseElement {
       aim.hide();
       return;
     }
-    if (aim.root.classList.contains("on")) return;
+    if (aim.root.classList.contains("on")) {
+      // Already up: only re-seat it if the viewport shrank out from under it, which a rotation
+      // does. Otherwise leave it exactly where it was put.
+      if (aim.point.x <= window.innerWidth && aim.point.y <= window.innerHeight) return;
+      aim.show(Math.min(aim.point.x, window.innerWidth), Math.min(aim.point.y, window.innerHeight));
+      return;
+    }
     const { x, y } = startPoint(window);
     aim.show(x, y);
     this.#probe(x, y);

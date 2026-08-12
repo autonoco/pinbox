@@ -75,7 +75,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* Drag-to-aim, for touch. The layer never takes pointer events — only the grip and the bar do —
    so what is under the crosshair can still be probed, and the page underneath is still visible. */
-.pb-aim { position: fixed; inset: 0; z-index: 60; display: none; pointer-events: none; }
+/* Above the command bar (90), below the shortcuts modal (120). The confirm bar sits at the very
+   bottom of the screen, where the command bar already is — under it, CONFIRM was unclickable. */
+.pb-aim { position: fixed; inset: 0; z-index: 100; display: none; pointer-events: none; }
 .pb-aim.on { display: block; animation: pb-fade 160ms ease-out both; }
 .pb-aim .h { position: absolute; left: 0; right: 0; height: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
 .pb-aim .v { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }

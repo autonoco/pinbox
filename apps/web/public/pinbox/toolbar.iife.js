@@ -1769,7 +1769,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* Drag-to-aim, for touch. The layer never takes pointer events — only the grip and the bar do —
    so what is under the crosshair can still be probed, and the page underneath is still visible. */
-.pb-aim { position: fixed; inset: 0; z-index: 60; display: none; pointer-events: none; }
+/* Above the command bar (90), below the shortcuts modal (120). The confirm bar sits at the very
+   bottom of the screen, where the command bar already is — under it, CONFIRM was unclickable. */
+.pb-aim { position: fixed; inset: 0; z-index: 100; display: none; pointer-events: none; }
 .pb-aim.on { display: block; animation: pb-fade 160ms ease-out both; }
 .pb-aim .h { position: absolute; left: 0; right: 0; height: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
 .pb-aim .v { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--pb-amber) 30%, transparent); }
@@ -1975,6 +1977,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			document.head.appendChild(style);
 			this.#pageStyle = style;
 			document.addEventListener("mousemove", this.#onMouseMove);
+			window.addEventListener("scroll", this.#onViewportChange, { passive: true });
+			window.addEventListener("resize", this.#onViewportChange);
 			document.addEventListener("click", this.#onClickCapture, true);
 			document.addEventListener("keydown", this.#onKeyDown);
 			this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
@@ -1985,6 +1989,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#transport?.close();
 			this.#transport = null;
 			document.removeEventListener("mousemove", this.#onMouseMove);
+			window.removeEventListener("scroll", this.#onViewportChange);
+			window.removeEventListener("resize", this.#onViewportChange);
 			document.removeEventListener("click", this.#onClickCapture, true);
 			document.removeEventListener("keydown", this.#onKeyDown);
 			this.#aim?.destroy();
@@ -2195,6 +2201,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			else this.#reticle?.release();
 			this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
 		}
+		/**
+		* Keep the drag-aim reticle honest while the viewport moves under it.
+		*
+		* Scrolling changes what is beneath a fixed reticle, and resizing (a phone rotating, a window
+		* dragged narrow) can both strand it off-screen and flip which way of aiming applies.
+		*/
+		#onViewportChange = () => {
+			if (this.store.get().mode !== "placing") return;
+			this.#syncAim(true);
+			const aim = this.#aim;
+			if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
+		};
 		#onMouseMove = (e) => {
 			if (this.store.get().mode !== "placing" || !this.#reticle) return;
 			this.#reticle.move(e);
@@ -2204,6 +2222,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#confirmAim() {
 			const aim = this.#aim;
 			if (!aim) return;
+			this.#probe(aim.point.x, aim.point.y);
 			const el = this.#hover ?? document.body;
 			this.store.place({
 				target: captureTarget(el, { at: {
@@ -2270,7 +2289,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				aim.hide();
 				return;
 			}
-			if (aim.root.classList.contains("on")) return;
+			if (aim.root.classList.contains("on")) {
+				if (aim.point.x <= window.innerWidth && aim.point.y <= window.innerHeight) return;
+				aim.show(Math.min(aim.point.x, window.innerWidth), Math.min(aim.point.y, window.innerHeight));
+				return;
+			}
 			const { x, y } = startPoint(window);
 			aim.show(x, y);
 			this.#probe(x, y);

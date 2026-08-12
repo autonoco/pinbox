@@ -7,9 +7,7 @@
 //
 // Modelled on autonoco/buttons-platform, which pins tool versions, bounds every job, and refuses
 // to run a deploy whose credentials are missing rather than failing later with a confusing error.
-import { fileURLToPath } from "node:url";
-
-const root = fileURLToPath(new URL("../..", import.meta.url));
+const root = Bun.fileURLToPath(new URL("../..", import.meta.url));
 const dir = `${root}.github/workflows`;
 
 /** Action majors, matched to buttons-platform so both repos move together. */
@@ -32,7 +30,8 @@ function check(file: string, ok: boolean, message: string): void {
   if (!ok) problems.push(`${file}: ${message}`);
 }
 
-const files = [...new Bun.Glob("*.yml").scanSync({ cwd: dir })].sort();
+// Both extensions: GitHub honours .yaml, and a workflow this never opened is one it never checked.
+const files = [...new Bun.Glob("*.{yml,yaml}").scanSync({ cwd: dir })].sort();
 
 for (const file of files) {
   const parsed = Bun.YAML.parse(await Bun.file(`${dir}/${file}`).text()) as {
@@ -83,6 +82,19 @@ for (const file of files) {
       const want = action === undefined ? undefined : PINNED_ACTIONS[action];
       if (want !== undefined) {
         check(file, ref === want, `job "${name}" uses ${uses}, expected ${action}@${want}`);
+      }
+      if (action === "actions/checkout") {
+        // Never left to the default. A checkout token stays in .git/config for the whole job, one
+        // `run:` step away from anything the build happens to execute; the job that genuinely
+        // pushes authenticates that one command instead.
+        const persist = (step.with as { "persist-credentials"?: unknown } | undefined)?.[
+          "persist-credentials"
+        ];
+        check(
+          file,
+          persist === false,
+          `job "${name}" checks out without persist-credentials: false`,
+        );
       }
       if (action === "oven-sh/setup-bun") {
         const pinned = (step.with as { "bun-version"?: unknown } | undefined)?.["bun-version"];

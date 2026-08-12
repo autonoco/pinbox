@@ -171,3 +171,29 @@ test("both workflows keep their release-shape guarantees", async () => {
   expect([jobs["compile"]?.needs ?? []].flat()).toContain("validate");
   expect([jobs["publish"]?.needs ?? []].flat()).toContain("github-release");
 });
+
+test("the workflow validator opens .yaml files too", async () => {
+  // GitHub honours both extensions. A workflow the validator never opens is one it never checks,
+  // and the failure is silent — the rules simply do not apply to that file.
+  const source = await Bun.file(`${import.meta.dir}/workflows.ts`).text();
+  expect(source).toContain('Bun.Glob("*.{yml,yaml}")');
+});
+
+test("every checkout in the tree states what it does with the token", async () => {
+  // The validator enforces this; this proves the tree currently satisfies it, so a regression
+  // shows up as a failing test rather than only as a failing CI script.
+  for (const file of new Bun.Glob("*.{yml,yaml}").scanSync({
+    cwd: `${import.meta.dir}/../../.github/workflows`,
+  })) {
+    const parsed = await workflow(file);
+    for (const [name, job] of Object.entries(parsed.jobs)) {
+      for (const step of job.steps ?? []) {
+        if (!String(step.uses ?? "").startsWith("actions/checkout")) continue;
+        expect(
+          (step.with as Record<string, unknown> | undefined)?.["persist-credentials"],
+          `${file} job ${name} must not persist the checkout token`,
+        ).toBe(false);
+      }
+    }
+  }
+});

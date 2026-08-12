@@ -16,9 +16,23 @@ import { publishPlan } from "./publish.ts";
 
 const REGISTRY = "https://registry.npmjs.org";
 
+/** Long enough for a slow registry, short enough that a hung one is not mistaken for a slow one. */
+const LOOKUP_TIMEOUT_MS = 10_000;
+
 /** Does npm know this name at all? 404 means "never published", which OIDC cannot fix. */
 async function exists(name: string): Promise<boolean> {
-  const response = await fetch(`${REGISTRY}/${name.replace("/", "%2F")}`, { method: "HEAD" });
+  let response: Response;
+  try {
+    response = await fetch(`${REGISTRY}/${name.replace("/", "%2F")}`, {
+      method: "HEAD",
+      // Without a deadline a stalled connection hangs the publish job until the workflow's own
+      // timeout kills it — twenty minutes later, with no clue which package it was waiting on.
+      signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+    });
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`registry lookup for ${name} did not answer within 10s: ${reason}`);
+  }
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`registry lookup for ${name} failed: ${response.status}`);
   return true;

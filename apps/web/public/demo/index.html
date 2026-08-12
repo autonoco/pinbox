@@ -255,17 +255,82 @@
       // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with
       // `new URL(endpoint)`, which throws on a bare path.
       const endpoint = `${location.origin}/_pinbox`;
+      const token = "pinbox-public-demo";
+
+      /**
+       * Apply a change the agent made, to the page you are looking at.
+       *
+       * On a project with a repo the agent edits your source and the dev server reloads — that is
+       * the real loop, and it needs nothing like this. A hosted demo page has no source to edit, so
+       * this is the same idea with the only surface it has: the agent names the element and the
+       * words, and the page changes in front of you.
+       *
+       * Deliberately narrow. `textContent`, never `innerHTML`, so nothing here can inject markup or
+       * script no matter what a visitor writes in a pin. An element that contains other elements is
+       * left alone — replacing its text would delete its children. And this runs on LIVE events
+       * only, never on history: your session sees your changes, and a stranger's edit cannot greet
+       * the next visitor.
+       */
+      function applyEdit(edit) {
+        if (!edit || typeof edit.selector !== "string" || typeof edit.text !== "string") return;
+        let el;
+        try {
+          el = document.querySelector(edit.selector);
+        } catch {
+          return; // a selector the browser will not parse
+        }
+        if (!el || el.closest("pinbox-toolbar") || el.children.length > 0) return;
+        el.textContent = edit.text;
+      }
+
+      /**
+       * A second, read-only socket beside the toolbar's own.
+       *
+       * The toolbar keeps its events to itself, and it should — applying edits to a customer's DOM
+       * is not something the shipped component should ever decide to do. This page opts in for
+       * itself.
+       */
+      function watchForEdits() {
+        const url = new URL(endpoint);
+        url.pathname = `${url.pathname.replace(/\/+$/, "")}/ws`;
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(url.toString(), [`pinbox.token.${token}`]);
+        ws.onopen = () => {
+          // The hub replays from `lastSeq` and there is no "start from now" — so it sends the
+          // history once and we drop it on the floor below, taking only live frames. That is the
+          // point: past edits must not re-apply. The cost is one catch-up frame per page load.
+          ws.send(
+            JSON.stringify({ type: "hello", protocol: 1, consumerId: "demo-page", lastSeq: 0 }),
+          );
+        };
+        ws.onmessage = (ev) => {
+          let frame;
+          try {
+            frame = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          // "event" only. A "catch-up" frame is history, and history must never re-apply.
+          if (frame.type === "event" && frame.eventType === "thread.message") {
+            applyEdit(frame.payload?.edit);
+          }
+        };
+        // A dropped socket costs live edits, not the demo. Reconnect quietly.
+        ws.onclose = () => setTimeout(watchForEdits, 2000);
+      }
+
       // A hub that accepts the connection and then never answers would leave this pending forever,
       // so the page would sit there looking fine and never say it is offline.
       fetch(`${endpoint}/health`, {
-        headers: { authorization: "Bearer pinbox-public-demo" },
+        headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(5000),
       })
         .then((response) => {
           if (!response.ok) throw new Error(String(response.status));
           // screenshots: false — capturing one means asking to share the tab, and that prompt is the
           // first thing a visitor sees. Pins still carry the selector, markup, and viewport.
-          Pinbox.init({ endpoint, token: "pinbox-public-demo", screenshots: false });
+          Pinbox.init({ endpoint, token, screenshots: false });
+          watchForEdits();
         })
         .catch(() => {
           document.getElementById("offline").classList.add("is-shown");

@@ -9,7 +9,7 @@ import type { Connector } from "./connectors/types.ts";
 import { routeLinks } from "./routes-links.ts";
 import { routeSessions } from "./routes-sessions.ts";
 import { routeToolbar } from "./routes-toolbar.ts";
-import { AttachmentSchema, PinInputSchema, SCHEMA_VERSION } from "./schema.ts";
+import { AppliedEditSchema, AttachmentSchema, PinInputSchema, SCHEMA_VERSION } from "./schema.ts";
 import type { PinStore } from "./store.ts";
 import { ConflictError, NotFoundError } from "./store.ts";
 
@@ -51,6 +51,7 @@ const ThreadPostSchema = z.object({
   text: z.string().min(1),
   attachments: z.array(AttachmentSchema).optional(),
   origin: z.string().optional(), // mirror attribution "github:user"
+  edit: AppliedEditSchema.optional(), // a change the agent applied to a live page
 });
 const ResolvePostSchema = z.object({
   by: z.enum(["human", "agent"]),
@@ -155,6 +156,7 @@ async function routePinItem(req: Request, url: URL, opts: HubOptions): Promise<R
     const messageOpts = {
       ...(body.attachments === undefined ? {} : { attachments: body.attachments }),
       ...(body.origin === undefined ? {} : { origin: body.origin }),
+      ...(body.edit === undefined ? {} : { edit: body.edit }),
     };
     const hasOpts = Object.keys(messageOpts).length > 0;
     return ok(

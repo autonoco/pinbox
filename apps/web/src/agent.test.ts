@@ -3,7 +3,7 @@
 // delivery makes the agent speak on a stranger's behalf, and a mis-parsed event posts a reply to
 // the wrong pin. Everything else here is a network call.
 import { describe, expect, test } from "bun:test";
-import { parseDelivery, signatureValid } from "./agent.ts";
+import { parseDelivery, parseDrafted, signatureValid } from "./agent.ts";
 import { routeFor } from "./index.ts";
 
 const SECRET = "shared-secret";
@@ -83,7 +83,12 @@ describe("which events get answered", () => {
   test("a pin with only a selector still names where it points", () => {
     expect(
       parseDelivery(pin({ id: "pin_a", text: "cut off", target: { selector: "button.pay" } })),
-    ).toEqual({ pinId: "pin_a", text: "cut off", where: "selector: button.pay" });
+    ).toEqual({
+      pinId: "pin_a",
+      text: "cut off",
+      where: "selector: button.pay",
+      selector: "button.pay",
+    });
   });
 
   test("a pin with no target still gets answered", () => {
@@ -97,7 +102,12 @@ describe("which events get answered", () => {
     const body = JSON.stringify({
       event: { type: "thread.message", payload: { pinId: "pin_b", role: "human", text: "do it" } },
     });
-    expect(parseDelivery(body)).toEqual({ pinId: "pin_b", text: "do it", where: "" });
+    expect(parseDelivery(body)).toEqual({
+      pinId: "pin_b",
+      text: "do it",
+      where: "",
+      selector: null,
+    });
   });
 
   test("the agent never answers itself", () => {
@@ -138,5 +148,34 @@ describe("routing", () => {
     // `/_pinboxed` must not reach the hub, and `/_pinbox-agent` must not either — it is checked
     // first, but the prefix test has to be exact-segment regardless.
     expect(routeFor("/_pinboxed")).toBe("asset");
+  });
+});
+
+describe("what the agent is allowed to change", () => {
+  test("new text for the pinned element becomes an edit the page can apply", () => {
+    const raw = JSON.stringify({ reply: "Changed it to 13.", newText: "13" });
+    expect(parseDrafted(raw, ".m-metric__v")).toEqual({
+      reply: "Changed it to 13.",
+      edit: { selector: ".m-metric__v", text: "13" },
+    });
+  });
+
+  test("no edit when the model asks for one — the reply still posts", () => {
+    const raw = JSON.stringify({ reply: "I can't change the colour here.", newText: null });
+    expect(parseDrafted(raw, ".m-metric__v")).toEqual({
+      reply: "I can't change the colour here.",
+      edit: null,
+    });
+  });
+
+  test("an edit with nowhere to land is dropped, never guessed at", () => {
+    // A terminal-created pin captures no element. Applying its edit would mean inventing a target.
+    const raw = JSON.stringify({ reply: "Changed it.", newText: "13" });
+    expect(parseDrafted(raw, null)?.edit).toBeNull();
+  });
+
+  test("output that is not the agreed shape posts nothing at all", () => {
+    expect(parseDrafted("sorry, I can't do that", ".x")).toBeNull();
+    expect(parseDrafted(JSON.stringify({ newText: "13" }), ".x")).toBeNull();
   });
 });

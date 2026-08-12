@@ -31,12 +31,27 @@ export const AttachmentSchema = z.object({
   height: z.number().int().optional(),
 });
 
+/**
+ * A change an agent made directly to the live page, rather than to a file.
+ *
+ * On a project with a repo the agent edits source and the dev server reloads, so the change needs
+ * no wire representation. A hosted page has no repo to edit, so the only way an agent can actually
+ * change what you are looking at is to say which element and what it should now read. `selector`
+ * is the pin's own captured selector; `text` replaces the element's text and nothing else — never
+ * markup, so this can carry no script.
+ */
+export const AppliedEditSchema = z.object({
+  selector: z.string(),
+  text: z.string(),
+});
+
 export const ThreadMessageSchema = z.object({
   id: z.string(),
   pinId: z.string(),
   role: z.enum(["human", "agent", "mirror"]),
   origin: z.string().optional(),
   text: z.string(),
+  edit: AppliedEditSchema.optional(),
   attachments: z.array(AttachmentSchema).optional(),
   at: z.string(),
 });
@@ -158,6 +173,7 @@ export type Rect = z.infer<typeof RectSchema>;
 export type Pin = z.infer<typeof PinSchema>;
 export type PinInput = z.infer<typeof PinInputSchema>;
 export type ThreadMessage = z.infer<typeof ThreadMessageSchema>;
+export type AppliedEdit = z.infer<typeof AppliedEditSchema>;
 export type SessionRef = z.infer<typeof SessionRefSchema>;
 export type Attachment = z.infer<typeof AttachmentSchema>;
 export type Link = z.infer<typeof LinkSchema>;

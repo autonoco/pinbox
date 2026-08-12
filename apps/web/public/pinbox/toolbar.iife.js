@@ -1880,7 +1880,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			if (queued.length > 0) this.store.update({ queuedIds: new Set(queued.map((p) => p.id)) });
 			this.actions.send = (pinId, text) => void this.#send(transport, pinId, text);
 			this.actions.resolve = (pinId) => void transport.resolve(pinId).then((pin) => upsertPin(this.store, pin)).catch(() => {});
-			this.actions.verify = (pinId, outcome) => void transport.verify(pinId, outcome).then((pin) => upsertPin(this.store, pin)).catch(() => {});
+			this.actions.verify = (pinId, outcome) => void transport.verify(pinId, outcome).then((pin) => {
+				upsertPin(this.store, pin);
+				if (outcome === "accepted") this.#dismiss();
+			}).catch(() => {});
 			transport.connect();
 		}
 		/** draft ⇒ compose PinInput (+ best-effort screenshot) and createPin; else thread reply. */

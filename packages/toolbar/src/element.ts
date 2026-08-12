@@ -199,7 +199,13 @@ export class PinboxToolbarElement extends BaseElement {
     this.actions.verify = (pinId, outcome) =>
       void transport
         .verify(pinId, outcome)
-        .then((pin) => upsertPin(this.store, pin))
+        .then((pin) => {
+          upsertPin(this.store, pin);
+          // Accepting is the end of the pin: it closes the card and takes the marker off the page
+          // with it. Leaving the thread sitting open on a pin you just signed off reads as though
+          // the click did not land. Reopening is the opposite — the card stays, composer focused.
+          if (outcome === "accepted") this.#dismiss();
+        })
         .catch(() => {});
     transport.connect();
   }

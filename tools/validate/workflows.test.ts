@@ -15,6 +15,8 @@ type Step = {
   run?: string;
   uses?: string;
   env?: Record<string, string>;
+  /** An action's inputs — `persist-credentials` among them. */
+  with?: Record<string, unknown>;
   if?: string;
 };
 type Job = { steps?: Step[]; needs?: string | string[]; if?: string };
@@ -190,7 +192,7 @@ test("every checkout in the tree states what it does with the token", async () =
       for (const step of job.steps ?? []) {
         if (!String(step.uses ?? "").startsWith("actions/checkout")) continue;
         expect(
-          (step.with as Record<string, unknown> | undefined)?.["persist-credentials"],
+          step.with?.["persist-credentials"],
           `${file} job ${name} must not persist the checkout token`,
         ).toBe(false);
       }

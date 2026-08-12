@@ -34,7 +34,7 @@
     "lint:pkg": "publint packages/core && attw --pack packages/core --profile esm-only && publint packages/toolbar && attw --pack packages/toolbar --profile esm-only && publint packages/mcp && attw --pack packages/mcp --profile esm-only",
     "release:build": "bun tools/release/compile.ts",
     "release:publish": "bun tools/release/publish.ts",
-    "ci:validate": "bun run check && bun run build && bun run typecheck && bun run test && bun run test:workers && bun tools/validate/template-drift.ts && bun tools/validate/hub-version.ts && bun tools/validate/site-assets.ts && bun tools/validate/site-toolbar.ts && bun run lint:pkg"
+    "ci:validate": "bun run check && bun run build && bun run typecheck && bun run test && bun run test:workers && bun tools/validate/template-drift.ts && bun tools/validate/hub-version.ts && bun tools/validate/site-assets.ts && bun tools/validate/site-toolbar.ts && bun tools/validate/workflows.ts && bun run lint:pkg"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

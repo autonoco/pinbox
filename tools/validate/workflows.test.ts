@@ -87,7 +87,7 @@ test("docs-sync gates on skillgen's whole generated set, not skills/pinbox alone
   expect(prScript).toContain("git add -A");
 });
 
-test("release compiles the version the tag names, passed through env", async () => {
+test("release compiles the version `plan` decided on, passed through env", async () => {
   const release = await workflow("release.yml");
   const list = steps(release, "compile");
   const build = list.find((step) => (step.run ?? "").includes("release:build"));
@@ -95,64 +95,79 @@ test("release compiles the version the tag names, passed through env", async () 
   const script = build?.run ?? "";
 
   // Without an argument `compileAll`'s assertVersion compares the CLI manifest to itself and
-  // can never fail — the guard is inert and the tag binds to nothing.
-  expect(script).toMatch(/release:build\s+"?\$\{?(TAG|REF_NAME|GITHUB_REF_NAME)/);
-  // The ref is attacker-shaped input; it arrives through env, never `${{ }}` in the shell.
+  // can never fail — the guard is inert and the release binds to nothing.
+  expect(script).toMatch(/release:build\s+"?\$\{?VERSION/);
+  // Refs and versions are attacker-shaped input; they arrive through env, never `${{ }}` inline.
   expect(script).not.toContain("${{");
-  const env = build?.env ?? {};
-  // `github.ref_name` is the *tag* only when the ref is a tag; on a `workflow_dispatch` started
-  // from a branch it is the branch name. Reading it is sound only because `guard` ran first.
-  expect(Object.values(env).join(" ")).toContain("github.ref_name");
-  expect(needsClosure(release.jobs, "compile")).toContain("guard");
+  // One place decides what is being released, and everything downstream reads that decision —
+  // rather than each job re-deriving a version from whatever ref it happens to see.
+  expect(Object.values(build?.env ?? {}).join(" ")).toContain("needs.plan.outputs.version");
+  expect(needsClosure(release.jobs, "compile")).toContain("plan");
 });
 
-test("release publishes the version the tag names too", async () => {
+test("release publishes the version `plan` decided on too", async () => {
   const release = await workflow("release.yml");
   const list = steps(release, "publish");
   const publish = list.find((step) => (step.run ?? "").includes("release:publish"));
   expect(publish, "the publish job must run release:publish").toBeDefined();
   const script = publish?.run ?? "";
-  expect(script).toMatch(/release:publish\s+"?\$\{?(TAG|REF_NAME|GITHUB_REF_NAME)/);
+  expect(script).toMatch(/release:publish\s+"?\$\{?VERSION/);
   expect(script).not.toContain("${{");
-  expect(Object.values(publish?.env ?? {}).join(" ")).toContain("github.ref_name");
-  expect(needsClosure(release.jobs, "publish")).toContain("guard");
+  expect(Object.values(publish?.env ?? {}).join(" ")).toContain("needs.plan.outputs.version");
+  expect(needsClosure(release.jobs, "publish")).toContain("plan");
 });
 
 // npm unpublish is heavily restricted, so a bogus publish is not recoverable. `workflow_dispatch`
 // is the hole: its `github.ref_name` is whatever ref the run was started from, and one click of
 // "Run workflow" on `main` would otherwise cut a Release named `main` and fan it out to npm.
-test("release can never publish under a non-tag ref", async () => {
+test("release only ships what `plan` said to ship", async () => {
   const release = await workflow("release.yml");
-  const guard = release.jobs["guard"];
-  expect(guard, "release.yml needs a `guard` job that rejects non-tag refs").toBeDefined();
+  const plan = release.jobs["plan"];
+  expect(plan, "release.yml needs a `plan` job that decides what is released").toBeDefined();
 
-  const script = runsOf(guard?.steps ?? []);
+  const script = runsOf(plan?.steps ?? []);
   expect(script).not.toContain("${{");
-  expect(Object.values(guard?.steps?.[0]?.env ?? {}).join(" ")).toContain("github.ref_type");
-  expect(script).toContain('"$REF_TYPE" != "tag"');
-  // Any tag is not enough: `TAG` has to be a real `v<semver>` release tag.
+  expect(Object.values(plan?.steps?.at(-1)?.env ?? {}).join(" ")).toContain("github.ref_type");
+  // A tag names its own version; a branch does not, so the manifest is read instead — and only
+  // ships when that version has never been tagged, so an ordinary merge releases nothing.
+  expect(script).toContain('"$REF_TYPE" = "tag"');
   expect(script).toContain("^v[0-9]+\\.[0-9]+\\.[0-9]+");
+  expect(script).toContain("refs/tags/v$version");
   expect(script).toMatch(/exit 1/);
 
-  // Nothing runs ahead of the guard, so no job can act on a branch ref.
+  // Nothing runs ahead of the plan, so no job can act on a version nobody decided.
   for (const name of Object.keys(release.jobs)) {
-    if (name === "guard") continue;
-    expect(needsClosure(release.jobs, name), `job ${name} must transitively need guard`).toContain(
-      "guard",
+    if (name === "plan") continue;
+    expect(needsClosure(release.jobs, name), `job ${name} must transitively need plan`).toContain(
+      "plan",
     );
   }
 
-  // Belt and braces: the two irreversible jobs re-check the ref themselves, so neither a
-  // single-job re-run nor a future edit to `needs` can hand them a branch.
+  // Belt and braces: the two irreversible jobs re-check for themselves, so neither a single-job
+  // re-run nor a future edit to `needs` can ship something nobody decided to ship.
   for (const name of ["github-release", "publish"]) {
-    expect(release.jobs[name]?.if, `${name} must carry its own ref guard`).toContain("refs/tags/v");
+    expect(release.jobs[name]?.if, `${name} must carry its own release guard`).toContain(
+      "needs.plan.outputs.release",
+    );
   }
+});
+
+// Trusted Publishing cannot create a package that does not exist; npm answers a bare 404 on the
+// PUT, which is how the v0.1.0 release failed after signing provenance for every tarball.
+test("release checks the registry before it uploads anything", async () => {
+  const release = await workflow("release.yml");
+  const list = steps(release, "publish");
+  const names = list.map((step) => step.run ?? "");
+  const preflight = names.findIndex((run) => run.includes("release/preflight.ts"));
+  const publish = names.findIndex((run) => run.includes("release:publish"));
+  expect(preflight, "the publish job must run the registry preflight").toBeGreaterThanOrEqual(0);
+  expect(preflight).toBeLessThan(publish);
 });
 
 test("both workflows keep their release-shape guarantees", async () => {
   const release = await workflow("release.yml");
   // Ordering is the gate: nothing publishes until the compiled artifacts survived smoke.
   const jobs = release.jobs as Record<string, { needs?: string | string[] }>;
-  expect(jobs["compile"]?.needs).toBe("validate");
-  expect(jobs["publish"]?.needs).toBe("github-release");
+  expect([jobs["compile"]?.needs ?? []].flat()).toContain("validate");
+  expect([jobs["publish"]?.needs ?? []].flat()).toContain("github-release");
 });

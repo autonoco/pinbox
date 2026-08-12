@@ -30,17 +30,20 @@ jobs:
   # The test suite is by far the largest body of code executed by this pipeline, and it has no
   # business running in the same job that can reach Cloudflare.
   verify:
+    timeout-minutes: 20
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # This job pushes nothing. A checkout token left in .git/config is one `run:` step away
           # from being read by anything the build happens to execute.
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       # tsdown's bin runs under system Node and loads tsdown.config.ts with native type
       # stripping, which needs Node >= 23.6; pin 24 rather than trust the image's Node.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -55,6 +58,7 @@ jobs:
       - run: bun tools/validate/site-toolbar.ts
 
   deploy:
+    timeout-minutes: 15
     needs: verify
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Named so the deploy can be gated on a reviewer or restricted to this branch in repo settings,
@@ -62,11 +66,13 @@ jobs:
     # "<scope> - <stage>", matching the repo's other environments.
     environment: "site - prod"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v5
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - run: bun install --frozen-lockfile

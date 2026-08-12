@@ -1,0 +1,63 @@
+# Deploys pinbox.sh — the marketing site and the demo hub, which are one Worker.
+#
+# Path-filtered: the site is the only thing this ships, but it *bundles* core (the hub and the
+# Durable Object) and the toolbar (the committed IIFE the demo page loads), so a change to either
+# changes what is served. Filtering on apps/web alone would leave the live site running an old hub.
+name: deploy-site
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/core/**"
+      - "packages/toolbar/**"
+      - ".github/workflows/deploy-site.yml"
+  # A deploy you can re-run without an empty commit: rolling forward after a Cloudflare outage,
+  # or shipping a Worker secret change that no file in the repo reflects.
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one in flight — a half-applied Worker upload is the one
+# outcome worth more than the minute saved.
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Named so the deploy can be gated on a reviewer or restricted to this branch in repo settings,
+    # and so the Cloudflare credentials are scoped to it rather than every workflow in the repo.
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      # tsdown's bin runs under system Node and loads tsdown.config.ts with native type
+      # stripping, which needs Node >= 23.6; pin 24 rather than trust the image's Node.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+
+      # The same gate the tree already has to pass. Deploying is the one place where "it was green
+      # on the PR" is not enough — main is what ships, and this is what proves main is shippable.
+      - run: bun run ci:validate
+
+      # The Worker imports @autono/pinbox-core by its published entry points, which are `dist`.
+      # Without this the bundle is either stale or missing, and the failure is silent: the site
+      # serves, the hub does not.
+      - run: bun run build
+
+      # Verify, never write. `bun run deploy` would rewrite the committed toolbar bundle as a
+      # convenience; here that would quietly paper over a drifted commit and ship bytes nobody
+      # reviewed. Fail instead.
+      - run: bun tools/validate/site-toolbar.ts
+
+      - name: Deploy to Cloudflare
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bunx wrangler deploy

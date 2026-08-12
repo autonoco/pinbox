@@ -6,6 +6,11 @@
   "compatibility_date": "2026-08-01",
   // The Anthropic SDK reaches for node builtins; without this the agent module fails to load.
   "compatibility_flags": ["nodejs_compat"],
+  // The site's home. `custom_domain` makes Cloudflare own the DNS record and the certificate for
+  // this hostname, so there is no route pattern to keep in step and no proxied A record to forget.
+  // It requires pinbox.sh to be a zone on the SAME Cloudflare account the deploy token belongs to
+  // — if it is not, the deploy fails loudly rather than shipping to a workers.dev URL nobody uses.
+  "routes": [{ "pattern": "pinbox.sh", "custom_domain": true }],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

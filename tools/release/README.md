@@ -15,7 +15,7 @@ product, and everything else here is packaging glue generated at release time.
 
 ## The release flow
 
-1. **Merge to main** — `.github/workflows/auto-release.yml` bumps the next minor (`v0.N.0` → `v0.N+1.0`), commits the manifest bump with `[skip release]`, tags it, runs gitleaks on the introduced commits, then `workflow_call`s `release.yml`.
+1. **Merge to main** — `.github/workflows/auto-release.yml` bumps the next minor (`v0.N.0` → `v0.N+1.0`), commits locally, tags that commit, runs gitleaks, then `workflow_call`s `release.yml`. It does **not** push the bump to `main` (branch protection requires status checks). A `release/vX.Y.Z` PR syncs the manifests afterward — merge it with the `[skip release]` commit message so auto-release does not loop.
 2. **Skip** — put `[skip release]` in the merge commit message, or let a `github-actions[bot]` commit (docs-sync, the bump itself) land without releasing.
 3. **Recovery** — `workflow_dispatch` on auto-release with an existing `v*` tag, or dispatch `release.yml` from that tag ref.
 4. **Hand-cut tag** — bump the four package manifests to match, `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` on `v*` still works. Tagging ahead of the manifests fails compile: `pinbox --version` reads `packages/cli/package.json`.

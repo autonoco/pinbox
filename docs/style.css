@@ -1,0 +1,31 @@
+/* Pinbox docs — nudge Mintlify toward the marketing site’s surface language.
+   Tokens match apps/web/public/styles/tokens.css (ink / bone / amber / hairline). */
+
+:root {
+  --pinbox-ink: #0f0f0f;
+  --pinbox-bone: #f5f0e6;
+  --pinbox-amber: #d4a04a;
+  --pinbox-hairline: rgba(245, 240, 230, 0.08);
+  --pinbox-hairline-strong: rgba(245, 240, 230, 0.14);
+}
+
+#navbar {
+  border-bottom: 1px solid var(--pinbox-hairline);
+}
+
+html:not(.dark) #navbar {
+  border-bottom-color: rgba(15, 15, 15, 0.1);
+}
+
+nav-logo img {
+  height: 28px;
+  width: auto;
+}
+
+/* Barely softened corners — same signature as the site, never pills. */
+.card,
+.callout,
+.code-block,
+.accordion {
+  border-radius: 4px;
+}

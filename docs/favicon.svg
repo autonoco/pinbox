@@ -1,7 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Pinbox">
-  <path
-    fill="#DC3D1E"
-    fill-rule="evenodd"
-    d="M16 30.5C16 30.5 26.5 19.6 26.5 12A10.5 10.5 0 1 0 5.5 12C5.5 19.6 16 30.5 16 30.5ZM16 16.4A4.4 4.4 0 1 1 16 7.6 4.4 4.4 0 1 1 16 16.4Z"
-  />
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <rect width="32" height="32" fill="#0f0f0f"></rect>
+  <g transform="translate(8.1 3.2) scale(0.4267)">
+    <rect x="3.5" y="0.5" width="34" height="25" rx="2" fill="#f5f0e6"></rect>
+    <text x="20.5" y="16.5" text-anchor="middle" font-family="JetBrains Mono, ui-monospace, monospace" font-size="11" font-weight="500" letter-spacing="0.88" fill="#141414">01</text>
+    <rect x="3.5" y="26" width="1" height="30" fill="url(#n)"></rect>
+    <circle cx="4" cy="56.5" r="3.5" fill="#d4a04a"></circle>
+  </g>
+  <defs><linearGradient id="n" x1="0" y1="56" x2="0" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#d4a04a"></stop><stop offset="1" stop-color="#d4a04a" stop-opacity="0.35"></stop></linearGradient></defs>
 </svg>

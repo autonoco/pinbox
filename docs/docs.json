@@ -1,14 +1,55 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "aspen",
   "name": "Pinbox",
   "description": "Drop a pin on a live app. Your coding agent picks it up, fixes it, replies, and resolves it.",
   "colors": {
-    "primary": "#DC3D1E",
-    "light": "#FF7A5C",
-    "dark": "#B32D12"
+    "primary": "#d4a04a",
+    "light": "#e0b86a",
+    "dark": "#b07d28"
+  },
+  "logo": {
+    "light": "/logo/mark-light.svg",
+    "dark": "/logo/mark-dark.svg",
+    "href": "https://pinbox.sh"
   },
   "favicon": "/favicon.svg",
+  "appearance": {
+    "default": "dark"
+  },
+  "fonts": {
+    "family": "DM Sans",
+    "heading": {
+      "family": "DM Sans",
+      "weight": 500
+    }
+  },
+  "background": {
+    "color": {
+      "light": "#f5f0e6",
+      "dark": "#0f0f0f"
+    }
+  },
+  "styling": {
+    "codeblocks": {
+      "theme": {
+        "light": "github-light",
+        "dark": "github-dark"
+      }
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "pinbox.sh",
+        "href": "https://pinbox.sh"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/autonoco/pinbox"
+      }
+    ]
+  },
   "navigation": {
     "groups": [
       {
@@ -55,14 +96,6 @@
       }
     ]
   },
-  "navbar": {
-    "links": [
-      {
-        "label": "GitHub",
-        "href": "https://github.com/autonoco/pinbox"
-      }
-    ]
-  },
   "footer": {
     "socials": {
       "github": "https://github.com/autonoco/pinbox"
@@ -71,6 +104,10 @@
       {
         "header": "Project",
         "items": [
+          {
+            "label": "pinbox.sh",
+            "href": "https://pinbox.sh"
+          },
           {
             "label": "GitHub",
             "href": "https://github.com/autonoco/pinbox"

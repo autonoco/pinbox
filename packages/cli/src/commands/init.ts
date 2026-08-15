@@ -28,48 +28,18 @@ import {
   installClaudeSkillsDir,
   installViaShell,
 } from "../init/plugin-install.ts";
-import { askLine, askYesNo } from "../init/prompt.ts";
+import type { InitContext, InitFlags } from "../init/context.ts";
 import { installClaudeSettings, type SettingsOutcome } from "../init/settings-install.ts";
+import { pickHandoffAgent, selectTargets, type Target } from "../init/select.ts";
 import { spawnIntegrationAgent } from "../init/spawn.ts";
 import { ensurePinboxDir } from "../init/state-dir.ts";
-import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
+import { emit, fail, isJsonMode } from "../output.ts";
+
+export type { InitContext, InitFlags } from "../init/context.ts";
+export { pickHandoffAgent } from "../init/select.ts";
 
 /** Marketplace source for the shell install routes (research §2D). */
 const REPO_SLUG = "autonoco/pinbox";
-
-export type InitFlags = OutputFlags & {
-  agent?: string;
-  global?: boolean;
-  dryRun?: boolean;
-  yes?: boolean;
-  /** commander's --no-input: present ⇒ false. */
-  input?: boolean;
-  agentMode?: boolean;
-};
-
-/** Everything ambient, injected — command-level tests run in mkdtemp projects. */
-export type InitContext = {
-  projectDir: string;
-  env: Record<string, string | undefined>;
-  home: string | undefined;
-  isTTY?: boolean;
-  /**
-   * The three ambient effects Layer 2's handoff ending needs. Default to the terminal
-   * globals and the real spawner; tests inject them to reach the branch that prompts.
-   */
-  confirm?: (question: string) => boolean;
-  prompt?: (question: string) => string | null;
-  spawn?: typeof spawnIntegrationAgent;
-};
-
-/** Both seams ask on stderr (init/prompt.ts) and run only in human mode (see initLayer2). */
-function ask(ctx: InitContext, question: string): boolean {
-  return (ctx.confirm ?? askYesNo)(question);
-}
-
-function askFor(ctx: InitContext, question: string): string | null {
-  return (ctx.prompt ?? askLine)(question);
-}
 
 /** Layer 2's spawn ending: what the handed-off agent did with the brief. */
 export type Handoff = {
@@ -93,11 +63,6 @@ export type InitData = {
   /** Present only when a headless agent was handed the brief. */
   handoff?: Handoff;
 };
-
-type Target = InstallOutcome["agent"];
-
-const LONG_TAIL: readonly ("cursor" | "copilot")[] = ["cursor", "copilot"];
-const VALID_TARGETS: readonly string[] = [...AGENTS.map((spec) => spec.id), ...LONG_TAIL];
 
 export function registerInit(program: Command): void {
   program
@@ -193,7 +158,7 @@ async function initLayer2(
   })
     .filter((agent) => agent.onPath && agent.spec.headless !== null)
     .map((agent) => agent.spec);
-  const chosen = candidates.length === 0 ? null : pickHandoffAgent(candidates, flags, ctx);
+  const chosen = candidates.length === 0 ? null : await pickHandoffAgent(candidates, flags, ctx);
   if (chosen === null) {
     notes.push(
       candidates.length === 0
@@ -203,26 +168,6 @@ async function initLayer2(
     return { brief };
   }
   return { handoff: await handOff(chosen, brief, ctx) };
-}
-
-/** Single candidate ⇒ one confirm; several ⇒ pick one. `--yes` takes the first. */
-export function pickHandoffAgent(
-  candidates: AgentSpec[],
-  flags: InitFlags,
-  ctx: InitContext,
-): AgentSpec | null {
-  const first = candidates[0] as AgentSpec;
-  if (flags.yes === true) return first;
-  if (candidates.length === 1) {
-    return ask(ctx, `hand the integration brief to ${first.id}?`) ? first : null;
-  }
-  const menu = candidates.map((spec, index) => `${index + 1}. ${spec.id}`).join("\n");
-  const answer = Number(
-    askFor(ctx, `hand the integration brief to which agent?\n${menu}\n(number)`),
-  );
-  return Number.isInteger(answer) && answer >= 1 && answer <= candidates.length
-    ? (candidates[answer - 1] as AgentSpec)
-    : null;
 }
 
 const PR_URL = /https:\/\/\S+\/pull\/\d+/;
@@ -261,7 +206,7 @@ async function initLayer1(
   const dryRun = flags.dryRun === true;
   const pinboxDir = ensurePinboxDir(ctx.projectDir, dryRun);
   const gitignore = await ensureGitignore(ctx.projectDir, { dryRun });
-  const { targets, planOnly } = selectTargets(flags, ctx);
+  const { targets, planOnly } = await selectTargets(flags, ctx);
   const agents: InstallOutcome[] = [];
   const markers: MarkerResult[] = [];
   for (const target of targets) {
@@ -283,64 +228,6 @@ async function initLayer1(
     ? await installClaudeSettings(ctx.projectDir, { dryRun })
     : "unchanged";
   return { data: { pinboxDir, gitignore, agents, markers, gitHook, claudeSettings }, notes };
-}
-
-/**
- * Flag parity with the picker: --agent wins (unknown targets error loudly, `none` is
- * empty); otherwise detection picks. Non-interactive runs never install silently —
- * without --agent/--yes they only list what they *would* do (planOnly) — JSON mode counts
- * as non-interactive whatever stdin is: a machine run has nobody to answer, so a question
- * there is a hang, not a prompt. A human TTY run confirms the detected set before installing.
- * --dry-run forces planOnly for the whole run (no prompt, no writes anywhere — Layer 1
- * becomes pure prediction).
- */
-function selectTargets(
-  flags: InitFlags,
-  ctx: InitContext,
-): { targets: Target[]; planOnly: boolean } {
-  const dryRun = flags.dryRun === true;
-  if (flags.agent !== undefined) return { targets: parseAgentFlag(flags.agent), planOnly: dryRun };
-  const detected = detectAgents({
-    env: ctx.env,
-    ...(ctx.home === undefined ? {} : { home: ctx.home }),
-  })
-    .filter((agent) => agent.detected)
-    .map((agent) => agent.spec.id);
-  const surfaces = LONG_TAIL.filter((target) => surfaceExists(ctx.projectDir, target));
-  const targets: Target[] = [...detected, ...surfaces];
-  const mode = invocationMode({
-    flags: {
-      agentMode: flags.agentMode === true,
-      noInput: flags.input === false,
-      yes: flags.yes === true,
-    },
-    env: ctx.env,
-    isTTY: ctx.isTTY === true,
-  });
-  if (dryRun) return { targets, planOnly: true };
-  if (flags.yes === true || targets.length === 0) return { targets, planOnly: false };
-  if (mode === "agent" || isJsonMode(flags)) return { targets, planOnly: true };
-  // Human TTY: the picker, minimal form — detected set preselected, one confirm.
-  const accepted = ask(ctx, `install pinbox for: ${targets.join(", ")}?`);
-  return { targets, planOnly: !accepted };
-}
-
-/** Explicit `--agent` list: `none` ⇒ empty; unknown targets error loudly (E_INVALID_INPUT). */
-function parseAgentFlag(list: string): Target[] {
-  const names = list
-    .split(",")
-    .map((name) => name.trim())
-    .filter((name) => name !== "");
-  if (names.length === 1 && names[0] === "none") return [];
-  const unknown = names.filter((name) => !VALID_TARGETS.includes(name));
-  if (unknown.length > 0) {
-    throw new CliError(
-      "E_INVALID_INPUT",
-      `unknown agent target${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
-      `valid targets: ${VALID_TARGETS.join(", ")}, none`,
-    );
-  }
-  return [...new Set(names)] as Target[];
 }
 
 async function installAgent(
@@ -430,15 +317,6 @@ async function installMarkers(
 function wouldInstall(target: Target, method: InstallOutcome["method"], dryRun: boolean): string {
   if (dryRun) return `would install (${method}) — dry run`;
   return `would install (${method}) — pass --agent ${target} or --yes`;
-}
-
-function surfaceExists(projectDir: string, target: "cursor" | "copilot"): boolean {
-  const dir = target === "cursor" ? `${projectDir}/.cursor` : `${projectDir}/.github`;
-  try {
-    return Bun.spawnSync(["test", "-d", dir]).exitCode === 0;
-  } catch {
-    return false;
-  }
 }
 
 const SETTINGS_DETAIL: Record<SettingsOutcome, string> = {

@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@autono/pinbox-core": "workspace:*",
+    "@opentui/core": "0.5.3",
     "commander": "^15.0.0"
   },
   "devDependencies": {

@@ -53,97 +53,108 @@ export async function pickOne<T>(opts: {
     resolvePick(value);
   };
 
-  const showDescription = opts.options.some((option) => option.description !== undefined);
-  // Each option is one row; descriptions add a second row per option.
-  const menuHeight =
-    opts.height ?? Math.min(12, opts.options.length * (showDescription ? 2 : 1) + 1);
-
-  const selectOptions: SelectOption[] = opts.options.map((option) => ({
-    name: option.name,
-    description: option.description ?? "",
-  }));
-
-  const menu = new SelectRenderable(renderer, {
-    id: "init-pick",
-    width: "100%",
-    flexGrow: 0,
-    flexShrink: 0,
-    height: menuHeight,
-    options: selectOptions,
-    backgroundColor: TUI.inkRaised,
-    selectedBackgroundColor: TUI.amber,
-    selectedTextColor: TUI.amberInk,
-    textColor: TUI.bone,
-    descriptionColor: TUI.stone,
-    selectedDescriptionColor: TUI.amberInk,
-    showDescription,
-    wrapSelection: true,
-    showScrollIndicator: opts.options.length > 6,
-  });
-
-  menu.on(SelectRenderableEvents.ITEM_SELECTED, (index: number) => {
-    const chosen = opts.options[index];
-    finish(chosen === undefined ? null : chosen.value);
-  });
-
-  renderer.on("destroy", () => {
-    finish(null);
-  });
-
-  // Percentage + maxWidth: Yoga reflows on terminal resize — no manual width math.
-  const panel = Box(
-    {
-      width: "100%",
-      maxWidth: PANEL_MAX_WIDTH,
-      minWidth: 36,
-      marginX: 2,
-      padding: 1,
-      flexDirection: "column",
-      gap: 1,
-      flexShrink: 0,
-      borderStyle: "single",
-      borderColor: TUI.hairline,
-      backgroundColor: TUI.inkRaised,
-    },
-    Text({
-      content: opts.eyebrow,
-      fg: TUI.amber,
-      attributes: TextAttributes.BOLD,
-    }),
-    Text({
-      content: opts.title,
-      fg: TUI.bone,
-      wrapMode: "word",
-    }),
-    ...(opts.subtitle === undefined
-      ? []
-      : [
-          Text({
-            content: opts.subtitle,
-            fg: TUI.stoneSoft,
-            wrapMode: "word",
-          }),
-        ]),
-    menu,
-    Text({
-      content: "↑↓ navigate · enter confirm · ctrl-c cancel",
-      fg: TUI.stone,
-    }),
-  );
-
-  const stage = Box(
-    {
-      width: "100%",
-      height: "100%",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: TUI.ink,
-    },
-    panel,
-  );
-
-  menu.focus();
-  renderer.root.add(stage);
+  // If any setup below throws, release the terminal before rejecting so the
+  // caller's stderr fallback doesn't write into a live alternate screen.
+  try {
+    buildStage();
+  } catch (error) {
+    if (!renderer.isDestroyed) renderer.destroy();
+    throw error;
+  }
   return result;
+
+  function buildStage(): void {
+    const showDescription = opts.options.some((option) => option.description !== undefined);
+    // Each option is one row; descriptions add a second row per option.
+    const menuHeight =
+      opts.height ?? Math.min(12, opts.options.length * (showDescription ? 2 : 1) + 1);
+
+    const selectOptions: SelectOption[] = opts.options.map((option) => ({
+      name: option.name,
+      description: option.description ?? "",
+    }));
+
+    const menu = new SelectRenderable(renderer, {
+      id: "init-pick",
+      width: "100%",
+      flexGrow: 0,
+      flexShrink: 0,
+      height: menuHeight,
+      options: selectOptions,
+      backgroundColor: TUI.inkRaised,
+      selectedBackgroundColor: TUI.amber,
+      selectedTextColor: TUI.amberInk,
+      textColor: TUI.bone,
+      descriptionColor: TUI.stone,
+      selectedDescriptionColor: TUI.amberInk,
+      showDescription,
+      wrapSelection: true,
+      showScrollIndicator: opts.options.length > 6,
+    });
+
+    menu.on(SelectRenderableEvents.ITEM_SELECTED, (index: number) => {
+      const chosen = opts.options[index];
+      finish(chosen === undefined ? null : chosen.value);
+    });
+
+    renderer.on("destroy", () => {
+      finish(null);
+    });
+
+    // Percentage + maxWidth: Yoga reflows on terminal resize — no manual width math.
+    const panel = Box(
+      {
+        width: "100%",
+        maxWidth: PANEL_MAX_WIDTH,
+        minWidth: 36,
+        marginX: 2,
+        padding: 1,
+        flexDirection: "column",
+        gap: 1,
+        flexShrink: 0,
+        borderStyle: "single",
+        borderColor: TUI.hairline,
+        backgroundColor: TUI.inkRaised,
+      },
+      Text({
+        content: opts.eyebrow,
+        fg: TUI.amber,
+        attributes: TextAttributes.BOLD,
+      }),
+      Text({
+        content: opts.title,
+        fg: TUI.bone,
+        wrapMode: "word",
+      }),
+      ...(opts.subtitle === undefined
+        ? []
+        : [
+            Text({
+              content: opts.subtitle,
+              fg: TUI.stoneSoft,
+              wrapMode: "word",
+            }),
+          ]),
+      menu,
+      Text({
+        content: "↑↓ navigate · enter confirm · ctrl-c cancel",
+        fg: TUI.stone,
+      }),
+    );
+
+    const stage = Box(
+      {
+        width: "100%",
+        height: "100%",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: TUI.ink,
+      },
+      panel,
+    );
+
+    menu.focus();
+    renderer.root.add(stage);
+  }
 }

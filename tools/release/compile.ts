@@ -61,6 +61,7 @@ export async function compileTarget(target: Target, outDir: string): Promise<str
 /**
  * Compile all four. `version` is asserted against the CLI manifest rather than injected:
  * `pinbox --version` reads that manifest, so a mismatch would ship a binary that lies.
+ * The release workflow stamps the git tag onto that manifest in the CI workspace first.
  */
 export async function compileAll(
   version: string,
@@ -82,7 +83,7 @@ async function assertVersion(version: string): Promise<void> {
   if (manifest.version !== version) {
     throw new Error(
       `version mismatch: packages/cli/package.json is ${manifest.version}, releasing ${version} ` +
-        "(auto-release bumps manifests before tagging; for a hand-cut tag, bump them first)",
+        "(release stamps the tag onto manifests in CI; run bun tools/release/bump-version.ts <ver> first)",
     );
   }
 }

@@ -7,7 +7,7 @@ product, and everything else here is packaging glue generated at release time.
 | --- | --- |
 | `targets.ts` | the four shipped platforms — the single source of truth for the compile matrix, the generated manifests, and `install.sh`'s `uname` mapping |
 | `compile.ts` | `bun build --compile` for all four targets from one machine (`bun run release:build` → `dist/release/bin/`) |
-| `bump-version.ts` | set every shipped package's version before an auto-release tags (CLI + core + toolbar + mcp) |
+| `bump-version.ts` | stamp the git-tag version onto shipped manifests in the CI workspace (never committed to main) |
 | `manifests.ts` | the **generated** npm packages: the `@autono/pinbox` launcher (manifest + node shim) and the four `@autono/pinbox-<os>-<cpu>` packages. Never checked in |
 | `publish.ts` | the ordered publish: `bun pm pack` → `npm publish --provenance` (`bun run release:publish`; `--dry-run` prints the plan) |
 | `install.sh` | the secondary channel: `curl … \| sh`, checksum-verified, for machines with no JS runtime |
@@ -15,10 +15,10 @@ product, and everything else here is packaging glue generated at release time.
 
 ## The release flow
 
-1. **Merge to main** — `.github/workflows/auto-release.yml` bumps the next minor (`v0.N.0` → `v0.N+1.0`), commits locally, tags that commit, runs gitleaks, then `workflow_call`s `release.yml`. It does **not** push the bump to `main` (branch protection requires status checks). A `release/vX.Y.Z` PR syncs the manifests afterward — merge it with the `[skip release]` commit message so auto-release does not loop.
-2. **Skip** — put `[skip release]` in the merge commit message, or let a `github-actions[bot]` commit (docs-sync, the bump itself) land without releasing.
+1. **Merge to main** — `.github/workflows/auto-release.yml` tags the merge SHA with the next minor (`v0.N.0` → `v0.N+1.0`) and `workflow_call`s `release.yml`. Same shape as buttons: no bump commit, no PR back to `main`. The release job stamps the tag onto manifests in its workspace only so `pinbox --version` matches the tag.
+2. **Skip** — put `[skip release]` in the merge commit message, or let a `github-actions[bot]` commit (docs-sync) land without releasing.
 3. **Recovery** — `workflow_dispatch` on auto-release with an existing `v*` tag, or dispatch `release.yml` from that tag ref.
-4. **Hand-cut tag** — bump the four package manifests to match, `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` on `v*` still works. Tagging ahead of the manifests fails compile: `pinbox --version` reads `packages/cli/package.json`.
+4. **Hand-cut tag** — `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` stamps that tag onto manifests in CI before compile/publish.
 
 `release.yml` does the rest: `ci:validate` → compile all four → smoke on Ubuntu **and** macOS (`release.test.ts` against the artifacts this run compiled, bun off `PATH`) → GitHub Release with binaries + `.sha256` + `install.sh` → npm publish with OIDC provenance.
 

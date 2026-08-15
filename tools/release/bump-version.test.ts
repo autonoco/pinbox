@@ -44,4 +44,17 @@ describe("bumpVersion", () => {
       expect(manifest.version).toBe("0.2.0");
     }
   });
+
+  test("stamps SERVER_VERSION when the MCP entry exists", async () => {
+    const root = await fixture();
+    await Bun.$`mkdir -p ${root}packages/mcp/src`.quiet();
+    await Bun.write(
+      `${root}packages/mcp/src/main.ts`,
+      'export const SERVER_VERSION = "0.1.0";\n',
+    );
+    await bumpVersion("0.2.0", root);
+    expect(await Bun.file(`${root}packages/mcp/src/main.ts`).text()).toContain(
+      'export const SERVER_VERSION = "0.2.0";',
+    );
+  });
 });

@@ -52,6 +52,18 @@ function needsClosure(jobs: Record<string, Job>, job: string): string[] {
   return [...seen];
 }
 
+test("auto-release tags the merge SHA and does not commit back to main", async () => {
+  const auto = await workflow("auto-release.yml");
+  const script = Object.values(auto.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .map((step) => step.run ?? "")
+    .join("\n");
+  expect(script).toContain("git tag -a");
+  expect(script).not.toContain("gh pr create");
+  expect(script).not.toContain("git commit");
+  expect(script).not.toContain("bump-version.ts");
+});
+
 test("docs-sync invokes skillgen's real entry point, and only paths that exist", async () => {
   const script = runsOf(steps(await workflow("docs-sync.yml"), "docs-sync"));
   expect(script).toContain("tools/skillgen/generate.ts");

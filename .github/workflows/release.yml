@@ -7,9 +7,9 @@
 # Gate order is the point: nothing is published until the pack-and-install e2e has installed
 # the very binaries this run compiled, on both OSes, with bun off PATH.
 #
-# Main-branch auto-release lives in auto-release.yml (bump → tag → calls this via workflow_call).
+# Main-branch auto-release lives in auto-release.yml (tag the merge SHA → calls this).
 # This file still handles: a hand-pushed v* tag, workflow_dispatch recovery from a tag ref, and
-# the reusable call from auto-release.
+# the reusable call from auto-release. Manifests are stamped from the tag in this workspace only.
 name: release
 
 on:
@@ -153,12 +153,21 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      # Stamp the tag onto package.json in this workspace only (buttons ldflags analog).
+      # Never committed — main keeps whatever version the merge carried.
+      - name: stamp the tag version
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from plan" >&2 && exit 1)
+          bun tools/release/bump-version.ts "$VERSION"
       # `bun build --compile` cross-compiles: one Linux job emits all four binaries.
       #
       # The tag is passed in, and that is the whole point: `pinbox --version` reads
       # packages/cli/package.json, so compileAll asserts that manifest against the tag being
       # released. Called with no argument it compares the manifest to itself and can never fail —
-      # tagging v1.2.3 over an unmerged version bump would then ship 1.2.2 binaries under a
+      # tagging v1.2.3 over an unstamped tree would then ship 1.2.2 binaries under a
       # Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
       # ref name is attacker-shaped input the moment anyone can push a tag.
       - name: compile every target at the version being released
@@ -283,6 +292,13 @@ jobs:
       # promise-retry). Node 24 already ships npm >= 11.5.1, which is what Trusted Publishing
       # requires, so the upgrade bought nothing and could only break the publish.
       - run: bun install --frozen-lockfile
+      - name: stamp the tag version
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from plan" >&2 && exit 1)
+          bun tools/release/bump-version.ts "$VERSION"
       - run: bun run build
       - uses: actions/download-artifact@v4
         with:

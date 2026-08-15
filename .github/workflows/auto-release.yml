@@ -6,15 +6,16 @@ name: auto-release
 # release finishes.
 #
 # Pinbox cannot tag alone the way a Go binary can: `pinbox --version` and release:build/publish
-# read packages/cli/package.json, so this workflow bumps every shipped package, commits that
-# bump with [skip release], then tags the bump commit and hands the tag to release.yml.
+# read packages/cli/package.json, so this workflow bumps every shipped package and commits
+# locally, then tags that commit. It does NOT push the bump straight to main — branch protection
+# requires status checks, and a bot push would be rejected (GH006). The tag alone is enough for
+# release.yml; a `release/vX.Y.Z` PR syncs the bump onto main afterward (merge with [skip release]).
 #
-# Previous approach (tag-only → hope release.yml fires) breaks because GitHub blocks
-# cross-workflow triggering from GITHUB_TOKEN:
-#   "Events triggered by GITHUB_TOKEN will not create a new workflow run."
+# Tag + publish stay in this workflow because GitHub blocks cross-workflow triggering from
+# GITHUB_TOKEN: "Events triggered by GITHUB_TOKEN will not create a new workflow run."
 #
 # To skip a release: include [skip release] in the merge commit.
-# Bot commits (docs-sync, the version bump itself) are skipped automatically.
+# Bot commits (docs-sync, the version bump PR) are skipped automatically.
 #
 # Gitleaks runs here before any bump or publish — same scanner as secret-scan.yml, on the
 # commits this push introduced.
@@ -33,8 +34,8 @@ concurrency:
   group: release
   cancel-in-progress: false
 
-# Job-scoped below: only `prepare` pushes, and only the reusable release call needs the
-# release/OIDC grants release.yml's jobs declare for themselves.
+# Job-scoped below: prepare pushes the tag + opens the sync PR; the reusable release call
+# needs the release/OIDC grants release.yml's jobs declare for themselves.
 permissions:
   contents: read
 
@@ -143,9 +144,11 @@ jobs:
     timeout-minutes: 10
     needs: [decide, secret-scan]
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # The only job here that writes: it pushes the bump commit and the tag.
+    # Writes the tag + opens the version-sync PR. Does not push to main — protection requires
+    # validate/gitleaks, and a direct bot push fails with GH006.
     permissions:
       contents: write
+      pull-requests: write
     outputs:
       version: ${{ needs.decide.outputs.version }}
       tag: ${{ needs.decide.outputs.tag }}
@@ -167,8 +170,8 @@ jobs:
           VERSION: ${{ needs.decide.outputs.version }}
         run: |
           set -euo pipefail
-          # Always tip of main — a queued run must not push a bump based on a stale SHA once a
-          # later merge (or an earlier bump) has moved the branch.
+          # Always tip of main — a queued run must not tag a bump based on a stale SHA once a
+          # later merge has moved the branch.
           git fetch origin main
           git checkout -B auto-release origin/main
           bun tools/release/bump-version.ts "$VERSION"
@@ -176,7 +179,6 @@ jobs:
       - name: Commit version bump
         if: needs.decide.outputs.create_tag == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.decide.outputs.tag }}
         run: |
           set -euo pipefail
@@ -185,9 +187,6 @@ jobs:
           git add packages/cli/package.json packages/core/package.json \
             packages/toolbar/package.json packages/mcp/package.json
           git commit -m "chore(release): ${TAG} [skip release]"
-          # Authenticated for this one process and nothing else (same pattern as docs-sync.yml).
-          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
-            push "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:main"
 
       - name: Create and push tag
         id: tag
@@ -201,10 +200,33 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Auto-release $TAG"
+            # Tag push carries the bump commit; main is untouched (branch protection).
             git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
               push "https://github.com/$GITHUB_REPOSITORY.git" "$TAG"
           fi
           echo "checkout_ref=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Open version-sync PR
+        if: needs.decide.outputs.create_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.decide.outputs.tag }}
+          BRANCH: release/${{ needs.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Sync the bumped manifests onto main via PR so package.json on the default branch
+          # matches what shipped. Merge carries [skip release] so auto-release does not loop.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            push "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH" --force
+          if [ -n "$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number // empty')" ]; then
+            echo "PR for $BRANCH already open"
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): ${TAG} [skip release]" \
+            --body "Auto-release tagged \`${TAG}\` and published from that tag. This PR brings the bumped package manifests onto \`main\` (branch protection blocks a direct push). Merging is safe: the commit includes \`[skip release]\`."
 
   release:
     name: Compile and publish

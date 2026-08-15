@@ -180,15 +180,32 @@
       .m-offline.is-shown {
         display: flex;
       }
-      /* Embedded in the marketing page's frame: the frame is the window, so this page must not
-         carry a second scrollbar inside it. Scrolling still works — only the bar is hidden — and
-         the padding tightens so the hero fits the smaller stage. */
+      /* Embedded in the marketing page's frame: locked viewport (no scroll), light page so the
+         demo contrasts with the dark marketing shell. Pillars drop — they overflow the stage. */
+      html.is-embedded,
       body.is-embedded {
-        scrollbar-width: none;
+        height: 100%;
+        overflow: hidden;
+      }
+      body.is-embedded {
+        --fg-1: var(--ink);
+        --fg-2: var(--stone-700);
+        --fg-3: var(--stone-500);
+        --bg-1: var(--bone);
+        --hairline: rgba(15, 15, 15, 0.1);
+        --hairline-strong: rgba(15, 15, 15, 0.18);
+        background: var(--bg-1);
+        color: var(--fg-1);
         padding: clamp(20px, 4vw, 40px) clamp(16px, 5vw, 56px) 90px;
       }
-      body.is-embedded::-webkit-scrollbar {
+      body.is-embedded .m-pillars {
         display: none;
+      }
+      body.is-embedded .m-nav {
+        padding-bottom: clamp(28px, 4vw, 48px);
+      }
+      body.is-embedded .m-main {
+        gap: clamp(28px, 4vw, 48px);
       }
       /* Four metrics in a row need four columns' worth of width. Below that they wrapped into a
          grid whose dividers ran between rows as well as columns, which read as a table nobody
@@ -280,7 +297,9 @@
       // `endpoint` must be ABSOLUTE: the transport derives its WebSocket URL with
       // `new URL(endpoint)`, which throws on a bare path.
       // Rendered inside the marketing page's frame — see .frame__stage.
-      if (new URLSearchParams(location.search).has("embed")) {
+      const embedded = new URLSearchParams(location.search).has("embed");
+      if (embedded) {
+        document.documentElement.classList.add("is-embedded");
         document.body.classList.add("is-embedded");
       }
       const endpoint = `${location.origin}/_pinbox`;
@@ -386,7 +405,9 @@
           if (!response.ok) throw new Error(String(response.status));
           // screenshots: false — capturing one means asking to share the tab, and that prompt is the
           // first thing a visitor sees. Pins still carry the selector, markup, and viewport.
-          Pinbox.init({ endpoint, token, screenshots: false });
+          const toolbar = Pinbox.init({ endpoint, token, screenshots: false });
+          // Light Meridian needs light chrome; OS preference would otherwise pick dark.
+          if (embedded) toolbar.setAttribute("data-pb", "light");
           watchForEdits();
         })
         .catch(() => {

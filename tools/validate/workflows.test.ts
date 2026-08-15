@@ -83,6 +83,7 @@ test("auto-release reruns reuse the tag already pointing at HEAD", async () => {
   // so no path can accept a tag the stamping tool would refuse (or vice versa).
   const guard = script.slice(0, script.indexOf("LATEST="));
   expect(guard).toContain(`SEMVER='${SEMVER_SOURCE}'`);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
   expect(guard).toContain('grep -E "^v${SEMVER}$"');
   // Reuse means reuse: the found tag is emitted verbatim and tag creation is switched off.
   expect(guard).toContain("create_tag=false");
@@ -180,12 +181,14 @@ test("release only ships what `plan` said to ship", async () => {
   // stamping tool accepts too.
   expect(script).toContain(`SEMVER='${SEMVER_SOURCE}'`);
   expect(script).toContain('"$REF_TYPE" = "tag"');
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
   expect(script).toContain('grep -Eq "^v${SEMVER}$"');
   // The workflow_call version is validated as semver too, and arrives through env bound to the
   // deciding step, so a malformed caller input cannot name the release. The branch keys off
   // `$CALL_VERSION`, not `$EVENT_NAME`: inside a reusable workflow, github.event_name names the
   // CALLER's event (push), never `workflow_call`.
   expect(script).toContain('-n "$CALL_VERSION"');
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
   expect(script).toContain('grep -Eq "^${SEMVER}$"');
   expect(decide?.env?.["CALL_VERSION"]).toContain("inputs.version");
   expect(script).toMatch(/exit 1/);

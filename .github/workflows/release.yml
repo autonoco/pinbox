@@ -81,12 +81,14 @@ jobs:
         env:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
-          EVENT_NAME: ${{ github.event_name }}
           CALL_VERSION: ${{ inputs.version }}
           CALL_REF: ${{ inputs.checkout_ref }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_call" ]; then
+          # `inputs.version` is only ever non-empty on workflow_call — the dispatch trigger here
+          # declares no inputs. `github.event_name` cannot make this call: inside a reusable
+          # workflow it names the CALLER's event (push), never `workflow_call`.
+          if [ -n "$CALL_VERSION" ]; then
             version="$CALL_VERSION"
             checkout_ref="$CALL_REF"
             if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then

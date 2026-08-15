@@ -3,7 +3,9 @@ import type { AgentSpec } from "../../agents.ts";
 import { pickOne } from "./pick.ts";
 
 /** Pick a handoff agent, or null to decline / cancel. */
-export async function pickHandoffAgentTui(candidates: readonly AgentSpec[]): Promise<AgentSpec | null> {
+export async function pickHandoffAgentTui(
+  candidates: readonly AgentSpec[],
+): Promise<AgentSpec | null> {
   if (candidates.length === 0) return null;
   if (candidates.length === 1) {
     const only = candidates[0] as AgentSpec;

@@ -1,6 +1,7 @@
 // pinbox CLI — ambient context and flags for `init` (shared by command + select).
-import type { spawnIntegrationAgent } from "./spawn.ts";
+
 import type { OutputFlags } from "../output.ts";
+import type { spawnIntegrationAgent } from "./spawn.ts";
 
 export type InitFlags = OutputFlags & {
   agent?: string;

@@ -318,14 +318,20 @@ describe("pickHandoffAgent", () => {
 
   test("--yes takes the first candidate without asking", async () => {
     const asked: string[] = [];
-    const chosen = await pickHandoffAgent(headless, { yes: true }, ctx({ confirm: acceptAll(asked) }));
+    const chosen = await pickHandoffAgent(
+      headless,
+      { yes: true },
+      ctx({ confirm: acceptAll(asked) }),
+    );
     expect(chosen?.id).toBe(headless[0]?.id);
     expect(asked).toEqual([]);
   });
 
   test("a single candidate is one confirm; declining picks nobody", async () => {
     const single = [headless[0] as AgentSpec];
-    expect((await pickHandoffAgent(single, {}, ctx({ confirm: () => true })))?.id).toBe(single[0]?.id);
+    expect((await pickHandoffAgent(single, {}, ctx({ confirm: () => true })))?.id).toBe(
+      single[0]?.id,
+    );
     expect(await pickHandoffAgent(single, {}, ctx({ confirm: () => false }))).toBeNull();
   });
 

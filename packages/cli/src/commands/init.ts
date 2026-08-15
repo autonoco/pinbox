@@ -15,6 +15,7 @@ import type { Command } from "commander";
 import { AGENTS, type AgentId, type AgentSpec, detectAgents } from "../agents.ts";
 import { CliError } from "../errors.ts";
 import { integrationBrief } from "../init/brief.ts";
+import type { InitContext, InitFlags } from "../init/context.ts";
 import { detectRepo, invocationMode } from "../init/detect.ts";
 import { ensureGitignore, installGitHook } from "../init/hooks-install.ts";
 import {
@@ -28,9 +29,8 @@ import {
   installClaudeSkillsDir,
   installViaShell,
 } from "../init/plugin-install.ts";
-import type { InitContext, InitFlags } from "../init/context.ts";
-import { installClaudeSettings, type SettingsOutcome } from "../init/settings-install.ts";
 import { pickHandoffAgent, selectTargets, type Target } from "../init/select.ts";
+import { installClaudeSettings, type SettingsOutcome } from "../init/settings-install.ts";
 import { spawnIntegrationAgent } from "../init/spawn.ts";
 import { ensurePinboxDir } from "../init/state-dir.ts";
 import { emit, fail, isJsonMode } from "../output.ts";

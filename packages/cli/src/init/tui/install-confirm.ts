@@ -20,7 +20,6 @@ export async function confirmInstallTargets(targets: readonly string[]): Promise
         value: "no",
       },
     ],
-
   });
   return choice === "yes";
 }

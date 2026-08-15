@@ -2,12 +2,12 @@
 // Alternate screen, pinbox palette, destroy on settle. Returns null on cancel/Ctrl-C.
 import {
   Box,
-  Text,
-  SelectRenderable,
-  SelectRenderableEvents,
-  TextAttributes,
   createCliRenderer,
   type SelectOption,
+  SelectRenderable,
+  SelectRenderableEvents,
+  Text,
+  TextAttributes,
 } from "@opentui/core";
 import { TUI } from "./theme.ts";
 

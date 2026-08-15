@@ -71,6 +71,8 @@ test("compile's all-platform install is not frozen — stamp already mutated man
   const text = await Bun.file(`${root}tools/release/compile.ts`).text();
   const install = text.match(/bun install[^`\n]+--os \$\{all\}[^`\n]*/)?.[0];
   expect(install).toBeDefined();
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
+  expect(install).toContain("--cpu ${all}");
   expect(install).not.toContain("--frozen-lockfile");
 });
 

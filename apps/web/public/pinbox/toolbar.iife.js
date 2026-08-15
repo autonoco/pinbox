@@ -1925,11 +1925,22 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 	}
 	var PinboxToolbarElement = class extends BaseElement {
 		static tagName = "pinbox-toolbar";
+		/** Watched so a config that arrives after insertion can still start the transport. */
+		static observedAttributes = ["hub", "token"];
 		store = createStore();
 		/** Card → transport seam (wired by #startTransport once a config exists). */
 		actions = {};
 		#config = null;
 		#transport = null;
+		/**
+		* Connected-lifetime counter, bumped on disconnect. #startTransport can park at
+		* an await (getToken, or `await undefined` on the token-less path); a
+		* continuation that crossed a disconnect must not install a transport into a
+		* later lifetime, where it would shadow or duplicate that lifetime's own start.
+		*/
+		#lifetime = 0;
+		/** One deferred start per tick, however many attribute callbacks land in it. */
+		#startQueued = false;
 		#token = "";
 		#built = false;
 		#bar = null;
@@ -1954,6 +1965,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** Programmatic path (Pinbox.init). The snippet path reads hub/token attributes. */
 		configure(config) {
 			this.#config = config;
+			if (this.isConnected) this.#queueStart();
 		}
 		get config() {
 			if (this.#config) return this.#config;
@@ -1986,9 +1998,33 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			document.addEventListener("keydown", this.#onKeyDown);
 			this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
 			this.#render(this.store.get());
-			this.#startTransport();
+			this.#queueStart();
+		}
+		/**
+		* Late-config rescue: an element inserted BEFORE its hub/token attributes were
+		* set connected configless and #startTransport bailed. Starting here the moment
+		* a config first exists keeps such an element from staying silently dead.
+		* Config is still read once — a running transport is never reconfigured.
+		*/
+		attributeChangedCallback() {
+			if (this.isConnected && this.config !== null) this.#queueStart();
+		}
+		/**
+		* Start at the END of the current tick, not synchronously: a config assembled
+		* attribute-by-attribute on a connected element (append → set hub → set token)
+		* must be read whole. A synchronous start at the first fragment would connect
+		* token-less and, per the read-once rule, drop the token forever.
+		*/
+		#queueStart() {
+			if (this.#startQueued) return;
+			this.#startQueued = true;
+			queueMicrotask(() => {
+				this.#startQueued = false;
+				this.#startTransport();
+			});
 		}
 		disconnectedCallback() {
+			this.#lifetime += 1;
 			this.#transport?.close();
 			this.#transport = null;
 			document.removeEventListener("mousemove", this.#onMouseMove);
@@ -2072,10 +2108,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		* still renders read-only threads and queued drafts.
 		*/
 		async #startTransport() {
-			if (this.#transport !== null) return;
+			if (this.#transport !== null || !this.isConnected) return;
 			const cfg = this.config;
 			if (cfg === null) return;
-			this.#token = cfg.token ?? await cfg.getToken?.().catch(() => void 0) ?? "";
+			const lifetime = this.#lifetime;
+			const token = cfg.token ?? await cfg.getToken?.().catch(() => void 0) ?? "";
+			if (this.#lifetime !== lifetime || this.#transport !== null || !this.isConnected) return;
+			this.#token = token;
 			const transport = new HubTransport({
 				endpoint: cfg.endpoint,
 				token: this.#token,

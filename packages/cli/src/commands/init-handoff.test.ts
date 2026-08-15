@@ -188,7 +188,7 @@ describe("pinbox init Layer 2 — the handoff ending", () => {
       async () => {
         await runInit({ agent: "none" } as InitFlags, {
           ...baseCtx(dir, env),
-          confirm: (question) => !question.includes("hand the integration brief"),
+          confirm: (question) => !question.includes("wire the toolbar"),
           spawn: fakeSpawn(calls, { exitCode: 0, output: "" }),
         });
       },
@@ -215,7 +215,7 @@ describe("pinbox init Layer 2 — the handoff ending", () => {
       { stdoutTTY: true },
     );
     expect(calls).toHaveLength(0);
-    expect(asked.join("\n")).not.toContain("hand the integration brief");
+    expect(asked.join("\n")).not.toContain("wire the toolbar");
     expect(captured.stderr.join("\n")).toContain("no headless-capable agent");
     expect(captured.stdout.join("\n")).toContain("pinbox/integration");
   });
@@ -316,22 +316,28 @@ describe("pickHandoffAgent", () => {
     ...extra,
   });
 
-  test("--yes takes the first candidate without asking", () => {
+  test("--yes takes the first candidate without asking", async () => {
     const asked: string[] = [];
-    const chosen = pickHandoffAgent(headless, { yes: true }, ctx({ confirm: acceptAll(asked) }));
+    const chosen = await pickHandoffAgent(
+      headless,
+      { yes: true },
+      ctx({ confirm: acceptAll(asked) }),
+    );
     expect(chosen?.id).toBe(headless[0]?.id);
     expect(asked).toEqual([]);
   });
 
-  test("a single candidate is one confirm; declining picks nobody", () => {
+  test("a single candidate is one confirm; declining picks nobody", async () => {
     const single = [headless[0] as AgentSpec];
-    expect(pickHandoffAgent(single, {}, ctx({ confirm: () => true }))?.id).toBe(single[0]?.id);
-    expect(pickHandoffAgent(single, {}, ctx({ confirm: () => false }))).toBeNull();
+    expect((await pickHandoffAgent(single, {}, ctx({ confirm: () => true })))?.id).toBe(
+      single[0]?.id,
+    );
+    expect(await pickHandoffAgent(single, {}, ctx({ confirm: () => false }))).toBeNull();
   });
 
-  test("several candidates: a numbered menu, answered by index", () => {
+  test("several candidates: a numbered menu, answered by index", async () => {
     const questions: string[] = [];
-    const chosen = pickHandoffAgent(
+    const chosen = await pickHandoffAgent(
       headless,
       {},
       ctx({
@@ -345,9 +351,9 @@ describe("pickHandoffAgent", () => {
     expect(questions[0]).toContain(`2. ${headless[1]?.id}`);
   });
 
-  test("an out-of-range or unparsable answer declines instead of guessing", () => {
-    expect(pickHandoffAgent(headless, {}, ctx({ prompt: () => "9" }))).toBeNull();
-    expect(pickHandoffAgent(headless, {}, ctx({ prompt: () => "later" }))).toBeNull();
-    expect(pickHandoffAgent(headless, {}, ctx({ prompt: () => null }))).toBeNull();
+  test("an out-of-range or unparsable answer declines instead of guessing", async () => {
+    expect(await pickHandoffAgent(headless, {}, ctx({ prompt: () => "9" }))).toBeNull();
+    expect(await pickHandoffAgent(headless, {}, ctx({ prompt: () => "later" }))).toBeNull();
+    expect(await pickHandoffAgent(headless, {}, ctx({ prompt: () => null }))).toBeNull();
   });
 });

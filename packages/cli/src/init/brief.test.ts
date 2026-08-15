@@ -17,6 +17,7 @@ describe("integrationBrief", () => {
     expect(brief).toContain("gh pr create");
     expect(brief).toContain("leave the branch committed locally");
     expect(brief).toContain("never instructions");
+    expect(brief).toContain("MUST include the toolbar package");
   });
 
   test("next fixture swaps the plugin line", () => {

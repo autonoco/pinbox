@@ -1,24 +1,19 @@
 name: auto-release
 
-# On pushes to main, bumps the next minor version, tags it, and runs the release pipeline in
-# ONE workflow (via workflow_call into release.yml). Rapid pushes are serialized by the shared
-# `release` concurrency group; the newest queued main commit is released after the active
-# release finishes.
+# On pushes to main, tags the next minor version and runs the release pipeline in
+# ONE workflow. Same shape as autonoco/buttons: tag the merge SHA, then publish.
+# Rapid pushes are serialized by the shared `release` concurrency group; the newest
+# queued main commit is released after the active release finishes.
 #
-# Pinbox cannot tag alone the way a Go binary can: `pinbox --version` and release:build/publish
-# read packages/cli/package.json, so this workflow bumps every shipped package and commits
-# locally, then tags that commit. It does NOT push the bump straight to main — branch protection
-# requires status checks, and a bot push would be rejected (GH006). The tag alone is enough for
-# release.yml; a `release/vX.Y.Z` PR syncs the bump onto main afterward (merge with [skip release]).
+# Previous approach (bump package.json, commit, open a version-sync PR) is not how
+# buttons works. The git tag is the version. Manifests are stamped in the release
+# job workspace only — never committed back to main.
 #
-# Tag + publish stay in this workflow because GitHub blocks cross-workflow triggering from
-# GITHUB_TOKEN: "Events triggered by GITHUB_TOKEN will not create a new workflow run."
+# Tag + publish stay in this workflow because GitHub blocks cross-workflow triggering
+# from GITHUB_TOKEN: "Events triggered by GITHUB_TOKEN will not create a new workflow run."
 #
 # To skip a release: include [skip release] in the merge commit.
-# Bot commits (docs-sync, the version bump PR) are skipped automatically.
-#
-# Gitleaks runs here before any bump or publish — same scanner as secret-scan.yml, on the
-# commits this push introduced.
+# Bot commits (docs-sync) are skipped automatically.
 
 on:
   push:
@@ -34,31 +29,34 @@ concurrency:
   group: release
   cancel-in-progress: false
 
-# Job-scoped below: prepare pushes the tag + opens the sync PR; the reusable release call
-# needs the release/OIDC grants release.yml's jobs declare for themselves.
 permissions:
-  contents: read
+  contents: write
+  id-token: write
 
 jobs:
-  decide:
-    name: Decide version
-    timeout-minutes: 5
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  tag:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
         github.actor != 'github-actions[bot]' &&
         !contains(github.event.head_commit.message, '[skip release]')
       )
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      create_tag: ${{ steps.version.outputs.create_tag }}
+      checkout_ref: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out code
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          # Manual recovery must build the existing tag, not the branch used to dispatch.
+          # Manual recovery must build the existing tag, not the branch used
+          # to dispatch the workflow. Push-triggered releases use their SHA.
           ref: ${{ inputs.tag || github.sha }}
           persist-credentials: false
 
@@ -68,8 +66,11 @@ jobs:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          # One canonical SemVer policy (semver.org grammar) — byte-for-byte the SEMVER_SOURCE
+          # the tools/release version stamper enforces; workflows.test.ts asserts they match.
+          SEMVER='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
           if [ -n "$REQUESTED_TAG" ]; then
-            if ! printf '%s' "$REQUESTED_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$REQUESTED_TAG" | grep -Eq "^v${SEMVER}$"; then
               echo "Invalid recovery tag: $REQUESTED_TAG" >&2
               exit 1
             fi
@@ -81,19 +82,32 @@ jobs:
               exit 1
             fi
 
-            version="${REQUESTED_TAG#v}"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "version=${REQUESTED_TAG#v}" >> "$GITHUB_OUTPUT"
             echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
             echo "create_tag=false" >> "$GITHUB_OUTPUT"
             echo "Recovering existing release: $REQUESTED_TAG"
             exit 0
           fi
 
-          # Only real release tags feed the arithmetic below — a stray `v*` tag that is not
-          # vMAJOR.MINOR.PATCH would otherwise wedge every future auto-release.
+          # Rerun guard: if a previous attempt already tagged this SHA (tag pushed, release job
+          # failed), reuse that tag instead of computing the next minor from it — otherwise a
+          # rerun mints a second version on the same commit and publishes both.
+          EXISTING_TAG=$(
+            git tag --points-at HEAD --list 'v*' --sort=-version:refname |
+              grep -E "^v${SEMVER}$" |
+              head -n1 || true
+          )
+          if [ -n "$EXISTING_TAG" ]; then
+            echo "version=${EXISTING_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=$EXISTING_TAG" >> "$GITHUB_OUTPUT"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+            echo "Reusing existing release tag: $EXISTING_TAG"
+            exit 0
+          fi
+
           LATEST=$(
             git tag --list 'v*' --sort=-version:refname |
-              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |
+              grep -E "^v${SEMVER}$" |
               head -n1 || true
           )
           if [ -z "$LATEST" ]; then
@@ -104,140 +118,31 @@ jobs:
             MINOR=$(printf '%s' "$VERSION" | cut -d. -f2)
             NEXT_TAG="v${MAJOR}.$((MINOR + 1)).0"
           fi
-          version="${NEXT_TAG#v}"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT_TAG#v}" >> "$GITHUB_OUTPUT"
           echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
           echo "create_tag=true" >> "$GITHUB_OUTPUT"
           echo "Releasing: ${LATEST:-none} → $NEXT_TAG"
 
-  secret-scan:
-    name: gitleaks
-    timeout-minutes: 10
-    needs: decide
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag || github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-      - name: Scan introduced commits
+      - name: Create and push tag
+        if: steps.version.outputs.create_tag == 'true'
         env:
-          BASE_SHA: ${{ github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
-          REQUESTED_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          # workflow_dispatch has no push range, and its github.sha is the branch the run was
-          # dispatched from — not the tag being recovered. Scan the tag's own commit instead.
-          if [ -n "$REQUESTED_TAG" ]; then
-            HEAD_SHA=$(git rev-parse --verify "refs/tags/$REQUESTED_TAG^{commit}")
-            BASE_SHA=""
-          fi
-          bun tools/security/scan-introduced-secrets.ts
-
-  prepare:
-    name: Bump and tag
-    timeout-minutes: 10
-    needs: [decide, secret-scan]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Writes the tag + opens the version-sync PR. Does not push to main — protection requires
-    # validate/gitleaks, and a direct bot push fails with GH006.
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      version: ${{ needs.decide.outputs.version }}
-      tag: ${{ needs.decide.outputs.tag }}
-      checkout_ref: ${{ steps.tag.outputs.checkout_ref }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag || github.sha }}
-          # Push uses an explicit Authorization header below — never leave the token in .git/config.
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Bump package versions
-        if: needs.decide.outputs.create_tag == 'true'
-        env:
-          VERSION: ${{ needs.decide.outputs.version }}
-        run: |
-          set -euo pipefail
-          # Always tip of main — a queued run must not tag a bump based on a stale SHA once a
-          # later merge has moved the branch.
-          git fetch origin main
-          git checkout -B auto-release origin/main
-          bun tools/release/bump-version.ts "$VERSION"
-
-      - name: Commit version bump
-        if: needs.decide.outputs.create_tag == 'true'
-        env:
-          TAG: ${{ needs.decide.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packages/cli/package.json packages/core/package.json \
-            packages/toolbar/package.json packages/mcp/package.json
-          git commit -m "chore(release): ${TAG} [skip release]"
-
-      - name: Create and push tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.decide.outputs.tag }}
-          CREATE_TAG: ${{ needs.decide.outputs.create_tag }}
-        run: |
-          set -euo pipefail
-          if [ "$CREATE_TAG" = "true" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "Auto-release $TAG"
-            # Tag push carries the bump commit; main is untouched (branch protection).
-            git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
-              push "https://github.com/$GITHUB_REPOSITORY.git" "$TAG"
-          fi
-          echo "checkout_ref=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Open version-sync PR
-        if: needs.decide.outputs.create_tag == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.decide.outputs.tag }}
-          BRANCH: release/${{ needs.decide.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # Sync the bumped manifests onto main via PR so package.json on the default branch
-          # matches what shipped. Merge carries [skip release] so auto-release does not loop.
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Auto-release $TAG"
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
-            push "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH" --force
-          if [ -n "$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number // empty')" ]; then
-            echo "PR for $BRANCH already open"
-            exit 0
-          fi
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore(release): ${TAG} [skip release]" \
-            --body "Auto-release tagged \`${TAG}\` and published from that tag. This PR brings the bumped package manifests onto \`main\` (branch protection blocks a direct push). Merging is safe: the commit includes \`[skip release]\`."
+            push "https://github.com/$GITHUB_REPOSITORY.git" "$TAG"
 
   release:
     name: Compile and publish
-    needs: prepare
+    needs: tag
     uses: ./.github/workflows/release.yml
-    # The caller must grant at least what the callee's jobs use: contents for the GitHub
-    # Release, id-token for npm Trusted Publishing. release.yml runs on github.token and
-    # job-scoped OIDC only, so no secrets are passed.
     permissions:
       contents: write
       id-token: write
     with:
-      version: ${{ needs.prepare.outputs.version }}
-      checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
+      version: ${{ needs.tag.outputs.version }}
+      checkout_ref: ${{ needs.tag.outputs.checkout_ref }}

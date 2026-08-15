@@ -7,6 +7,7 @@
 //      which ships vX.Y.Z-named artifacts built from a tree that still says X.Y.Z-1.
 // Both are one-line mistakes that only fail in production, so they are asserted here.
 import { expect, test } from "bun:test";
+import { SEMVER_SOURCE } from "../release/bump-version.ts";
 
 const root = new URL("../..", import.meta.url).pathname;
 
@@ -77,9 +78,12 @@ test("auto-release reruns reuse the tag already pointing at HEAD", async () => {
 
   // The guard decides before the next-minor calculation ever sees the first attempt's tag.
   expect(script.indexOf("--points-at HEAD")).toBeLessThan(script.indexOf("LATEST="));
-  // Only a real release tag is reused — not any stray `v*` ref on the commit.
+  // Only a real release tag is reused — not any stray `v*` ref on the commit. The predicate is
+  // the ONE canonical SemVer policy, byte-for-byte the SEMVER_SOURCE bump-version.ts enforces,
+  // so no path can accept a tag the stamping tool would refuse (or vice versa).
   const guard = script.slice(0, script.indexOf("LATEST="));
-  expect(guard).toContain("grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  expect(guard).toContain(`SEMVER='${SEMVER_SOURCE}'`);
+  expect(guard).toContain('grep -E "^v${SEMVER}$"');
   // Reuse means reuse: the found tag is emitted verbatim and tag creation is switched off.
   expect(guard).toContain("create_tag=false");
   expect(guard).toContain('tag=$EXISTING_TAG"');
@@ -171,15 +175,18 @@ test("release only ships what `plan` said to ship", async () => {
   // A tag names its own version; auto-release passes one in via workflow_call. Anything else —
   // in particular a workflow_dispatch started from a branch — fails loudly instead of shipping.
   // The full anchored grep commands, not fragments: a dropped `$` anchor or a check moved out of
-  // its branch must fail here.
+  // its branch must fail here. The predicate is the ONE canonical SemVer policy, byte-for-byte
+  // the SEMVER_SOURCE bump-version.ts enforces, so a tag this plan accepts is a version the
+  // stamping tool accepts too.
+  expect(script).toContain(`SEMVER='${SEMVER_SOURCE}'`);
   expect(script).toContain('"$REF_TYPE" = "tag"');
-  expect(script).toContain("grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  expect(script).toContain('grep -Eq "^v${SEMVER}$"');
   // The workflow_call version is validated as semver too, and arrives through env bound to the
   // deciding step, so a malformed caller input cannot name the release. The branch keys off
   // `$CALL_VERSION`, not `$EVENT_NAME`: inside a reusable workflow, github.event_name names the
   // CALLER's event (push), never `workflow_call`.
   expect(script).toContain('-n "$CALL_VERSION"');
-  expect(script).toContain("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  expect(script).toContain('grep -Eq "^${SEMVER}$"');
   expect(decide?.env?.["CALL_VERSION"]).toContain("inputs.version");
   expect(script).toMatch(/exit 1/);
 
@@ -250,9 +257,19 @@ test("plan's decide script, executed: tags and calls release, a branch dispatch 
   expect(dispatch.released).toBe(false);
 
   // A `v*` tag that is not a release version must refuse too, not ship a Release named vnext.
-  const badTag = await decideWith({ REF_TYPE: "tag", REF_NAME: "vnext" });
-  expect(badTag.exitCode).not.toBe(0);
-  expect(badTag.released).toBe(false);
+  // Canonical SemVer means canonical: leading-zero components, leading-zero numeric prerelease
+  // identifiers, and empty identifiers are all refused before they can name an npm publish.
+  for (const name of ["vnext", "v01.2.3", "v1.2.3-01", "v1.2.3-a..b"]) {
+    const badTag = await decideWith({ REF_TYPE: "tag", REF_NAME: name });
+    expect(badTag.exitCode, name).not.toBe(0);
+    expect(badTag.released, name).toBe(false);
+  }
+
+  // Build metadata is valid SemVer and must not be refused.
+  const meta = await decideWith({ REF_TYPE: "tag", REF_NAME: "v1.2.3+build.5" });
+  expect(meta.exitCode).toBe(0);
+  expect(meta.released).toBe(true);
+  expect(meta.outputs).toContain("version=1.2.3+build.5");
 });
 
 // Trusted Publishing cannot create a package that does not exist; npm answers a bare 404 on the

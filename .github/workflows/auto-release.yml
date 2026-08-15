@@ -66,8 +66,11 @@ jobs:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          # One canonical SemVer policy (semver.org grammar) — byte-for-byte the SEMVER_SOURCE
+          # the tools/release version stamper enforces; workflows.test.ts asserts they match.
+          SEMVER='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
           if [ -n "$REQUESTED_TAG" ]; then
-            if ! printf '%s' "$REQUESTED_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$REQUESTED_TAG" | grep -Eq "^v${SEMVER}$"; then
               echo "Invalid recovery tag: $REQUESTED_TAG" >&2
               exit 1
             fi
@@ -91,7 +94,7 @@ jobs:
           # rerun mints a second version on the same commit and publishes both.
           EXISTING_TAG=$(
             git tag --points-at HEAD --list 'v*' --sort=-version:refname |
-              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |
+              grep -E "^v${SEMVER}$" |
               head -n1 || true
           )
           if [ -n "$EXISTING_TAG" ]; then
@@ -104,7 +107,7 @@ jobs:
 
           LATEST=$(
             git tag --list 'v*' --sort=-version:refname |
-              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |
+              grep -E "^v${SEMVER}$" |
               head -n1 || true
           )
           if [ -z "$LATEST" ]; then

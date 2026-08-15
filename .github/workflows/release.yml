@@ -85,13 +85,16 @@ jobs:
           CALL_REF: ${{ inputs.checkout_ref }}
         run: |
           set -euo pipefail
+          # One canonical SemVer policy (semver.org grammar) — the exact source of SEMVER_SOURCE
+          # in tools/release/bump-version.ts; workflows.test.ts asserts they match verbatim.
+          SEMVER='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
           # `inputs.version` is only ever non-empty on workflow_call — the dispatch trigger here
           # declares no inputs. `github.event_name` cannot make this call: inside a reusable
           # workflow it names the CALLER's event (push), never `workflow_call`.
           if [ -n "$CALL_VERSION" ]; then
             version="$CALL_VERSION"
             checkout_ref="$CALL_REF"
-            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$version" | grep -Eq "^${SEMVER}$"; then
               echo "workflow_call version $version is not a release version" >&2
               exit 1
             fi
@@ -99,7 +102,7 @@ jobs:
           elif [ "$REF_TYPE" = "tag" ]; then
             # A tag says its own version. Being a tag is not enough — everything downstream strips
             # the leading `v` and treats the rest as the version it compiles and publishes.
-            if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$REF_NAME" | grep -Eq "^v${SEMVER}$"; then
               echo "tag $REF_NAME is not a v<semver> release tag" >&2
               exit 1
             fi

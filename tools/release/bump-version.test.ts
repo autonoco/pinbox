@@ -21,14 +21,17 @@ async function fixture(): Promise<string> {
 }
 
 describe("assertReleaseVersion", () => {
-  test("accepts plain and prerelease semver", () => {
+  test("accepts plain, prerelease, and build-metadata semver", () => {
     assertReleaseVersion("0.2.0");
     assertReleaseVersion("1.0.0-rc.1");
+    assertReleaseVersion("1.2.3+build.5");
+    assertReleaseVersion("1.2.3-rc.1+build.5");
   });
 
-  test("rejects garbage", () => {
-    expect(() => assertReleaseVersion("v0.2.0")).toThrow(/not a release version/);
-    expect(() => assertReleaseVersion("0.2")).toThrow(/not a release version/);
+  test("rejects garbage and non-canonical semver", () => {
+    for (const bad of ["v0.2.0", "0.2", "01.2.3", "1.2.3-01", "1.2.3-a..b", "1.2.3+build..x"]) {
+      expect(() => assertReleaseVersion(bad), bad).toThrow(/not a release version/);
+    }
   });
 });
 

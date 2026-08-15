@@ -4,7 +4,18 @@
 // Buttons tags the merge SHA and injects the version at build time (ldflags). Pinbox's
 // compile/publish read package.json, so the release job stamps that tag here and never
 // commits it back to main. Keep the set here, not in the workflow YAML.
-const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
+
+// One canonical SemVer policy for every release path. Both workflows embed this exact source
+// as their `SEMVER` shell variable (tools/validate/workflows.test.ts asserts it verbatim), so
+// a tag the workflows accept is a version this tool accepts, and vice versa. The official
+// semver.org grammar: no leading-zero numeric components, no leading-zero numeric prerelease
+// identifiers, no empty identifiers, build metadata allowed. Written to be valid in POSIX ERE
+// (grep -E) and JS alike: no \d, no non-capturing groups.
+export const SEMVER_SOURCE =
+  "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)" +
+  "(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?" +
+  "(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?";
+const SEMVER = new RegExp(`^${SEMVER_SOURCE}$`);
 
 /** Workspace packages that share a release version (libraries + the CLI source of truth). */
 export const VERSIONED_PACKAGES = [

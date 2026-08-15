@@ -15,7 +15,7 @@ import { notifyFromEvent, registerResources } from "./resources.ts";
 import { registerTools } from "./tools.ts";
 
 /** Kept in step with package.json by a unit test — the wire reports this as the server version. */
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.2.0";
 
 /**
  * Our tool list is decided once, at launch, by `--allow-mutations`, and cannot change while the

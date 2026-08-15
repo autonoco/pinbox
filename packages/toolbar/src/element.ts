@@ -43,6 +43,8 @@ function isTextEntry(target: EventTarget | undefined): boolean {
 
 export class PinboxToolbarElement extends BaseElement {
   static readonly tagName = "pinbox-toolbar";
+  /** Watched so a config that arrives after insertion can still start the transport. */
+  static readonly observedAttributes = ["hub", "token"];
 
   readonly store: Store = createStore();
   /** Card → transport seam (wired by #startTransport once a config exists). */
@@ -54,6 +56,15 @@ export class PinboxToolbarElement extends BaseElement {
 
   #config: PinboxConfig | null = null;
   #transport: HubTransport | null = null;
+  /**
+   * Connected-lifetime counter, bumped on disconnect. #startTransport can park at
+   * an await (getToken, or `await undefined` on the token-less path); a
+   * continuation that crossed a disconnect must not install a transport into a
+   * later lifetime, where it would shadow or duplicate that lifetime's own start.
+   */
+  #lifetime = 0;
+  /** One deferred start per tick, however many attribute callbacks land in it. */
+  #startQueued = false;
   #token = "";
   #built = false;
   #bar: Bar | null = null;
@@ -80,6 +91,9 @@ export class PinboxToolbarElement extends BaseElement {
   /** Programmatic path (Pinbox.init). The snippet path reads hub/token attributes. */
   configure(config: PinboxConfig): void {
     this.#config = config;
+    // Same late-config rescue as the attribute path: configuring an element that
+    // already connected configless must still start it.
+    if (this.isConnected) this.#queueStart();
   }
 
   get config(): PinboxConfig | null {
@@ -114,10 +128,36 @@ export class PinboxToolbarElement extends BaseElement {
     document.addEventListener("keydown", this.#onKeyDown);
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
     this.#render(this.store.get());
-    void this.#startTransport();
+    this.#queueStart();
+  }
+
+  /**
+   * Late-config rescue: an element inserted BEFORE its hub/token attributes were
+   * set connected configless and #startTransport bailed. Starting here the moment
+   * a config first exists keeps such an element from staying silently dead.
+   * Config is still read once — a running transport is never reconfigured.
+   */
+  attributeChangedCallback(): void {
+    if (this.isConnected && this.config !== null) this.#queueStart();
+  }
+
+  /**
+   * Start at the END of the current tick, not synchronously: a config assembled
+   * attribute-by-attribute on a connected element (append → set hub → set token)
+   * must be read whole. A synchronous start at the first fragment would connect
+   * token-less and, per the read-once rule, drop the token forever.
+   */
+  #queueStart(): void {
+    if (this.#startQueued) return;
+    this.#startQueued = true;
+    queueMicrotask(() => {
+      this.#startQueued = false;
+      void this.#startTransport();
+    });
   }
 
   disconnectedCallback(): void {
+    this.#lifetime += 1;
     this.#transport?.close();
     this.#transport = null;
     document.removeEventListener("mousemove", this.#onMouseMove);
@@ -205,10 +245,16 @@ export class PinboxToolbarElement extends BaseElement {
    * still renders read-only threads and queued drafts.
    */
   async #startTransport(): Promise<void> {
-    if (this.#transport !== null) return;
+    if (this.#transport !== null || !this.isConnected) return;
     const cfg = this.config;
     if (cfg === null) return;
-    this.#token = cfg.token ?? (await cfg.getToken?.().catch(() => undefined)) ?? "";
+    const lifetime = this.#lifetime;
+    const token = cfg.token ?? (await cfg.getToken?.().catch(() => undefined)) ?? "";
+    // The await above can span a disconnect (or disconnect + reconnect). A stale
+    // continuation must not install a transport: it would connect on a detached
+    // element, or shadow the reconnect's own start and leak a live socket.
+    if (this.#lifetime !== lifetime || this.#transport !== null || !this.isConnected) return;
+    this.#token = token;
     const transport = new HubTransport({
       endpoint: cfg.endpoint,
       token: this.#token,

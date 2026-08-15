@@ -108,8 +108,11 @@ if (import.meta.env.DEV) {
 
 `Pinbox.init` creates the element, configures it, appends it to `document.body`,
 and returns it. Configuration is applied **before** insertion — the element opens
-its connection in `connectedCallback`, so anything configured after it is in the
-DOM arrives too late.
+its connection in `connectedCallback`. Config that first completes after
+insertion (attributes set late, or a late `configure()` call) still starts the
+connection at the end of that tick, but configure-then-insert remains the
+recommended order: it is synchronous and has no window where the toolbar is
+visible but not yet connected.
 
 ### Config
 
@@ -161,7 +164,8 @@ The element reads two attributes when no config was passed programmatically:
 ```
 
 A programmatic `configure()` (which `Pinbox.init` does for you) wins over
-attributes. Config is read once, on mount — the element does not support live
+attributes. Config is read once — on mount, or at the end of the tick in which
+it first becomes complete — and the element does not support live
 reconfiguration. To change endpoints, remove the element and create a new one.
 
 ## Framework wrappers
@@ -271,9 +275,10 @@ seconds. The daemon is adopted, never owned: the plugin registers no teardown,
 and the daemon manages its own idle exit.
 </Step>
 <Step title="Injection">
-A module script is injected into the served HTML. It imports the toolbar,
-appends one `<pinbox-toolbar>`, and sets its `hub` and `token` attributes.
-Re-running after HMR reuses the existing element.
+A module script is injected into the served HTML. It imports the toolbar, sets
+`hub` and `token` attributes on one `<pinbox-toolbar>`, and only then appends
+it — the element reads its config on insertion. Re-running after HMR reuses the
+existing element.
 </Step>
 </Steps>
 

@@ -29,10 +29,10 @@ export async function bumpVersion(version: string, root = repoRoot): Promise<str
   for (const dir of VERSIONED_PACKAGES) {
     const path = `${root}${dir}/package.json`;
     const manifest = (await Bun.file(path).json()) as Record<string, unknown>;
-    if (typeof manifest.version !== "string") {
+    if (typeof manifest["version"] !== "string") {
       throw new Error(`${dir}/package.json has no string version`);
     }
-    manifest.version = version;
+    manifest["version"] = version;
     await Bun.write(path, `${JSON.stringify(manifest, null, 2)}\n`);
     touched.push(path);
   }

@@ -74,7 +74,7 @@ export async function publishAll(opts: PublishOptions): Promise<void> {
     if (actual !== opts.expectVersion) {
       throw new Error(
         `version mismatch: packages/cli/package.json is ${actual}, releasing ` +
-          `${opts.expectVersion} (auto-release bumps manifests before tagging; for a hand-cut tag, bump them first)`,
+          `${opts.expectVersion} (release stamps the tag onto manifests in CI; run bun tools/release/bump-version.ts <ver> first)`,
       );
     }
   }

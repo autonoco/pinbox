@@ -7,9 +7,9 @@
 # Gate order is the point: nothing is published until the pack-and-install e2e has installed
 # the very binaries this run compiled, on both OSes, with bun off PATH.
 #
-# Main-branch auto-release lives in auto-release.yml (bump → tag → calls this via workflow_call).
+# Main-branch auto-release lives in auto-release.yml (tag the merge SHA → calls this).
 # This file still handles: a hand-pushed v* tag, workflow_dispatch recovery from a tag ref, and
-# the reusable call from auto-release.
+# the reusable call from auto-release. Manifests are stamped from the tag in this workspace only.
 name: release
 
 on:
@@ -85,13 +85,16 @@ jobs:
           CALL_REF: ${{ inputs.checkout_ref }}
         run: |
           set -euo pipefail
+          # One canonical SemVer policy (semver.org grammar) — the exact source of SEMVER_SOURCE
+          # in tools/release/bump-version.ts; workflows.test.ts asserts they match verbatim.
+          SEMVER='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
           # `inputs.version` is only ever non-empty on workflow_call — the dispatch trigger here
           # declares no inputs. `github.event_name` cannot make this call: inside a reusable
           # workflow it names the CALLER's event (push), never `workflow_call`.
           if [ -n "$CALL_VERSION" ]; then
             version="$CALL_VERSION"
             checkout_ref="$CALL_REF"
-            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$version" | grep -Eq "^${SEMVER}$"; then
               echo "workflow_call version $version is not a release version" >&2
               exit 1
             fi
@@ -99,7 +102,7 @@ jobs:
           elif [ "$REF_TYPE" = "tag" ]; then
             # A tag says its own version. Being a tag is not enough — everything downstream strips
             # the leading `v` and treats the rest as the version it compiles and publishes.
-            if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            if ! printf '%s' "$REF_NAME" | grep -Eq "^v${SEMVER}$"; then
               echo "tag $REF_NAME is not a v<semver> release tag" >&2
               exit 1
             fi
@@ -153,12 +156,21 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      # Stamp the tag onto package.json in this workspace only (buttons ldflags analog).
+      # Never committed — main keeps whatever version the merge carried.
+      - name: stamp the tag version
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from plan" >&2 && exit 1)
+          bun tools/release/bump-version.ts "$VERSION"
       # `bun build --compile` cross-compiles: one Linux job emits all four binaries.
       #
       # The tag is passed in, and that is the whole point: `pinbox --version` reads
       # packages/cli/package.json, so compileAll asserts that manifest against the tag being
       # released. Called with no argument it compares the manifest to itself and can never fail —
-      # tagging v1.2.3 over an unmerged version bump would then ship 1.2.2 binaries under a
+      # tagging v1.2.3 over an unstamped tree would then ship 1.2.2 binaries under a
       # Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
       # ref name is attacker-shaped input the moment anyone can push a tag.
       - name: compile every target at the version being released
@@ -283,6 +295,13 @@ jobs:
       # promise-retry). Node 24 already ships npm >= 11.5.1, which is what Trusted Publishing
       # requires, so the upgrade bought nothing and could only break the publish.
       - run: bun install --frozen-lockfile
+      - name: stamp the tag version
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from plan" >&2 && exit 1)
+          bun tools/release/bump-version.ts "$VERSION"
       - run: bun run build
       - uses: actions/download-artifact@v4
         with:

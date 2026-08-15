@@ -20,7 +20,7 @@ product, and everything else here is packaging glue generated at release time.
 3. **Recovery** — `workflow_dispatch` on auto-release with an existing `v*` tag, or dispatch `release.yml` from that tag ref.
 4. **Hand-cut tag** — bump the four package manifests to match, `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` on `v*` still works. Tagging ahead of the manifests fails compile: `pinbox --version` reads `packages/cli/package.json`.
 
-`release.yml` does the rest: `ci:validate` → compile all four → smoke on ubuntu **and** macos (`release.test.ts` against the artifacts this run compiled, bun off `PATH`) → GitHub Release with binaries + `.sha256` + `install.sh` → npm publish with OIDC provenance.
+`release.yml` does the rest: `ci:validate` → compile all four → smoke on Ubuntu **and** macOS (`release.test.ts` against the artifacts this run compiled, bun off `PATH`) → GitHub Release with binaries + `.sha256` + `install.sh` → npm publish with OIDC provenance.
 
 Bump + tag + publish stay in one path: a tag pushed with `GITHUB_TOKEN` does not trigger sibling workflows.
 

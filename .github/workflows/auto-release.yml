@@ -33,10 +33,10 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# Job-scoped below: only `prepare` pushes, and only the reusable release call needs the
+# release/OIDC grants release.yml's jobs declare for themselves.
 permissions:
-  contents: write
-  # release.yml's publish job needs this; the caller must grant at least what the callee uses.
-  id-token: write
+  contents: read
 
 jobs:
   decide:
@@ -88,7 +88,13 @@ jobs:
             exit 0
           fi
 
-          LATEST=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          # Only real release tags feed the arithmetic below — a stray `v*` tag that is not
+          # vMAJOR.MINOR.PATCH would otherwise wedge every future auto-release.
+          LATEST=$(
+            git tag --list 'v*' --sort=-version:refname |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |
+              head -n1 || true
+          )
           if [ -z "$LATEST" ]; then
             NEXT_TAG="v0.1.0"
           else
@@ -121,13 +127,25 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: bun tools/security/scan-introduced-secrets.ts
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch has no push range, and its github.sha is the branch the run was
+          # dispatched from — not the tag being recovered. Scan the tag's own commit instead.
+          if [ -n "$REQUESTED_TAG" ]; then
+            HEAD_SHA=$(git rev-parse --verify "refs/tags/$REQUESTED_TAG^{commit}")
+            BASE_SHA=""
+          fi
+          bun tools/security/scan-introduced-secrets.ts
 
   prepare:
     name: Bump and tag
     timeout-minutes: 10
     needs: [decide, secret-scan]
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The only job here that writes: it pushes the bump commit and the tag.
+    permissions:
+      contents: write
     outputs:
       version: ${{ needs.decide.outputs.version }}
       tag: ${{ needs.decide.outputs.tag }}
@@ -192,7 +210,12 @@ jobs:
     name: Compile and publish
     needs: prepare
     uses: ./.github/workflows/release.yml
+    # The caller must grant at least what the callee's jobs use: contents for the GitHub
+    # Release, id-token for npm Trusted Publishing. release.yml runs on github.token and
+    # job-scoped OIDC only, so no secrets are passed.
+    permissions:
+      contents: write
+      id-token: write
     with:
       version: ${{ needs.prepare.outputs.version }}
       checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
-    secrets: inherit

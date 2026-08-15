@@ -58,7 +58,7 @@ test("auto-release and release.yml do not share a concurrency group", async () =
   // tags exist, and GitHub Releases stay on the last hand-cut tag.
   const group = async (file: string) => {
     const text = await Bun.file(`${root}.github/workflows/${file}`).text();
-    return text.match(/^concurrency:\n  group: (\S+)/m)?.[1];
+    return text.match(/^concurrency:\n {2}group: (\S+)/m)?.[1];
   };
   const auto = await group("auto-release.yml");
   const release = await group("release.yml");

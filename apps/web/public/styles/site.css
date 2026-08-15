@@ -423,7 +423,8 @@ section[id] {
   width: 100%;
   height: clamp(460px, 74vh, 760px);
   border: none;
-  background: var(--bg-1);
+  /* Matches the light embedded Meridian page — avoids a dark flash before the iframe paints. */
+  background: var(--bone);
 }
 
 /* ---------- how it works ---------- */

@@ -134,11 +134,15 @@ test("release only ships what `plan` said to ship", async () => {
   // last step's env would pass even if some other step were the one branching on REF_TYPE.
   const decide = plan?.steps?.find((step) => (step.run ?? "").includes('"$REF_TYPE" = "tag"'));
   expect(decide?.env?.["REF_TYPE"]).toContain("github.ref_type");
-  // A tag names its own version; a branch does not, so the manifest is read instead — and only
-  // ships when that version has never been tagged, so an ordinary merge releases nothing.
+  // A tag names its own version; auto-release passes one in via workflow_call. Anything else —
+  // in particular a workflow_dispatch started from a branch — fails loudly instead of shipping.
   expect(script).toContain('"$REF_TYPE" = "tag"');
   expect(script).toContain("^v[0-9]+\\.[0-9]+\\.[0-9]+");
-  expect(script).toContain("refs/tags/v$version");
+  // The workflow_call version is validated as semver too, and arrives through env bound to the
+  // deciding step, so a malformed caller input cannot name the release.
+  expect(script).toContain('"$EVENT_NAME" = "workflow_call"');
+  expect(script).toContain("^[0-9]+\\.[0-9]+\\.[0-9]+");
+  expect(decide?.env?.["CALL_VERSION"]).toContain("inputs.version");
   expect(script).toMatch(/exit 1/);
 
   // Nothing runs ahead of the plan, so no job can act on a version nobody decided.

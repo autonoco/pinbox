@@ -14,9 +14,11 @@
  * Build the module source injected into the dev page.
  *
  * The returned code imports the toolbar element for its side effect (custom element registration),
- * then appends a single `<pinbox-toolbar>` to `document.body` pointed at `hubUrl`. Re-running it
- * after an HMR update is a no-op: the existing element is reused and only its `hub`/`token`
- * attributes are refreshed (a token that disappeared is removed, never left stale).
+ * then appends a single `<pinbox-toolbar>` to `document.body` pointed at `hubUrl`. Attributes are
+ * set BEFORE the append: connectedCallback reads config synchronously on insertion, so an element
+ * appended bare would start configless and never connect. Re-running the snippet after an HMR
+ * update is a no-op: the existing element is reused and only its `hub`/`token` attributes are
+ * refreshed (a token that disappeared is removed, never left stale).
  *
  * The bare `import "@autono/pinbox-toolbar"` below is a SIDE-EFFECT import — it registers the
  * custom element and binds no name. That is why package.json declares
@@ -48,13 +50,15 @@ const TOKEN = ${tokenLiteral};
 
 function mount() {
   let el = document.querySelector(TAG);
-  if (!el) {
-    el = document.createElement(TAG);
-    document.body.appendChild(el);
-  }
+  const created = !el;
+  if (!el) el = document.createElement(TAG);
+  // Attributes BEFORE insertion: connectedCallback reads its config synchronously
+  // on append, so an element inserted bare starts configless and stays dead —
+  // the toolbar renders but silently drops every pin.
   el.setAttribute("hub", HUB);
   if (TOKEN === null) el.removeAttribute("token");
   else el.setAttribute("token", TOKEN);
+  if (created) document.body.appendChild(el);
 }
 
 if (document.readyState === "loading") {

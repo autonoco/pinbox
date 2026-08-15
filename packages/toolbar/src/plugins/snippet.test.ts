@@ -10,7 +10,7 @@ function runSnippet(source: string, document: unknown): void {
   new Function("document", body)(document);
 }
 
-function freshDocument(): { document: Document; fire: () => void } {
+function freshDocument(): { win: Window; document: Document; fire: () => void } {
   const win = new Window();
   const document = win.document as unknown as Document;
   // happy-dom starts documents at readyState "complete" in this construction path, but
@@ -18,7 +18,7 @@ function freshDocument(): { document: Document; fire: () => void } {
   const fire = () => {
     document.dispatchEvent(new win.Event("DOMContentLoaded") as unknown as Event);
   };
-  return { document, fire };
+  return { win, document, fire };
 }
 
 describe("buildBootstrap", () => {
@@ -56,6 +56,25 @@ describe("buildBootstrap", () => {
     expect(els.length).toBe(1);
     expect(els[0]?.getAttribute("hub")).toBe("http://127.0.0.1:5353");
     expect(els[0]?.getAttribute("token")).toBe("tok_new");
+  });
+
+  test("hub and token are already set when connectedCallback fires", () => {
+    // Regression: the snippet once appended the element BEFORE setting its
+    // attributes. connectedCallback reads config synchronously on insertion, so
+    // the real element started configless and silently dropped every pin.
+    const { win, document, fire } = freshDocument();
+    const seen: Array<{ hub: string | null; token: string | null }> = [];
+    win.customElements.define(
+      "pinbox-toolbar",
+      class extends win.HTMLElement {
+        override connectedCallback(): void {
+          seen.push({ hub: this.getAttribute("hub"), token: this.getAttribute("token") });
+        }
+      },
+    );
+    runSnippet(buildBootstrap("http://127.0.0.1:4242", "tok_live"), document);
+    fire();
+    expect(seen).toEqual([{ hub: "http://127.0.0.1:4242", token: "tok_live" }]);
   });
 
   test("re-run without a token clears a previously set one", () => {

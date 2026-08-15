@@ -67,6 +67,13 @@ test("auto-release and release.yml do not share a concurrency group", async () =
   expect(auto).not.toBe(release);
 });
 
+test("compile's all-platform install is not frozen — stamp already mutated manifests", async () => {
+  const text = await Bun.file(`${root}tools/release/compile.ts`).text();
+  const install = text.match(/bun install[^`\n]+--os \$\{all\}[^`\n]*/)?.[0];
+  expect(install).toBeDefined();
+  expect(install).not.toContain("--frozen-lockfile");
+});
+
 test("auto-release tags the merge SHA and does not commit back to main", async () => {
   const auto = await workflow("auto-release.yml");
   const script = Object.values(auto.jobs)

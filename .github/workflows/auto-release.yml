@@ -86,6 +86,22 @@ jobs:
             exit 0
           fi
 
+          # Rerun guard: if a previous attempt already tagged this SHA (tag pushed, release job
+          # failed), reuse that tag instead of computing the next minor from it — otherwise a
+          # rerun mints a second version on the same commit and publishes both.
+          EXISTING_TAG=$(
+            git tag --points-at HEAD --list 'v*' --sort=-version:refname |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |
+              head -n1 || true
+          )
+          if [ -n "$EXISTING_TAG" ]; then
+            echo "version=${EXISTING_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=$EXISTING_TAG" >> "$GITHUB_OUTPUT"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+            echo "Reusing existing release tag: $EXISTING_TAG"
+            exit 0
+          fi
+
           LATEST=$(
             git tag --list 'v*' --sort=-version:refname |
               grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' |

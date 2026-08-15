@@ -64,6 +64,28 @@ test("auto-release tags the merge SHA and does not commit back to main", async (
   expect(script).not.toContain("bump-version.ts");
 });
 
+// A rerun after a failed release job checks out the same SHA the first attempt already tagged.
+// Without this guard the version step computes the NEXT minor from that tag and mints a second
+// version on the same commit — and npm publish is not reversible.
+test("auto-release reruns reuse the tag already pointing at HEAD", async () => {
+  const auto = await workflow("auto-release.yml");
+  const version = steps(auto, "tag").find((step) =>
+    (step.run ?? "").includes("git tag --points-at HEAD"),
+  );
+  expect(version, "the version step must look for a tag already on HEAD").toBeDefined();
+  const script = version?.run ?? "";
+
+  // The guard decides before the next-minor calculation ever sees the first attempt's tag.
+  expect(script.indexOf("--points-at HEAD")).toBeLessThan(script.indexOf("LATEST="));
+  // Only a real release tag is reused — not any stray `v*` ref on the commit.
+  const guard = script.slice(0, script.indexOf("LATEST="));
+  expect(guard).toContain("grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  // Reuse means reuse: the found tag is emitted verbatim and tag creation is switched off.
+  expect(guard).toContain("create_tag=false");
+  expect(guard).toContain('tag=$EXISTING_TAG"');
+  expect(guard).toMatch(/version=\$\{EXISTING_TAG#v\}"/);
+});
+
 test("docs-sync invokes skillgen's real entry point, and only paths that exist", async () => {
   const script = runsOf(steps(await workflow("docs-sync.yml"), "docs-sync"));
   expect(script).toContain("tools/skillgen/generate.ts");

@@ -6,16 +6,15 @@
 #
 # Gate order is the point: nothing is published until the pack-and-install e2e has installed
 # the very binaries this run compiled, on both OSes, with bun off PATH.
+#
+# Main-branch auto-release lives in auto-release.yml (bump → tag → calls this via workflow_call).
+# This file still handles: a hand-pushed v* tag, workflow_dispatch recovery from a tag ref, and
+# the reusable call from auto-release.
 name: release
 
 on:
   push:
     tags: ["v*"]
-    # Merging a version bump releases it. Publishing only ever ran from a hand-cut tag, and exactly
-    # one tag was ever cut — so "CI publishes the package" was never true. `plan` below decides
-    # whether a main push is a release by comparing the manifest version against the tags that
-    # already exist, so an ordinary merge does nothing and a version bump ships.
-    branches: [main]
   # Dispatch is for releasing a tag whose run never happened. It is NOT how you recover a run that
   # failed after the Release was cut — it starts from `github-release`, and `gh release create` is
   # not idempotent, so it fails on the Release that already exists. Recovery depends on where it
@@ -27,15 +26,24 @@ on:
   #     now exists. Upload whatever assets are missing with `gh release upload`, then run
   #     `release:publish` for that version by hand.
   #
-  # Dispatch is only ever legal from a *tag* ref, but it
-  # is only ever legal from a *tag* ref (GitHub's "Run workflow" ref picker lists tags). Started
-  # from a branch, `github.ref_name` is the branch — an unguarded dispatch from `main` would cut a
-  # Release named `main` and fan it out to npm, and npm unpublish is heavily restricted. Hence the
-  # `guard` job below, which every other job waits on. Dispatching from a tag also means the
-  # checkout is the tagged tree, which an input-supplied tag could never guarantee.
+  # Dispatch is only ever legal from a *tag* ref (GitHub's "Run workflow" ref picker lists tags).
+  # Started from a branch, `github.ref_name` is the branch — an unguarded dispatch from `main`
+  # would cut a Release named `main` and fan it out to npm, and npm unpublish is heavily
+  # restricted. Hence the `plan` job below. Prefer auto-release's recovery input instead.
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: Semver being released, without the leading v
+        required: true
+        type: string
+      checkout_ref:
+        description: Tag or commit SHA to build and publish
+        required: true
+        type: string
 
 # Never cancel a release in flight — a half-published channel is worse than a slow one.
+# Shared with auto-release.yml so a main merge cannot race a hand-cut tag.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -54,11 +62,14 @@ jobs:
       release: ${{ steps.decide.outputs.release }}
       version: ${{ steps.decide.outputs.version }}
       tag: ${{ steps.decide.outputs.tag }}
+      checkout_ref: ${{ steps.decide.outputs.checkout_ref }}
     steps:
       - uses: actions/checkout@v7
         with:
           # Tags are the record of what has already shipped; without them every merge looks new.
           fetch-depth: 0
+          # workflow_call passes the bumped/tag ref; tag pushes and dispatch use the event SHA.
+          ref: ${{ inputs.checkout_ref || github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -70,9 +81,22 @@ jobs:
         env:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
+          CALL_VERSION: ${{ inputs.version }}
+          CALL_REF: ${{ inputs.checkout_ref }}
         run: |
           set -euo pipefail
-          if [ "$REF_TYPE" = "tag" ]; then
+          # `inputs.version` is only ever non-empty on workflow_call — the dispatch trigger here
+          # declares no inputs. `github.event_name` cannot make this call: inside a reusable
+          # workflow it names the CALLER's event (push), never `workflow_call`.
+          if [ -n "$CALL_VERSION" ]; then
+            version="$CALL_VERSION"
+            checkout_ref="$CALL_REF"
+            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "workflow_call version $version is not a release version" >&2
+              exit 1
+            fi
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif [ "$REF_TYPE" = "tag" ]; then
             # A tag says its own version. Being a tag is not enough — everything downstream strips
             # the leading `v` and treats the rest as the version it compiles and publishes.
             if ! printf '%s' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
@@ -80,34 +104,16 @@ jobs:
               exit 1
             fi
             version="${REF_NAME#v}"
+            checkout_ref="$REF_NAME"
             echo "release=true" >> "$GITHUB_OUTPUT"
           else
-            # A branch says nothing; the manifest does. `pinbox --version` reads this file, so it
-            # is the only honest source for what a merge would ship.
-            # The same shape check the tag path gets, applied inside bun so a malformed value never
-            # reaches the shell at all. That placement is the point, not tidiness: this value
-            # becomes a tag name and an npm version, and an embedded newline would write extra keys
-            # into $GITHUB_OUTPUT — which is how a manifest could set release=true for a run that
-            # had already been decided against. A shell-side `grep -q` cannot catch that: it exits 0
-            # when ANY line of its input matches, so "1.2.3\nrelease=true" passes on line one.
-            version="$(bun -e '
-              const v = (await Bun.file("packages/cli/package.json").json()).version;
-              if (typeof v !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/.test(v)) {
-                console.error(`packages/cli/package.json version ${JSON.stringify(v)} is not a release version`);
-                process.exit(1);
-              }
-              console.log(v);
-            ')"
-            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-              echo "v$version is already tagged — nothing to release" >&2
-              echo "release=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "release=true" >> "$GITHUB_OUTPUT"
-            fi
+            echo "release only runs from a v* tag, auto-release, or a tag-ref dispatch — got $REF_TYPE/$REF_NAME" >&2
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "version $version"
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "version $version (checkout $checkout_ref)"
 
   validate:
     timeout-minutes: 20
@@ -117,6 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.checkout_ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -136,6 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.checkout_ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -150,8 +158,8 @@ jobs:
       # The tag is passed in, and that is the whole point: `pinbox --version` reads
       # packages/cli/package.json, so compileAll asserts that manifest against the tag being
       # released. Called with no argument it compares the manifest to itself and can never fail —
-      # tagging v1.2.3 over an unmerged changesets version PR would then ship 1.2.2 binaries under
-      # a Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
+      # tagging v1.2.3 over an unmerged version bump would then ship 1.2.2 binaries under a
+      # Release named v1.2.3. The ref arrives through env, never interpolated into the shell: a
       # ref name is attacker-shaped input the moment anyone can push a tag.
       - name: compile every target at the version being released
         env:
@@ -181,6 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.checkout_ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -218,6 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.checkout_ref }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -232,11 +242,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
-          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # Checkout already pinned plan.checkout_ref — release the tree that was tested.
+          target="$(git rev-parse HEAD)"
           gh release create "$TAG" \
-            --target "$SHA" \
+            --target "$target" \
             --title "$TAG" \
             --generate-notes \
             dist/release/bin/pinbox-* \
@@ -257,6 +268,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.plan.outputs.checkout_ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:

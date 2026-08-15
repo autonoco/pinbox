@@ -52,7 +52,7 @@ export async function publishPlan(): Promise<PublishStep[]> {
 /**
  * `expectVersion` is the git tag, minus its `v`. Every artifact here takes its version from
  * `packages/cli/package.json`, so without the tag to compare against, a release tagged v1.2.3 on
- * a tree whose manifests still read 1.2.2 (an unmerged changesets version PR) publishes 1.2.2
+ * a tree whose manifests still read 1.2.2 (bump skipped) publishes 1.2.2
  * under that tag's name, silently. Compared before anything is staged or uploaded.
  */
 type PublishOptions = {
@@ -74,7 +74,7 @@ export async function publishAll(opts: PublishOptions): Promise<void> {
     if (actual !== opts.expectVersion) {
       throw new Error(
         `version mismatch: packages/cli/package.json is ${actual}, releasing ` +
-          `${opts.expectVersion} (run the changesets version PR first)`,
+          `${opts.expectVersion} (auto-release bumps manifests before tagging; for a hand-cut tag, bump them first)`,
       );
     }
   }

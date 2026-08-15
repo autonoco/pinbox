@@ -7,6 +7,7 @@ product, and everything else here is packaging glue generated at release time.
 | --- | --- |
 | `targets.ts` | the four shipped platforms — the single source of truth for the compile matrix, the generated manifests, and `install.sh`'s `uname` mapping |
 | `compile.ts` | `bun build --compile` for all four targets from one machine (`bun run release:build` → `dist/release/bin/`) |
+| `bump-version.ts` | set every shipped package's version before an auto-release tags (CLI + core + toolbar + mcp) |
 | `manifests.ts` | the **generated** npm packages: the `@autono/pinbox` launcher (manifest + node shim) and the four `@autono/pinbox-<os>-<cpu>` packages. Never checked in |
 | `publish.ts` | the ordered publish: `bun pm pack` → `npm publish --provenance` (`bun run release:publish`; `--dry-run` prints the plan) |
 | `install.sh` | the secondary channel: `curl … \| sh`, checksum-verified, for machines with no JS runtime |
@@ -14,20 +15,14 @@ product, and everything else here is packaging glue generated at release time.
 
 ## The release flow
 
-1. **Changeset per user-visible change** — `bunx changeset` on the branch, committed with it.
-2. **Version PR** — `bunx changeset version` bumps manifests and writes changelogs. Merge it.
-3. **Tag** — `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag is the version of record: CI
-   passes it to both `release:build` and `release:publish`, which assert it against
-   `packages/cli/package.json` — the file `pinbox --version` reads. Tagging ahead of a merged
-   version PR fails the compile job instead of publishing the old version under the new name.
-   (Both take the version as an argument for exactly this reason; with no argument the assertion
-   compares that manifest to itself and can never fail.)
-4. `.github/workflows/release.yml` does the rest: `ci:validate` → compile all four → smoke on
-   ubuntu **and** macos (`release.test.ts` against the artifacts this run compiled, bun off
-   `PATH`) → GitHub Release with binaries + `.sha256` + `install.sh` → npm publish with OIDC
-   provenance.
+1. **Merge to main** — `.github/workflows/auto-release.yml` bumps the next minor (`v0.N.0` → `v0.N+1.0`), commits the manifest bump with `[skip release]`, tags it, runs gitleaks on the introduced commits, then `workflow_call`s `release.yml`.
+2. **Skip** — put `[skip release]` in the merge commit message, or let a `github-actions[bot]` commit (docs-sync, the bump itself) land without releasing.
+3. **Recovery** — `workflow_dispatch` on auto-release with an existing `v*` tag, or dispatch `release.yml` from that tag ref.
+4. **Hand-cut tag** — bump the four package manifests to match, `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` on `v*` still works. Tagging ahead of the manifests fails compile: `pinbox --version` reads `packages/cli/package.json`.
 
-One workflow, not two: a tag pushed with `GITHUB_TOKEN` does not trigger sibling workflows.
+`release.yml` does the rest: `ci:validate` → compile all four → smoke on Ubuntu **and** macOS (`release.test.ts` against the artifacts this run compiled, bun off `PATH`) → GitHub Release with binaries + `.sha256` + `install.sh` → npm publish with OIDC provenance.
+
+Bump + tag + publish stay in one path: a tag pushed with `GITHUB_TOKEN` does not trigger sibling workflows.
 
 ## Two rules that look like details and are not
 

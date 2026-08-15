@@ -134,11 +134,19 @@ test("release only ships what `plan` said to ship", async () => {
   // last step's env would pass even if some other step were the one branching on REF_TYPE.
   const decide = plan?.steps?.find((step) => (step.run ?? "").includes('"$REF_TYPE" = "tag"'));
   expect(decide?.env?.["REF_TYPE"]).toContain("github.ref_type");
-  // A tag names its own version; a branch does not, so the manifest is read instead — and only
-  // ships when that version has never been tagged, so an ordinary merge releases nothing.
+  // A tag names its own version; auto-release passes one in via workflow_call. Anything else —
+  // in particular a workflow_dispatch started from a branch — fails loudly instead of shipping.
+  // The full anchored grep commands, not fragments: a dropped `$` anchor or a check moved out of
+  // its branch must fail here.
   expect(script).toContain('"$REF_TYPE" = "tag"');
-  expect(script).toContain("^v[0-9]+\\.[0-9]+\\.[0-9]+");
-  expect(script).toContain("refs/tags/v$version");
+  expect(script).toContain("grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  // The workflow_call version is validated as semver too, and arrives through env bound to the
+  // deciding step, so a malformed caller input cannot name the release. The branch keys off
+  // `$CALL_VERSION`, not `$EVENT_NAME`: inside a reusable workflow, github.event_name names the
+  // CALLER's event (push), never `workflow_call`.
+  expect(script).toContain('-n "$CALL_VERSION"');
+  expect(script).toContain("grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$'");
+  expect(decide?.env?.["CALL_VERSION"]).toContain("inputs.version");
   expect(script).toMatch(/exit 1/);
 
   // Nothing runs ahead of the plan, so no job can act on a version nobody decided.
@@ -156,6 +164,61 @@ test("release only ships what `plan` said to ship", async () => {
       "needs.plan.outputs.release",
     );
   }
+});
+
+// Shape assertions prove the script contains the checks; running it proves they decide. Same env
+// contract the workflow binds, so these are the real event shapes — including the branch-dispatch
+// hole the test above describes.
+test("plan's decide script, executed: tags and calls release, a branch dispatch cannot", async () => {
+  const release = await workflow("release.yml");
+  const decide = release.jobs["plan"]?.steps?.find((step) =>
+    (step.run ?? "").includes('"$REF_TYPE" = "tag"'),
+  );
+  const script = decide?.run;
+  if (script === undefined) throw new Error("release.yml plan has no decide step");
+
+  const { $ } = await import("bun");
+  const none = { CALL_VERSION: "", CALL_REF: "", REF_TYPE: "", REF_NAME: "" };
+  const decideWith = async (env: Record<string, string>) => {
+    const out = `${import.meta.dir}/zz-decide-probe.out`;
+    await Bun.write(out, "");
+    try {
+      const result = await $`bash -c ${script}`
+        .env({ ...process.env, ...none, ...env, GITHUB_OUTPUT: out })
+        .nothrow()
+        .quiet();
+      const outputs = await Bun.file(out).text();
+      return { exitCode: result.exitCode, released: outputs.includes("release=true"), outputs };
+    } finally {
+      await Bun.file(out).delete();
+    }
+  };
+
+  const tag = await decideWith({ REF_TYPE: "tag", REF_NAME: "v1.2.3" });
+  expect(tag.exitCode).toBe(0);
+  expect(tag.released).toBe(true);
+  expect(tag.outputs).toContain("version=1.2.3");
+  expect(tag.outputs).toContain("tag=v1.2.3");
+
+  const call = await decideWith({
+    CALL_VERSION: "1.2.3",
+    CALL_REF: "v1.2.3",
+    REF_TYPE: "branch",
+    REF_NAME: "main",
+  });
+  expect(call.exitCode).toBe(0);
+  expect(call.released).toBe(true);
+  expect(call.outputs).toContain("checkout_ref=v1.2.3");
+
+  // One click of "Run workflow" on main — the irreversible-publish hole. Must refuse.
+  const dispatch = await decideWith({ REF_TYPE: "branch", REF_NAME: "main" });
+  expect(dispatch.exitCode).not.toBe(0);
+  expect(dispatch.released).toBe(false);
+
+  // A `v*` tag that is not a release version must refuse too, not ship a Release named vnext.
+  const badTag = await decideWith({ REF_TYPE: "tag", REF_NAME: "vnext" });
+  expect(badTag.exitCode).not.toBe(0);
+  expect(badTag.released).toBe(false);
 });
 
 // Trusted Publishing cannot create a package that does not exist; npm answers a bare 404 on the

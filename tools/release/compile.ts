@@ -82,7 +82,7 @@ async function assertVersion(version: string): Promise<void> {
   if (manifest.version !== version) {
     throw new Error(
       `version mismatch: packages/cli/package.json is ${manifest.version}, releasing ${version} ` +
-        "(run the changesets version PR first)",
+        "(auto-release bumps manifests before tagging; for a hand-cut tag, bump them first)",
     );
   }
 }

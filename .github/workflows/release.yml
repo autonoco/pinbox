@@ -43,9 +43,11 @@ on:
         type: string
 
 # Never cancel a release in flight — a half-published channel is worse than a slow one.
-# Shared with auto-release.yml so a main merge cannot race a hand-cut tag.
+# Must not share auto-release.yml's group. A reusable workflow_call cannot start while
+# the caller holds the same concurrency slot: the tag job succeeds, publish never runs,
+# and GitHub Releases stay on the last hand-cut tag.
 concurrency:
-  group: release
+  group: release-publish
   cancel-in-progress: false
 
 permissions:

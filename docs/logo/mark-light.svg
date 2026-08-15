@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="37" height="60" viewBox="0 0 37 60" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="37" height="60" viewBox="0 0 37 60" fill="none" role="img" aria-label="Pinbox logo">
+  <title>Pinbox logo</title>
   <rect x="3.5" y="0.5" width="34" height="25" rx="2" fill="#f5f0e6" stroke="rgba(20,20,20,0.14)"></rect>
   <text x="20.5" y="16.5" text-anchor="middle" font-family="JetBrains Mono, ui-monospace, monospace" font-size="11" font-weight="500" letter-spacing="0.88" fill="#141414">01</text>
   <rect x="3.5" y="26" width="1" height="30" fill="url(#n)"></rect>

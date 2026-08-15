@@ -48,6 +48,21 @@ async function buildLibraries(): Promise<void> {
   await $`bun run --filter '*' build`.cwd(repoRoot).quiet();
 }
 
+/**
+ * Install `@opentui/core`'s native packages for EVERY platform, not just this machine's.
+ *
+ * A plain `bun install` skips optionalDependencies whose os/cpu don't match the host, but the
+ * compile matrix cross-compiles all four targets from one Linux runner: bundling for a foreign
+ * target hits `import("@opentui/core-<os>-<arch>")` and fails to resolve unless that package is
+ * on disk. `--target` dead-code-eliminates the other platforms' branches, so each binary still
+ * embeds only its own native library (verified by identical binary size either way). The
+ * lockfile already pins these packages; this changes node_modules only.
+ */
+async function installAllPlatformNatives(): Promise<void> {
+  const all = "*";
+  await $`bun install --frozen-lockfile --os ${all} --cpu ${all}`.cwd(repoRoot).quiet();
+}
+
 /** Compile one target into `<outDir>/<assetName>`; returns the binary path. */
 export async function compileTarget(target: Target, outDir: string): Promise<string> {
   const outfile = `${outDir}/${target.assetName}`;
@@ -68,6 +83,7 @@ export async function compileAll(
   outDir: string,
 ): Promise<{ target: string; binary: string }[]> {
   await assertVersion(version);
+  await installAllPlatformNatives();
   await buildLibraries();
   const built: { target: string; binary: string }[] = [];
   for (const target of TARGETS) {

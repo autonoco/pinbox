@@ -45,7 +45,7 @@
     "examples/worker": {
       "name": "pinbox-hub",
       "dependencies": {
-        "@autono/pinbox-core": "^0.0.0",
+        "@autono/pinbox-core": "^0.1.0",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20260804.1",
@@ -54,7 +54,7 @@
     },
     "packages/cli": {
       "name": "@autono/pinbox",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "pinbox": "./dist/main.js",
       },
@@ -70,7 +70,7 @@
     },
     "packages/core": {
       "name": "@autono/pinbox-core",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "jose": "^6.1.0",
         "zod": "catalog:",
@@ -84,7 +84,7 @@
     },
     "packages/mcp": {
       "name": "@autono/pinbox-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "pinbox-mcp": "./dist/main.js",
       },
@@ -101,7 +101,7 @@
     },
     "packages/toolbar": {
       "name": "@autono/pinbox-toolbar",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@autono/pinbox-core": "workspace:*",
         "@types/bun": "catalog:",
@@ -1063,6 +1063,8 @@
     "miniflare/ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "parse5-htmlparser2-tree-adapter/parse5": ["parse5@6.0.1", "", {}, "sha512-Ofn/CTFzRGTTxwpNEs9PP93gXShHcTq255nzRYSKe8AkVpZY7e1fpmTfOyoIvjP5HG7Z2ZM7VS9PPhQGW2pOpw=="],
+
+    "pinbox-hub/@autono/pinbox-core": ["@autono/pinbox-core@0.1.0", "", { "dependencies": { "jose": "^6.1.0", "zod": "^4.0.0" } }, "sha512-KoAnF4fdUtEY43Kmv6t+uTxYoTPEAD7A3KRn172PsCA5lYtr/CYupaK/kR6lZLSXrGK/qm9ZTc4nBImuTeVtig=="],
 
     "pinbox-hub/@cloudflare/workers-types": ["@cloudflare/workers-types@5.20260804.1", "", {}, "sha512-B1dwxpN6e5RZXZkE5zpZj+ooNeNZ1mwavLIyHDYe10ojhlGTwDfe8sAl7R1mMXc1cyIsbr+jKVdvmMEyVcdTdg=="],
 

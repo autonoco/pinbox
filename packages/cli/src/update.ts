@@ -1,9 +1,8 @@
-// pinbox CLI — passive update guardrails (spec: Updates).
-// The daemon owns the NETWORK: scheduleUpdateCheck runs fire-and-forget at serve boot,
-// where a check never adds latency to a user command — but daemon stdio is /dev/null,
-// so it cannot print. The CLI owns the PRINTING: `summary` shows updateHint on stderr,
-// human TTY mode only. Never self-mutates: the only write is stateDir/update.json.
+// pinbox CLI — update check + passive apply (buttons-shaped).
+// A TTY command (not `update`, not CI) may replace the compiled binary so the next
+// run is current. The daemon still only records latest — its stdio is /dev/null.
 import type { StatePaths } from "./paths.ts";
+import { applyBinaryUpdate } from "./update-apply.ts";
 
 export type UpdateChannel = "binary" | "npm";
 
@@ -37,7 +36,7 @@ export async function scheduleUpdateCheck(
     // Race a plain timer as well as passing the signal: the cap must hold even for a
     // fetch implementation that ignores AbortSignal.
     const latest = await Promise.race([
-      fetchLatest(channel, deps?.fetchImpl ?? fetch),
+      fetchLatestVersion(channel, deps?.fetchImpl ?? fetch),
       Bun.sleep(TIMEOUT_MS).then(() => null),
     ]);
     if (latest === null) return;
@@ -87,9 +86,9 @@ function isUpdateState(value: unknown): value is UpdateState {
   );
 }
 
-async function fetchLatest(
+export async function fetchLatestVersion(
   channel: UpdateChannel,
-  fetchImpl: typeof fetch,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   const url =
     channel === "binary"
@@ -109,4 +108,45 @@ async function fetchLatest(
 function isSet(name: string): boolean {
   const value = process.env[name];
   return value !== undefined && value !== "";
+}
+
+/** TTY command: if a newer compiled binary exists, replace this one. Failures are silent. */
+export async function maybePassiveUpdate(opts: {
+  current: string;
+  paths: StatePaths;
+  argv: string[];
+  tty: boolean;
+  channel?: UpdateChannel;
+  dest?: string;
+  fetchImpl?: typeof fetch;
+  now?: () => number;
+  apply?: typeof applyBinaryUpdate;
+}): Promise<void> {
+  if (isSet("PINBOX_NO_UPDATE") || isSet("CI") || !opts.tty) return;
+  if (opts.argv.includes("update")) return;
+  if ((opts.channel ?? detectChannel()) !== "binary") return;
+  const now = opts.now ?? Date.now;
+  const file = updateFile(opts.paths.stateDir);
+  try {
+    const previous = readState(file);
+    if (previous !== null && now() - Date.parse(previous.checkedAt) <= THROTTLE_MS) return;
+    const latest = await fetchLatestVersion("binary", opts.fetchImpl ?? fetch);
+    if (latest === null) return;
+    const state: UpdateState = {
+      latest,
+      checkedAt: new Date(now()).toISOString(),
+      channel: "binary",
+    };
+    await Bun.write(file, `${JSON.stringify(state, null, 2)}\n`, { createPath: true });
+    if (Bun.semver.order(latest, opts.current) !== 1) return;
+    const apply = opts.apply ?? applyBinaryUpdate;
+    await apply({
+      current: opts.current,
+      latest,
+      dest: opts.dest ?? process.execPath,
+      fetchImpl: opts.fetchImpl,
+    });
+  } catch {
+    // Same contract as scheduleUpdateCheck: never fail the command the user typed.
+  }
 }

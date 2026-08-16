@@ -193,10 +193,21 @@ describe("help text", () => {
       /^ {2}resolve \[options\] <id>\s+mark a pin resolved$/m,
       /^ {2}export \[options\]\s+write pins to stdout as markdown or JSON$/m,
       /^ {2}doctor\s+probe this machine's capabilities$/m,
+      /^ {2}update \[options\]\s+install the latest pinbox CLI$/m,
       /^ {2}help \[command\]\s+display help for command$/m,
     ];
     for (const line of lines) expect(help).toMatch(line);
-    const order = ["pin", "summary", "list", "show", "reply", "resolve", "export", "doctor"];
+    const order = [
+      "pin",
+      "summary",
+      "list",
+      "show",
+      "reply",
+      "resolve",
+      "export",
+      "doctor",
+      "update",
+    ];
     const positions = order.map((name) => help.indexOf(`\n  ${name}`));
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     expect(positions.every((p) => p >= 0)).toBe(true);

@@ -26,7 +26,14 @@ const MIN_NPM = [11, 5, 1] as const;
 
 async function assertNpmVersion(): Promise<void> {
   const raw = (await $`npm --version`.text()).trim();
-  const parts = raw.split(".").map((piece) => Number.parseInt(piece, 10));
+  // Strict stable major.minor.patch only — a prerelease or garbled version string must not
+  // sneak past on Number.parseInt's prefix parsing (e.g. "11.5.1-beta.0" or "11.6.foo").
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(raw);
+  if (match === null) {
+    console.error(`npm --version printed "${raw}", not a stable major.minor.patch version.`);
+    process.exit(1);
+  }
+  const parts = match.slice(1).map((piece) => Number.parseInt(piece, 10));
   // First non-zero difference across major.minor.patch decides; ties mean "at the floor".
   const delta = MIN_NPM.map((floor, i) => (parts[i] ?? 0) - floor).find((d) => d !== 0) ?? 0;
   if (delta < 0) {

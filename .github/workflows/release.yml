@@ -32,13 +32,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Caching is disabled on both setup steps: this job holds contents: write and
+      # publishes artifacts, so a poisoned cache entry could reach a GitHub Release.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+          no-cache: true
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+          package-manager-cache: false
 
       - run: bun install --frozen-lockfile
 

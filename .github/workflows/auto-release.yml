@@ -130,13 +130,18 @@ jobs:
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
             push "https://github.com/$GITHUB_REPOSITORY.git" "$TAG"
 
+      # Caching is disabled on both setup steps: this job holds contents: write and
+      # id-token: write and publishes to npm, so a poisoned cache entry could reach
+      # a GitHub Release or the registry.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+          no-cache: true
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+          package-manager-cache: false
 
       - run: bun install --frozen-lockfile
 
@@ -167,8 +172,12 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+          assets=(dist/release/bin/pinbox-* tools/release/install.sh)
+          # A failed earlier attempt can leave the release created with missing or
+          # partial assets; the rerun must repair them, not skip the upload.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists"
+            echo "Release $TAG already exists: refreshing assets"
+            gh release upload "$TAG" "${assets[@]}" --clobber
             exit 0
           fi
           target="$(git rev-parse HEAD)"
@@ -176,8 +185,7 @@ jobs:
             --target "$target" \
             --title "$TAG" \
             --generate-notes \
-            dist/release/bin/pinbox-* \
-            tools/release/install.sh
+            "${assets[@]}"
 
       - run: bun run build
 

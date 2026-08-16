@@ -54,7 +54,7 @@ if (missing.length > 0) {
     "\nTrusted Publishing can only publish a package that already exists. Create each one" +
       "\nfrom a laptop ONCE with `bun run release:publish <version> --no-provenance`, then add a" +
       "\ntrusted publisher for it on npmjs.com (Settings → Trusted Publisher → GitHub Actions," +
-      "\nrepo autonoco/pinbox, workflow release.yml). Every release after that is automatic.",
+      "\nrepo autonoco/pinbox, workflow auto-release.yml). Every release after that is automatic.",
   );
   process.exit(1);
 }

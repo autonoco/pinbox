@@ -173,6 +173,16 @@ test("auto-release compiles and publishes the version the tag step decided, via 
   expect(publish?.env?.["VERSION"]).toContain("steps.version.outputs.version");
 });
 
+test("publish drops setup-node's dummy token so Trusted Publishing can PUT", async () => {
+  const text = await Bun.file(`${root}tools/release/publish.ts`).text();
+  expect(text).toContain("delete env.NODE_AUTH_TOKEN");
+  expect(text).toContain("delete env.NPM_CONFIG_USERCONFIG");
+  const publish = steps(await workflow("auto-release.yml"), "release").find((step) =>
+    (step.run ?? "").includes("release:publish"),
+  );
+  expect(publish?.run).toContain("unset NODE_AUTH_TOKEN");
+});
+
 test("auto-release checks the registry before it uploads anything", async () => {
   const names = steps(await workflow("auto-release.yml"), "release").map((step) => step.run ?? "");
   const preflight = names.findIndex((run) => run.includes("release/preflight.ts"));

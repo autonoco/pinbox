@@ -60,8 +60,8 @@ export async function applyBinaryUpdate(opts: {
   current: string;
   latest: string;
   dest: string;
-  fetchImpl?: typeof fetch;
-  log?: (line: string) => void;
+  fetchImpl?: typeof fetch | undefined;
+  log?: ((line: string) => void) | undefined;
 }): Promise<ApplyResult> {
   const asset = releaseAssetName();
   if (asset === null) throw new Error(`unsupported platform ${process.platform}/${process.arch}`);

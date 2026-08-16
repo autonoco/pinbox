@@ -1,18 +1,16 @@
 name: auto-release
 
-# On pushes to main, tags the next minor version and runs the release pipeline in
-# ONE workflow. Same shape as autonoco/buttons: tag the merge SHA, then publish.
-# Rapid pushes are serialized by this workflow's `release` concurrency group; the
-# newest queued main commit is released after the active release finishes.
-# The reusable release.yml call uses a different group (`release-publish`) — the
-# same group deadlocks the caller and the publish job never starts.
+# On pushes to main, tags the next minor version and publishes in ONE job.
+# Same shape as autonoco/buttons: tag the merge SHA, then compile, GitHub Release, npm.
+# Rapid pushes are serialized by the shared `pinbox-release` concurrency group; the newest
+# queued main commit is released after the active release finishes.
 #
-# Previous approach (bump package.json, commit, open a version-sync PR) is not how
-# buttons works. The git tag is the version. Manifests are stamped in the release
-# job workspace only — never committed back to main.
+# Previous approach (separate auto-release → release.yml via workflow_call) is the split
+# buttons already abandoned. A reusable call is still two jobs; GITHUB_TOKEN tag pushes
+# still do not trigger sibling workflows. Tag + publish stay in this job.
 #
-# Tag + publish stay in this workflow because GitHub blocks cross-workflow triggering
-# from GITHUB_TOKEN: "Events triggered by GITHUB_TOKEN will not create a new workflow run."
+# The git tag is the version. Manifests are stamped in this workspace only — never
+# committed back to main. Do not bump package.json or open a version PR.
 #
 # To skip a release: include [skip release] in the merge commit.
 # Bot commits (docs-sync) are skipped automatically.
@@ -27,8 +25,9 @@ on:
         required: true
         type: string
 
+# Share the same lock as release.yml so a hand-pushed tag cannot race this job.
 concurrency:
-  group: release
+  group: pinbox-release
   cancel-in-progress: false
 
 permissions:
@@ -36,22 +35,16 @@ permissions:
   id-token: write
 
 jobs:
-  tag:
+  release:
     name: Tag and release
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
         github.actor != 'github-actions[bot]' &&
         !contains(github.event.head_commit.message, '[skip release]')
       )
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      checkout_ref: ${{ steps.version.outputs.tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v7
@@ -91,9 +84,8 @@ jobs:
             exit 0
           fi
 
-          # Rerun guard: if a previous attempt already tagged this SHA (tag pushed, release job
-          # failed), reuse that tag instead of computing the next minor from it — otherwise a
-          # rerun mints a second version on the same commit and publishes both.
+          # Rerun guard: if a previous attempt already tagged this SHA (tag pushed, later
+          # step failed), reuse that tag instead of computing the next minor from it.
           EXISTING_TAG=$(
             git tag --points-at HEAD --list 'v*' --sort=-version:refname |
               grep -E "^v${SEMVER}$" |
@@ -138,13 +130,72 @@ jobs:
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
             push "https://github.com/$GITHUB_REPOSITORY.git" "$TAG"
 
-  release:
-    name: Compile and publish
-    needs: tag
-    uses: ./.github/workflows/release.yml
-    permissions:
-      contents: write
-      id-token: write
-    with:
-      version: ${{ needs.tag.outputs.version }}
-      checkout_ref: ${{ needs.tag.outputs.checkout_ref }}
+      # Caching is disabled on both setup steps: this job holds contents: write and
+      # id-token: write and publishes to npm, so a poisoned cache entry could reach
+      # a GitHub Release or the registry.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+          no-cache: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - run: bun install --frozen-lockfile
+
+      - name: stamp the tag version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from tag step" >&2 && exit 1)
+          bun tools/release/bump-version.ts "$VERSION"
+
+      - name: compile every target at the version being released
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || (echo "no version from tag step" >&2 && exit 1)
+          bun run release:build "$VERSION"
+
+      - name: checksums
+        run: |
+          cd dist/release/bin
+          for asset in pinbox-*; do sha256sum "$asset" > "$asset.sha256"; done
+
+      - name: publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets=(dist/release/bin/pinbox-* tools/release/install.sh)
+          # A failed earlier attempt can leave the release created with missing or
+          # partial assets; the rerun must repair them, not skip the upload.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists: refreshing assets"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            exit 0
+          fi
+          target="$(git rev-parse HEAD)"
+          gh release create "$TAG" \
+            --target "$target" \
+            --title "$TAG" \
+            --generate-notes \
+            "${assets[@]}"
+
+      - run: bun run build
+
+      - name: check every package can be published from CI
+        run: bun tools/release/preflight.ts
+
+      - name: publish the version being released
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          bun run release:publish "$VERSION"

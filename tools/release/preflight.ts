@@ -12,9 +12,39 @@
 // This turns that into a sentence you can act on, before any tarball is uploaded — so a release
 // cannot get half way through the ORDERED publish sequence and strand the launcher pointing at
 // platform packages that are not there.
+import { $ } from "bun";
 import { publishPlan } from "./publish.ts";
 
 const REGISTRY = "https://registry.npmjs.org";
+
+/**
+ * `npm publish --provenance` over OIDC needs Trusted Publishing support, which landed in
+ * npm 11.5.1. `setup-node` pins Node, not npm, and a cached Node 24.x can carry an older
+ * bundled npm — so the floor is enforced here, before anything is signed or uploaded.
+ */
+const MIN_NPM = [11, 5, 1] as const;
+
+async function assertNpmVersion(): Promise<void> {
+  const raw = (await $`npm --version`.text()).trim();
+  // Strict stable major.minor.patch only — a prerelease or garbled version string must not
+  // sneak past on Number.parseInt's prefix parsing (e.g. "11.5.1-beta.0" or "11.6.foo").
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(raw);
+  if (match === null) {
+    console.error(`npm --version printed "${raw}", not a stable major.minor.patch version.`);
+    process.exit(1);
+  }
+  const parts = match.slice(1).map((piece) => Number.parseInt(piece, 10));
+  // First non-zero difference across major.minor.patch decides; ties mean "at the floor".
+  const delta = MIN_NPM.map((floor, i) => (parts[i] ?? 0) - floor).find((d) => d !== 0) ?? 0;
+  if (delta < 0) {
+    console.error(
+      `npm ${raw} is too old for Trusted Publishing: --provenance over OIDC needs ` +
+        `npm >= ${MIN_NPM.join(".")}. Update Node (npm ships with it) or npm itself.`,
+    );
+    process.exit(1);
+  }
+  console.log(`✓ npm ${raw} (>= ${MIN_NPM.join(".")})`);
+}
 
 /** Long enough for a slow registry, short enough that a hung one is not mistaken for a slow one. */
 const LOOKUP_TIMEOUT_MS = 10_000;
@@ -38,6 +68,8 @@ async function exists(name: string): Promise<boolean> {
   return true;
 }
 
+await assertNpmVersion();
+
 const plan = await publishPlan();
 const missing: string[] = [];
 
@@ -54,7 +86,7 @@ if (missing.length > 0) {
     "\nTrusted Publishing can only publish a package that already exists. Create each one" +
       "\nfrom a laptop ONCE with `bun run release:publish <version> --no-provenance`, then add a" +
       "\ntrusted publisher for it on npmjs.com (Settings → Trusted Publisher → GitHub Actions," +
-      "\nrepo autonoco/pinbox, workflow release.yml). Every release after that is automatic.",
+      "\nrepo autonoco/pinbox, workflow auto-release.yml). Every release after that is automatic.",
   );
   process.exit(1);
 }

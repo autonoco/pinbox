@@ -152,10 +152,16 @@ async function publishDir(
   const argv = noProvenance
     ? ["npm", "publish", tarball, "--access", "public"]
     : ["npm", "publish", tarball, "--provenance", "--access", "public"];
+  // setup-node's registry-url writes NODE_AUTH_TOKEN + an .npmrc. A dummy token makes
+  // Trusted Publishing PUT as 404 ("not found or you do not have permission") after
+  // provenance already signed — that is the v0.6.0 failure. OIDC only, no token.
+  const env = { ...process.env };
+  delete env["NODE_AUTH_TOKEN"];
+  delete env["NPM_CONFIG_USERCONFIG"];
   // stdio is INHERITED, not captured. With 2FA enabled npm prints a browser URL and blocks on
   // the approval; through a captured pipe it has no terminal, so that flow cannot complete and
   // the publish dies on EOTP. Inheriting also means npm's progress reaches CI logs live.
-  const proc = Bun.spawn(argv, { cwd: repoRoot, stdio: ["inherit", "inherit", "inherit"] });
+  const proc = Bun.spawn(argv, { cwd: repoRoot, env, stdio: ["inherit", "inherit", "inherit"] });
   const code = await proc.exited;
   if (code !== 0) throw new Error(`npm publish failed (exit ${code}) for ${tarball}`);
 }

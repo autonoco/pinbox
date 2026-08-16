@@ -3,10 +3,12 @@ title: "pinbox update"
 description: "Download the latest compiled CLI from GitHub Releases and replace this binary."
 ---
 
-`pinbox update` installs the latest compiled CLI the same way Buttons does: download
-the GitHub Release asset, verify its SHA-256, and atomically replace this binary.
+`pinbox update` installs the latest compiled CLI by downloading
+the GitHub Release asset, verifying its SHA-256, and atomically replacing this binary.
 The next invocation is the new version. Homebrew installs are left to
 `brew upgrade pinbox`.
+Source installations can use `--check`, but `pinbox update` does not replace Bun.
+Update source installations through the package manager that installed them.
 
 On a TTY, other commands may apply the same update in the background (6-hour
 throttle). Set `PINBOX_NO_UPDATE=1` or `CI=1` to disable that.

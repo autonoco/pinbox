@@ -1,6 +1,7 @@
 // pinbox CLI — update check + passive apply (buttons-shaped).
 // A TTY command (not `update`, not CI) may replace the compiled binary so the next
 // run is current. The daemon still only records latest — its stdio is /dev/null.
+import { $ } from "bun";
 import type { StatePaths } from "./paths.ts";
 import { applyBinaryUpdate } from "./update-apply.ts";
 
@@ -110,10 +111,43 @@ function isSet(name: string): boolean {
   return value !== undefined && value !== "";
 }
 
-/** TTY command: if a newer compiled binary exists, replace this one. Failures are silent. */
+const LOCK_STALE_MS = 10 * 60_000;
+
+/**
+ * Exclusive per-install lock. `mkdir` without -p is atomic on POSIX (exactly one
+ * process creates the directory), so it doubles as the lock. A timestamp inside lets
+ * survivors break a lock left by a crashed process instead of silently disabling
+ * passive updates forever. Returns the lock path, or null when another holds it.
+ */
+async function acquireUpdateLock(stateDir: string, now: number): Promise<string | null> {
+  const lock = `${stateDir}/update.lock`;
+  await $`mkdir -p ${stateDir}`.quiet().nothrow();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if ((await $`mkdir ${lock}`.quiet().nothrow()).exitCode === 0) {
+      await Bun.write(`${lock}/at`, String(now));
+      return lock;
+    }
+    const at = Number(
+      await Bun.file(`${lock}/at`)
+        .text()
+        .catch(() => Number.NaN),
+    );
+    // A live holder wrote a recent timestamp; NaN (missing/garbled) counts as stale.
+    // Worst case two processes race a check, and atomicReplace makes that safe.
+    if (now - at < LOCK_STALE_MS) return null;
+    await $`rm -rf ${lock}`.quiet().nothrow();
+  }
+  return null;
+}
+
+/**
+ * TTY command: if a newer compiled binary exists, replace this one. Failures are silent.
+ * `stateDir` must be the install-global dir (paths.ts installStateDir): the update
+ * target is the shared binary, so the 6h throttle and the lock span all projects.
+ */
 export async function maybePassiveUpdate(opts: {
   current: string;
-  paths: StatePaths;
+  stateDir: string;
   argv: string[];
   tty: boolean;
   channel?: UpdateChannel;
@@ -126,27 +160,47 @@ export async function maybePassiveUpdate(opts: {
   if (opts.argv.includes("update")) return;
   if ((opts.channel ?? detectChannel()) !== "binary") return;
   const now = opts.now ?? Date.now;
-  const file = updateFile(opts.paths.stateDir);
   try {
-    const previous = readState(file);
-    if (previous !== null && now() - Date.parse(previous.checkedAt) <= THROTTLE_MS) return;
-    const latest = await fetchLatestVersion("binary", opts.fetchImpl ?? fetch);
-    if (latest === null) return;
-    const state: UpdateState = {
-      latest,
-      checkedAt: new Date(now()).toISOString(),
-      channel: "binary",
-    };
-    await Bun.write(file, `${JSON.stringify(state, null, 2)}\n`, { createPath: true });
-    if (Bun.semver.order(latest, opts.current) !== 1) return;
-    const apply = opts.apply ?? applyBinaryUpdate;
-    await apply({
-      current: opts.current,
-      latest,
-      dest: opts.dest ?? process.execPath,
-      fetchImpl: opts.fetchImpl ?? fetch,
-    });
+    // Cheap unlocked read first: the common throttled path never touches the lock.
+    if (isThrottled(updateFile(opts.stateDir), now())) return;
+    const lock = await acquireUpdateLock(opts.stateDir, now());
+    if (lock === null) return; // another pinbox process is already checking/applying
+    try {
+      await checkAndApplyLocked(opts, now);
+    } finally {
+      await $`rm -rf ${lock}`.quiet().nothrow();
+    }
   } catch {
     // Same contract as scheduleUpdateCheck: never fail the command the user typed.
   }
+}
+
+function isThrottled(file: string, now: number): boolean {
+  const state = readState(file);
+  return state !== null && now - Date.parse(state.checkedAt) <= THROTTLE_MS;
+}
+
+/** The lock is held: re-check the throttle (a racer may have just written fresh state), record the check, and apply when behind. */
+async function checkAndApplyLocked(
+  opts: Parameters<typeof maybePassiveUpdate>[0],
+  now: () => number,
+): Promise<void> {
+  const file = updateFile(opts.stateDir);
+  if (isThrottled(file, now())) return;
+  const latest = await fetchLatestVersion("binary", opts.fetchImpl ?? fetch);
+  if (latest === null) return;
+  const state: UpdateState = {
+    latest,
+    checkedAt: new Date(now()).toISOString(),
+    channel: "binary",
+  };
+  await Bun.write(file, `${JSON.stringify(state, null, 2)}\n`, { createPath: true });
+  if (Bun.semver.order(latest, opts.current) !== 1) return;
+  const apply = opts.apply ?? applyBinaryUpdate;
+  await apply({
+    current: opts.current,
+    latest,
+    dest: opts.dest ?? process.execPath,
+    fetchImpl: opts.fetchImpl ?? fetch,
+  });
 }

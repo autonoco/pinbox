@@ -118,7 +118,7 @@ describe("maybePassiveUpdate", () => {
     };
     await maybePassiveUpdate({
       current: "1.0.0",
-      paths,
+      stateDir: paths.stateDir,
       argv: ["pinbox", "list"],
       tty: false,
       channel: "binary",
@@ -128,7 +128,7 @@ describe("maybePassiveUpdate", () => {
     });
     await maybePassiveUpdate({
       current: "1.0.0",
-      paths,
+      stateDir: paths.stateDir,
       argv: ["pinbox", "update"],
       tty: true,
       channel: "binary",
@@ -138,7 +138,7 @@ describe("maybePassiveUpdate", () => {
     });
     await maybePassiveUpdate({
       current: "1.0.0",
-      paths,
+      stateDir: paths.stateDir,
       argv: ["pinbox", "list"],
       tty: true,
       channel: "npm",
@@ -156,7 +156,7 @@ describe("maybePassiveUpdate", () => {
     const { fetchImpl } = countingFetch("2.0.0");
     await maybePassiveUpdate({
       current: "1.0.0",
-      paths,
+      stateDir: paths.stateDir,
       argv: ["pinbox", "list"],
       tty: true,
       channel: "binary",
@@ -170,6 +170,8 @@ describe("maybePassiveUpdate", () => {
     expect(applied).toEqual(["2.0.0"]);
     const written = (await Bun.file(`${paths.stateDir}/update.json`).json()) as { latest: string };
     expect(written.latest).toBe("2.0.0");
+    // The lock is released after the apply.
+    expect(await Bun.file(`${paths.stateDir}/update.lock/at`).exists()).toBe(false);
   });
 
   test("a fresh update.json short-circuits apply", async () => {
@@ -182,7 +184,7 @@ describe("maybePassiveUpdate", () => {
     const { calls, fetchImpl } = countingFetch("3.0.0");
     await maybePassiveUpdate({
       current: "1.0.0",
-      paths,
+      stateDir: paths.stateDir,
       argv: ["pinbox", "list"],
       tty: true,
       channel: "binary",
@@ -195,6 +197,53 @@ describe("maybePassiveUpdate", () => {
     });
     expect(calls).toHaveLength(0);
     expect(applied).toEqual([]);
+  });
+
+  test("a live lock held by another process skips check-and-apply", async () => {
+    const paths = await tempPaths();
+    await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
+    await Bun.write(`${paths.stateDir}/update.lock/at`, String(T0));
+    const applied: string[] = [];
+    const { calls, fetchImpl } = countingFetch("2.0.0");
+    await maybePassiveUpdate({
+      current: "1.0.0",
+      stateDir: paths.stateDir,
+      argv: ["pinbox", "list"],
+      tty: true,
+      channel: "binary",
+      fetchImpl,
+      now: () => T0,
+      apply: async () => {
+        applied.push("yes");
+        return { current: "1.0.0", latest: "2.0.0", updated: true };
+      },
+    });
+    expect(calls).toHaveLength(0);
+    expect(applied).toEqual([]);
+    // The foreign lock is left in place for its holder.
+    expect(await Bun.file(`${paths.stateDir}/update.lock/at`).exists()).toBe(true);
+  });
+
+  test("a stale lock from a crashed process is broken and the update proceeds", async () => {
+    const paths = await tempPaths();
+    await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
+    await Bun.write(`${paths.stateDir}/update.lock/at`, String(T0 - HOUR));
+    const applied: string[] = [];
+    const { fetchImpl } = countingFetch("2.0.0");
+    await maybePassiveUpdate({
+      current: "1.0.0",
+      stateDir: paths.stateDir,
+      argv: ["pinbox", "list"],
+      tty: true,
+      channel: "binary",
+      fetchImpl,
+      now: () => T0,
+      apply: async (opts) => {
+        applied.push(opts.latest);
+        return { current: opts.current, latest: opts.latest, updated: true };
+      },
+    });
+    expect(applied).toEqual(["2.0.0"]);
   });
 });
 

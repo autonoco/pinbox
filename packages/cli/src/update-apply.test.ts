@@ -31,9 +31,12 @@ describe("parseSha256 / sha256Hex", () => {
     expect(parseSha256("abc123  pinbox-darwin-arm64\n", "pinbox-darwin-arm64")).toBe("abc123");
     expect(parseSha256("abc123  other\n", "pinbox-darwin-arm64")).toBeNull();
   });
-  test("hashes match", () => {
+  test("hashes match the known SHA-256 vector", () => {
     const bytes = new TextEncoder().encode("pinbox");
-    expect(sha256Hex(bytes)).toBe(sha256Hex(bytes));
+    // printf 'pinbox' | sha256sum
+    expect(sha256Hex(bytes)).toBe(
+      "aba2bdae61359f8be90ab24c275a7c7fcc817ef2c48615d96ce585f3c190aa2e",
+    );
   });
 });
 
@@ -76,5 +79,6 @@ test("atomicReplace swaps the file and leaves the new bytes", async () => {
   await $`chmod 755 ${dest}`.quiet();
   await atomicReplace(dest, new TextEncoder().encode("new"));
   expect(await Bun.file(dest).text()).toBe("new");
-  expect(await Bun.file(`${dest}.old`).exists()).toBe(false);
+  // Nothing but the installed binary is left behind: no temp file, no .old copy.
+  expect((await $`ls -A ${dir}`.text()).trim()).toBe("pinbox");
 });

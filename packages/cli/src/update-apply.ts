@@ -40,20 +40,15 @@ export function sha256Hex(bytes: Uint8Array): string {
 export async function atomicReplace(dest: string, bytes: Uint8Array): Promise<void> {
   const slash = dest.lastIndexOf("/");
   const dir = slash === -1 ? "." : dest.slice(0, slash);
-  const tmp = `${dir}/.pinbox-update-${Date.now()}`;
-  const old = `${dest}.old`;
+  // Same-directory rename over dest: `dest` resolves at every instant (either the
+  // old inode or the new one), so a concurrent `pinbox` invocation never misses it.
+  const tmp = `${dir}/.pinbox-update-${crypto.randomUUID()}`;
   await Bun.write(tmp, bytes);
   await $`chmod 700 ${tmp}`.quiet();
-  await $`rm -f ${old}`.quiet();
-  if ((await $`mv ${dest} ${old}`.quiet().nothrow()).exitCode !== 0) {
+  if ((await $`mv -f ${tmp} ${dest}`.quiet().nothrow()).exitCode !== 0) {
     await $`rm -f ${tmp}`.quiet();
-    throw new Error(`cannot move current binary: ${dest}`);
-  }
-  if ((await $`mv ${tmp} ${dest}`.quiet().nothrow()).exitCode !== 0) {
-    await $`mv ${old} ${dest}`.quiet();
     throw new Error(`cannot install new binary: ${dest}`);
   }
-  await $`rm -f ${old}`.quiet();
 }
 
 export async function applyBinaryUpdate(opts: {

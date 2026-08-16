@@ -20,7 +20,7 @@ import { registerSummary } from "./commands/summary.ts";
 import { registerUpdate } from "./commands/update.ts";
 import { CliError } from "./errors.ts";
 import { fail } from "./output.ts";
-import { statePaths } from "./paths.ts";
+import { installStateDir } from "./paths.ts";
 import { maybePassiveUpdate } from "./update.ts";
 
 export function buildProgram(): Command {
@@ -66,9 +66,11 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   // comes from a raw argv scan — most-explicit wins, same rule as isJsonMode.
   const flags = { json: argv.includes("--json") };
   const program = buildProgram();
+  // Passive-update state is install-global (keyed by the binary, not the project):
+  // the throttle and lock must be shared by every project invoking this binary.
   await maybePassiveUpdate({
     current: packageJson.version,
-    paths: statePaths(process.cwd()),
+    stateDir: installStateDir(),
     argv,
     tty: Boolean(process.stdout.isTTY) && !flags.json,
   });

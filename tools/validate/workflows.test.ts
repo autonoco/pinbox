@@ -175,8 +175,8 @@ test("auto-release compiles and publishes the version the tag step decided, via 
 
 test("publish drops setup-node's dummy token so Trusted Publishing can PUT", async () => {
   const text = await Bun.file(`${root}tools/release/publish.ts`).text();
-  expect(text).toContain("delete env.NODE_AUTH_TOKEN");
-  expect(text).toContain("delete env.NPM_CONFIG_USERCONFIG");
+  expect(text).toContain(`delete env["NODE_AUTH_TOKEN"]`);
+  expect(text).toContain(`delete env["NPM_CONFIG_USERCONFIG"]`);
   const publish = steps(await workflow("auto-release.yml"), "release").find((step) =>
     (step.run ?? "").includes("release:publish"),
   );

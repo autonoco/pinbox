@@ -53,6 +53,29 @@ function needsClosure(jobs: Record<string, Job>, job: string): string[] {
   return [...seen];
 }
 
+test("auto-release and release.yml do not share a concurrency group", async () => {
+  // Same group deadlocks: the caller holds the slot, the workflow_call never starts,
+  // tags exist, and GitHub Releases stay on the last hand-cut tag.
+  const group = async (file: string) => {
+    const text = await Bun.file(`${root}.github/workflows/${file}`).text();
+    return text.match(/^concurrency:\n {2}group: (\S+)/m)?.[1];
+  };
+  const auto = await group("auto-release.yml");
+  const release = await group("release.yml");
+  expect(auto).toBeDefined();
+  expect(release).toBeDefined();
+  expect(auto).not.toBe(release);
+});
+
+test("compile's all-platform install is not frozen — stamp already mutated manifests", async () => {
+  const text = await Bun.file(`${root}tools/release/compile.ts`).text();
+  const install = text.match(/bun install[^`\n]+--os \$\{all\}[^`\n]*/)?.[0];
+  expect(install).toBeDefined();
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting on literal shell source
+  expect(install).toContain("--cpu ${all}");
+  expect(install).not.toContain("--frozen-lockfile");
+});
+
 test("auto-release tags the merge SHA and does not commit back to main", async () => {
   const auto = await workflow("auto-release.yml");
   const script = Object.values(auto.jobs)

@@ -55,12 +55,16 @@ async function buildLibraries(): Promise<void> {
  * compile matrix cross-compiles all four targets from one Linux runner: bundling for a foreign
  * target hits `import("@opentui/core-<os>-<arch>")` and fails to resolve unless that package is
  * on disk. `--target` dead-code-eliminates the other platforms' branches, so each binary still
- * embeds only its own native library (verified by identical binary size either way). The
- * lockfile already pins these packages; this changes node_modules only.
+ * embeds only its own native library (verified by identical binary size either way).
+ *
+ * Do not pass `--frozen-lockfile`. The release job stamps the tag onto package.json after the
+ * lockfile-checked install; a second frozen install then fails because bun.lock still has the
+ * unstamped versions. The first `bun install --frozen-lockfile` in the workflow already
+ * verified the lockfile; this step only materializes other-platform optional packages.
  */
 async function installAllPlatformNatives(): Promise<void> {
   const all = "*";
-  await $`bun install --frozen-lockfile --os ${all} --cpu ${all}`.cwd(repoRoot).quiet();
+  await $`bun install --os ${all} --cpu ${all}`.cwd(repoRoot).quiet();
 }
 
 /** Compile one target into `<outDir>/<assetName>`; returns the binary path. */

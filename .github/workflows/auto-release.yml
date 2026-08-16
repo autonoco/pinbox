@@ -2,8 +2,10 @@ name: auto-release
 
 # On pushes to main, tags the next minor version and runs the release pipeline in
 # ONE workflow. Same shape as autonoco/buttons: tag the merge SHA, then publish.
-# Rapid pushes are serialized by the shared `release` concurrency group; the newest
-# queued main commit is released after the active release finishes.
+# Rapid pushes are serialized by this workflow's `release` concurrency group; the
+# newest queued main commit is released after the active release finishes.
+# The reusable release.yml call uses a different group (`release-publish`) — the
+# same group deadlocks the caller and the publish job never starts.
 #
 # Previous approach (bump package.json, commit, open a version-sync PR) is not how
 # buttons works. The git tag is the version. Manifests are stamped in the release

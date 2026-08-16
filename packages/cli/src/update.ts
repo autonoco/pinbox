@@ -144,7 +144,7 @@ export async function maybePassiveUpdate(opts: {
       current: opts.current,
       latest,
       dest: opts.dest ?? process.execPath,
-      fetchImpl: opts.fetchImpl,
+      fetchImpl: opts.fetchImpl ?? fetch,
     });
   } catch {
     // Same contract as scheduleUpdateCheck: never fail the command the user typed.

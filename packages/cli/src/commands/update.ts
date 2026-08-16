@@ -69,7 +69,7 @@ export async function performUpdate(checkOnly: boolean, deps?: UpdateDeps): Prom
     current,
     latest,
     dest: deps?.dest ?? process.execPath,
-    fetchImpl: deps?.fetchImpl,
+    fetchImpl: deps?.fetchImpl ?? fetch,
   });
   return { current, latest: result.latest, available: true, updated: result.updated };
 }

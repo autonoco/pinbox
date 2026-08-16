@@ -17,8 +17,11 @@ import { registerServe } from "./commands/serve.ts";
 import { registerSession } from "./commands/session.ts";
 import { registerShow } from "./commands/show.ts";
 import { registerSummary } from "./commands/summary.ts";
+import { registerUpdate } from "./commands/update.ts";
 import { CliError } from "./errors.ts";
 import { fail } from "./output.ts";
+import { installStateDir } from "./paths.ts";
+import { maybePassiveUpdate } from "./update.ts";
 
 export function buildProgram(): Command {
   const program = new Command("pinbox");
@@ -51,6 +54,7 @@ export function buildProgram(): Command {
   registerLink(program);
   registerExport(program);
   registerDoctor(program);
+  registerUpdate(program);
   registerSession(program); // hidden plumbing (slot: after doctor, before serve)
   registerServe(program);
   return program;
@@ -62,6 +66,14 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   // comes from a raw argv scan — most-explicit wins, same rule as isJsonMode.
   const flags = { json: argv.includes("--json") };
   const program = buildProgram();
+  // Passive-update state is install-global (keyed by the binary, not the project):
+  // the throttle and lock must be shared by every project invoking this binary.
+  await maybePassiveUpdate({
+    current: packageJson.version,
+    stateDir: installStateDir(),
+    argv,
+    tty: Boolean(process.stdout.isTTY) && !flags.json,
+  });
   try {
     await program.parseAsync(argv);
   } catch (err) {

@@ -1,0 +1,63 @@
+---
+title: "pinbox update"
+description: "Download the latest compiled CLI from GitHub Releases and replace this binary."
+---
+
+`pinbox update` installs the latest compiled CLI by downloading
+the GitHub Release asset, verifying its SHA-256, and atomically replacing this binary.
+The next invocation is the new version. Homebrew installs are left to
+`brew upgrade pinbox`.
+Source installations can use `--check`, but `pinbox update` does not replace Bun.
+Update source installations through the package manager that installed them.
+
+On a TTY, other commands may apply the same update in the background (6-hour
+throttle). Set `PINBOX_NO_UPDATE=1` or `CI=1` to disable that.
+
+## Usage
+
+```console
+$ pinbox update --help
+Usage: pinbox update [options]
+
+Download the latest compiled CLI from GitHub Releases and replace this binary.
+
+Options:
+  --check     report whether an update is available, do not install
+  --json      machine output
+  -h, --help  display help for command
+```
+
+## Options
+
+<ParamField path="--check" type="boolean">
+  Report whether a newer release exists. Does not replace the binary.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Machine output: the `{"ok":true,"data":…}` envelope.
+</ParamField>
+
+## Examples
+
+```console
+$ pinbox update --check
+pinbox 0.8.0 is available (installed 0.7.0)
+```
+
+```console
+$ pinbox update
+updated pinbox 0.7.0 -> 0.8.0
+```
+
+```console
+$ pinbox update --json
+{
+  "ok": true,
+  "data": {
+    "current": "0.7.0",
+    "latest": "0.8.0",
+    "available": true,
+    "updated": true
+  }
+}
+```

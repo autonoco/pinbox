@@ -73,7 +73,8 @@
               "cli/commands/summary",
               "cli/commands/link",
               "cli/commands/export",
-              "cli/commands/doctor"
+              "cli/commands/doctor",
+              "cli/commands/update"
             ]
           }
         ]

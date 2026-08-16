@@ -20,6 +20,16 @@ export function projectId(projectDir: string): string {
   return new Bun.CryptoHasher("sha256").update(physicalPath(projectDir)).digest("hex").slice(0, 12);
 }
 
+/**
+ * User-global state dir for the running installation, keyed by the binary's path:
+ * one per install, shared across projects. Passive-update throttle and lock live here,
+ * because the update target is `process.execPath`, which is not per-project.
+ */
+export function installStateDir(execPath: string = process.execPath): string {
+  const id = new Bun.CryptoHasher("sha256").update(execPath).digest("hex").slice(0, 12);
+  return `${stateHome()}/pinbox/install-${id}`;
+}
+
 export function statePaths(projectDir: string): StatePaths {
   const stateDir = `${stateHome()}/pinbox/${projectId(projectDir)}`;
   return {

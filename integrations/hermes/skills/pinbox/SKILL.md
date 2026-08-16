@@ -157,6 +157,17 @@ Options:
 
 - `--json` - machine output
 
+### pinbox update
+
+Download the latest compiled CLI from GitHub Releases and replace this binary.
+
+Usage: `pinbox update [options]`
+
+Options:
+
+- `--check` - report whether an update is available, do not install
+- `--json` - machine output
+
 ## JSON envelope
 
 Success: `{"ok":true,"data":...}` - failure: `{"ok":false,"error":{"code":...,"message":...,"hint":...}}`.

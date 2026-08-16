@@ -171,7 +171,7 @@ describe("maybePassiveUpdate", () => {
     const written = (await Bun.file(`${paths.stateDir}/update.json`).json()) as { latest: string };
     expect(written.latest).toBe("2.0.0");
     // The lock is released after the apply.
-    expect(await Bun.file(`${paths.stateDir}/update.lock/at`).exists()).toBe(false);
+    expect(await Bun.file(`${paths.stateDir}/update.lock/lease`).exists()).toBe(false);
   });
 
   test("a fresh update.json short-circuits apply", async () => {
@@ -202,7 +202,7 @@ describe("maybePassiveUpdate", () => {
   test("a live lock held by another process skips check-and-apply", async () => {
     const paths = await tempPaths();
     await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
-    await Bun.write(`${paths.stateDir}/update.lock/at`, String(T0));
+    await Bun.write(`${paths.stateDir}/update.lock/lease`, `${T0}:other-holder`);
     const applied: string[] = [];
     const { calls, fetchImpl } = countingFetch("2.0.0");
     await maybePassiveUpdate({
@@ -221,13 +221,13 @@ describe("maybePassiveUpdate", () => {
     expect(calls).toHaveLength(0);
     expect(applied).toEqual([]);
     // The foreign lock is left in place for its holder.
-    expect(await Bun.file(`${paths.stateDir}/update.lock/at`).exists()).toBe(true);
+    expect(await Bun.file(`${paths.stateDir}/update.lock/lease`).exists()).toBe(true);
   });
 
   test("a stale lock from a crashed process is broken and the update proceeds", async () => {
     const paths = await tempPaths();
     await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
-    await Bun.write(`${paths.stateDir}/update.lock/at`, String(T0 - HOUR));
+    await Bun.write(`${paths.stateDir}/update.lock/lease`, `${T0 - HOUR}:crashed-process`);
     const applied: string[] = [];
     const { fetchImpl } = countingFetch("2.0.0");
     await maybePassiveUpdate({
@@ -244,6 +244,62 @@ describe("maybePassiveUpdate", () => {
       },
     });
     expect(applied).toEqual(["2.0.0"]);
+  });
+
+  test("a lock with no lease yet is live, not stale — the fresh mkdir is left alone", async () => {
+    const paths = await tempPaths();
+    // A holder between its atomic mkdir and its lease write: newborn, not crashed.
+    await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
+    const applied: string[] = [];
+    const { calls, fetchImpl } = countingFetch("2.0.0");
+    await maybePassiveUpdate({
+      current: "1.0.0",
+      stateDir: paths.stateDir,
+      argv: ["pinbox", "list"],
+      tty: true,
+      channel: "binary",
+      fetchImpl,
+      now: () => T0,
+      apply: async () => {
+        applied.push("yes");
+        return { current: "1.0.0", latest: "2.0.0", updated: true };
+      },
+    });
+    expect(calls).toHaveLength(0);
+    expect(applied).toEqual([]);
+    expect((await $`test -d ${paths.stateDir}/update.lock`.nothrow()).exitCode).toBe(0);
+  });
+
+  test("concurrent stale-lock recovery: exactly one contender reclaims and applies", async () => {
+    const paths = await tempPaths();
+    await $`mkdir -p ${paths.stateDir}/update.lock`.quiet();
+    await Bun.write(`${paths.stateDir}/update.lock/lease`, `${T0 - HOUR}:crashed-process`);
+    const applied: string[] = [];
+    const { calls, fetchImpl } = countingFetch("2.0.0");
+    // All contenders see the same stale lock; the atomic rename in reclamation must
+    // let exactly one break it — the rest back off instead of deleting a live lock.
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        maybePassiveUpdate({
+          current: "1.0.0",
+          stateDir: paths.stateDir,
+          argv: ["pinbox", "list"],
+          tty: true,
+          channel: "binary",
+          fetchImpl,
+          now: () => T0,
+          apply: async (opts) => {
+            applied.push(opts.latest);
+            return { current: opts.current, latest: opts.latest, updated: true };
+          },
+        }),
+      ),
+    );
+    expect(applied).toEqual(["2.0.0"]);
+    expect(calls).toHaveLength(1);
+    // The winner released its own lock, and no reclaim graves are left behind.
+    const leftovers = (await $`ls ${paths.stateDir}`.text()).trim().split("\n").filter(Boolean);
+    expect(leftovers).toEqual(["update.json"]);
   });
 });
 

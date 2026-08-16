@@ -113,31 +113,72 @@ function isSet(name: string): boolean {
 
 const LOCK_STALE_MS = 10 * 60_000;
 
+type UpdateLock = { dir: string; lease: string };
+
+function leaseFile(lockDir: string): string {
+  return `${lockDir}/lease`;
+}
+
 /**
  * Exclusive per-install lock. `mkdir` without -p is atomic on POSIX (exactly one
- * process creates the directory), so it doubles as the lock. A timestamp inside lets
- * survivors break a lock left by a crashed process instead of silently disabling
- * passive updates forever. Returns the lock path, or null when another holds it.
+ * process creates the directory), so it doubles as the lock. A lease file inside —
+ * `"<timestamp>:<token>"`, one write so it appears all at once — lets survivors
+ * reclaim a lock left by a crashed process, and lets release verify the lock is
+ * still ours. Returns the held lock, or null when another process holds it.
  */
-async function acquireUpdateLock(stateDir: string, now: number): Promise<string | null> {
-  const lock = `${stateDir}/update.lock`;
+async function acquireUpdateLock(stateDir: string, now: number): Promise<UpdateLock | null> {
+  const dir = `${stateDir}/update.lock`;
+  const lease = `${now}:${crypto.randomUUID()}`;
   await $`mkdir -p ${stateDir}`.quiet().nothrow();
   for (let attempt = 0; attempt < 2; attempt++) {
-    if ((await $`mkdir ${lock}`.quiet().nothrow()).exitCode === 0) {
-      await Bun.write(`${lock}/at`, String(now));
-      return lock;
+    if ((await $`mkdir ${dir}`.quiet().nothrow()).exitCode === 0) {
+      await Bun.write(leaseFile(dir), lease);
+      return { dir, lease };
     }
-    const at = Number(
-      await Bun.file(`${lock}/at`)
-        .text()
-        .catch(() => Number.NaN),
-    );
-    // A live holder wrote a recent timestamp; NaN (missing/garbled) counts as stale.
-    // Worst case two processes race a check, and atomicReplace makes that safe.
-    if (now - at < LOCK_STALE_MS) return null;
-    await $`rm -rf ${lock}`.quiet().nothrow();
+    if (!(await reclaimStaleLock(dir, now))) return null;
   }
   return null;
+}
+
+/**
+ * Ownership-safe reclamation of a stale lock. A bare read-then-rm is racy: between
+ * reading a stale lease and removing the directory, another contender can reclaim the
+ * lock and create a live one at the same path, which rm would then destroy. rename(2)
+ * is atomic — exactly one contender's mv wins a given directory — and re-reading the
+ * lease on the private moved copy proves we took the same stale lock we judged, not a
+ * recreated live one. A lock with no lease yet is a fresh mkdir whose holder is
+ * mid-write: treat it as live, never stale (worst case a crash in that instant leaves
+ * a lock only `pinbox update` bypasses — passive-update loss, not binary loss).
+ */
+async function reclaimStaleLock(dir: string, now: number): Promise<boolean> {
+  const observed = await Bun.file(leaseFile(dir))
+    .text()
+    .catch(() => null);
+  if (observed === null) return false; // newly created: the holder hasn't written its lease yet
+  const at = Number(observed.split(":")[0]);
+  if (now - at < LOCK_STALE_MS) return false; // live holder (NaN falls through: garbled lease)
+  const grave = `${dir}.reclaim-${crypto.randomUUID()}`;
+  if ((await $`mv ${dir} ${grave}`.quiet().nothrow()).exitCode !== 0) return false; // lost the race
+  const moved = await Bun.file(leaseFile(grave))
+    .text()
+    .catch(() => null);
+  if (moved !== observed) {
+    // We grabbed a lock recreated after our staleness read: hand it back, best effort.
+    // If even that races, the lease-checked release below contains the damage.
+    await $`mv ${grave} ${dir}`.quiet().nothrow();
+    return false;
+  }
+  await $`rm -rf ${grave}`.quiet().nothrow();
+  return true;
+}
+
+/** Remove the lock only while its lease is still ours — never a reclaimer's new lock. */
+async function releaseUpdateLock(lock: UpdateLock): Promise<void> {
+  const current = await Bun.file(leaseFile(lock.dir))
+    .text()
+    .catch(() => null);
+  if (current !== lock.lease) return;
+  await $`rm -rf ${lock.dir}`.quiet().nothrow();
 }
 
 /**
@@ -168,7 +209,7 @@ export async function maybePassiveUpdate(opts: {
     try {
       await checkAndApplyLocked(opts, now);
     } finally {
-      await $`rm -rf ${lock}`.quiet().nothrow();
+      await releaseUpdateLock(lock);
     }
   } catch {
     // Same contract as scheduleUpdateCheck: never fail the command the user typed.

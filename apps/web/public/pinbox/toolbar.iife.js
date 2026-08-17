@@ -289,6 +289,448 @@ var Pinbox = (function(exports) {
 		return `${open.map((p) => block(p, threads.get(p.id) ?? [])).join("\n\n")}\n`;
 	}
 	//#endregion
+	//#region src/motion/spring.ts
+	/** Bar ⇄ puck morphs and the post-drag settle. */
+	const MORPH_SPRING = {
+		k: 300,
+		c: 30
+	};
+	/** The morph surface chasing the pointer mid-drag. */
+	const FOLLOW_SPRING = {
+		k: 600,
+		c: 38
+	};
+	/** Integration substep — small enough that MORPH/FOLLOW stay stable at any dt. */
+	const SUBSTEP = 1 / 240;
+	/** A property this close to target, moving this slowly, counts as settled. */
+	const SETTLE = .5;
+	function mkSpring(init) {
+		const cur = { ...init };
+		const tgt = { ...init };
+		const keys = Object.keys(init);
+		const vel = {};
+		for (const key of keys) vel[key] = 0;
+		let cfg = { ...MORPH_SPRING };
+		const curN = cur;
+		const tgtN = tgt;
+		function integrate(h) {
+			for (const key of keys) {
+				const x = curN[key] ?? 0;
+				const v = vel[key] ?? 0;
+				const nextV = v + (-cfg.k * (x - (tgtN[key] ?? 0)) - cfg.c * v) * h;
+				vel[key] = nextV;
+				curN[key] = x + nextV * h;
+			}
+		}
+		return {
+			cur,
+			tgt,
+			snap(values) {
+				Object.assign(cur, values);
+				Object.assign(tgt, values);
+				for (const key of Object.keys(vel)) vel[key] = 0;
+			},
+			to(values, nextCfg) {
+				Object.assign(tgt, values);
+				if (nextCfg) cfg = { ...nextCfg };
+			},
+			step(dt) {
+				let remaining = dt;
+				while (remaining > 1e-6) {
+					const h = Math.min(SUBSTEP, remaining);
+					remaining -= h;
+					integrate(h);
+				}
+				for (const key of keys) {
+					const v = vel[key] ?? 0;
+					const gap = (curN[key] ?? 0) - (tgtN[key] ?? 0);
+					if (Math.abs(v) > SETTLE || Math.abs(gap) > SETTLE) return false;
+				}
+				this.snap({ ...tgt });
+				return true;
+			}
+		};
+	}
+	//#endregion
+	//#region src/minimize.ts
+	const PUCK = 48;
+	const MARGIN = 16;
+	/** Movement that begins a drag… */
+	const DRAG_START = 8;
+	/** …but a release under this much TOTAL travel is still a tap. */
+	const TAP_MAX = 12;
+	/** Spring hold while the surface swap crossfades (ms). */
+	const HOLD_MINIMIZE = 90;
+	const HOLD_RESTORE = 70;
+	/** Arrival: real element fades in first, morph layer fades this much later. */
+	const SWAP_FADE = 100;
+	/** …and is display:none'd once its own fade has finished. */
+	const LAYER_HIDE = 140;
+	const BAR_RADIUS = 4;
+	/** The carrier icon rides the surface only while it is puck-like (< this width). */
+	const CARRIER_MAX_W = 260;
+	function createMinimize(host) {
+		const { win, bar, ui } = host;
+		const main = mkSpring({
+			x: 0,
+			y: 0,
+			w: 0,
+			h: 0,
+			r: 0
+		});
+		let mode = "bar";
+		let puckPos = null;
+		let dock = loadDock();
+		let pdown = null;
+		let keyboardToggle = false;
+		let raf = 0;
+		let last = 0;
+		let holdTimer = 0;
+		let fadeTimer = 0;
+		let hideTimer = 0;
+		function loadDock() {
+			try {
+				const raw = host.storage?.getItem(`${host.storagePrefix}:dock`);
+				if (raw == null) return null;
+				const parsed = JSON.parse(raw);
+				if (typeof parsed.x !== "number" || typeof parsed.y !== "number") return null;
+				return {
+					x: parsed.x,
+					y: parsed.y
+				};
+			} catch {
+				return null;
+			}
+		}
+		function persist() {
+			try {
+				if (dock) host.storage?.setItem(`${host.storagePrefix}:dock`, JSON.stringify(dock));
+				host.storage?.setItem(`${host.storagePrefix}:minimized`, mode === "bar" ? "0" : "1");
+			} catch {}
+		}
+		function loadMinimized() {
+			try {
+				const raw = host.storage?.getItem(`${host.storagePrefix}:minimized`);
+				return raw == null ? host.initialMinimized : raw === "1";
+			} catch {
+				return host.initialMinimized;
+			}
+		}
+		const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+		function clampPos(p) {
+			return {
+				x: clamp(p.x, MARGIN, win.innerWidth - MARGIN - PUCK),
+				y: clamp(p.y, MARGIN, win.innerHeight - MARGIN - PUCK)
+			};
+		}
+		function defaultDock() {
+			const r = bar.getBoundingClientRect();
+			return {
+				x: r.left + r.width / 2 - PUCK / 2,
+				y: r.top + (r.height - PUCK) / 2
+			};
+		}
+		function placePuck(x, y) {
+			puckPos = {
+				x,
+				y
+			};
+			ui.puck.style.transform = `translate(${x}px, ${y}px)`;
+		}
+		function render() {
+			const m = main.cur;
+			ui.surface.style.width = `${m.w}px`;
+			ui.surface.style.height = `${m.h}px`;
+			ui.surface.style.borderRadius = `${m.r}px`;
+			ui.surface.style.transform = `translate(${m.x}px, ${m.y}px)`;
+			ui.carrier.style.transform = `translate(${m.x + m.w / 2 - PUCK / 2}px, ${m.y + m.h / 2 - PUCK / 2}px)`;
+			const iconOn = mode === "drag" || mode === "settle" || (mode === "toPuck" || mode === "toBar") && m.w < CARRIER_MAX_W;
+			ui.carrier.classList.toggle("show", iconOn);
+		}
+		function showMorph() {
+			win.clearTimeout(hideTimer);
+			win.clearTimeout(fadeTimer);
+			ui.morphWrap.hidden = false;
+			ui.morphWrap.offsetWidth;
+			ui.morphWrap.classList.add("on");
+		}
+		function hideMorph() {
+			ui.morphWrap.classList.remove("on");
+			ui.carrier.classList.remove("show");
+			win.clearTimeout(hideTimer);
+			hideTimer = win.setTimeout(() => {
+				ui.morphWrap.hidden = true;
+			}, LAYER_HIDE);
+		}
+		function tick(now) {
+			const dt = Math.min((now - last) / 1e3, 1 / 30);
+			last = now;
+			const done = main.step(dt);
+			render();
+			if (done && mode !== "drag") {
+				raf = 0;
+				if (mode === "toPuck" || mode === "settle") finishPuck();
+				else if (mode === "toBar") finishBar();
+			} else raf = win.requestAnimationFrame(tick);
+		}
+		function ensureLoop() {
+			if (raf === 0) {
+				last = win.performance.now();
+				raf = win.requestAnimationFrame(tick);
+			}
+		}
+		function finishPuck() {
+			placePuck(main.cur.x, main.cur.y);
+			ui.puck.classList.remove("pb-ghost");
+			win.clearTimeout(fadeTimer);
+			fadeTimer = win.setTimeout(hideMorph, SWAP_FADE);
+			mode = "puck";
+			persist();
+			host.onSettled(true, keyboardToggle);
+		}
+		function finishBar() {
+			bar.classList.remove("pb-ghost");
+			win.clearTimeout(fadeTimer);
+			fadeTimer = win.setTimeout(hideMorph, SWAP_FADE);
+			mode = "bar";
+			persist();
+			host.onSettled(false, keyboardToggle);
+		}
+		function minimize(keyboard = false) {
+			if (mode !== "bar") return;
+			pdown = null;
+			keyboardToggle = keyboard;
+			const r = bar.getBoundingClientRect();
+			const d = clampPos(dock ?? defaultDock());
+			bar.classList.add("pb-ghost");
+			if (host.reduced) {
+				placePuck(d.x, d.y);
+				ui.puck.classList.remove("pb-ghost");
+				mode = "puck";
+				persist();
+				host.onSettled(true, keyboard);
+				return;
+			}
+			main.snap({
+				x: r.left,
+				y: r.top,
+				w: r.width,
+				h: r.height,
+				r: BAR_RADIUS
+			});
+			mode = "toPuck";
+			render();
+			showMorph();
+			win.clearTimeout(holdTimer);
+			holdTimer = win.setTimeout(() => {
+				main.to({
+					x: d.x,
+					y: d.y,
+					w: PUCK,
+					h: PUCK,
+					r: PUCK / 2
+				}, MORPH_SPRING);
+				ensureLoop();
+			}, HOLD_MINIMIZE);
+		}
+		function restore(keyboard = false) {
+			if (mode !== "puck" || puckPos === null) return;
+			pdown = null;
+			keyboardToggle = keyboard;
+			dock = { ...puckPos };
+			ui.puck.classList.add("pb-ghost");
+			if (host.reduced) {
+				bar.classList.remove("pb-ghost");
+				mode = "bar";
+				persist();
+				host.onSettled(false, keyboard);
+				return;
+			}
+			const r = bar.getBoundingClientRect();
+			main.snap({
+				x: puckPos.x,
+				y: puckPos.y,
+				w: PUCK,
+				h: PUCK,
+				r: PUCK / 2
+			});
+			mode = "toBar";
+			render();
+			showMorph();
+			win.clearTimeout(holdTimer);
+			holdTimer = win.setTimeout(() => {
+				main.to({
+					x: r.left,
+					y: r.top,
+					w: r.width,
+					h: r.height,
+					r: BAR_RADIUS
+				}, MORPH_SPRING);
+				ensureLoop();
+			}, HOLD_RESTORE);
+		}
+		function onPointerDown(e) {
+			if (mode !== "puck" || e.button !== 0) return;
+			try {
+				ui.puck.setPointerCapture(e.pointerId);
+			} catch {}
+			if (puckPos === null) return;
+			pdown = {
+				px: e.clientX,
+				py: e.clientY,
+				ox: puckPos.x,
+				oy: puckPos.y,
+				lx: e.clientX,
+				ly: e.clientY,
+				moved: false
+			};
+		}
+		function onPointerMove(e) {
+			if (pdown === null) return;
+			pdown.lx = e.clientX;
+			pdown.ly = e.clientY;
+			const dx = e.clientX - pdown.px;
+			const dy = e.clientY - pdown.py;
+			if (!pdown.moved) {
+				if (mode !== "puck") {
+					pdown = null;
+					return;
+				}
+				if (Math.hypot(dx, dy) < DRAG_START) return;
+				pdown.moved = true;
+				mode = "drag";
+				if (!host.reduced) {
+					ui.puck.classList.add("pb-ghost");
+					main.snap({
+						x: pdown.ox,
+						y: pdown.oy,
+						w: PUCK,
+						h: PUCK,
+						r: PUCK / 2
+					});
+					render();
+					showMorph();
+				}
+			}
+			const next = {
+				x: pdown.ox + dx,
+				y: pdown.oy + dy
+			};
+			if (host.reduced) {
+				const p = clampPos(next);
+				placePuck(p.x, p.y);
+			} else {
+				main.to({
+					...next,
+					w: PUCK,
+					h: PUCK,
+					r: PUCK / 2
+				}, FOLLOW_SPRING);
+				ensureLoop();
+			}
+		}
+		function onPointerUp() {
+			if (pdown === null) return;
+			const total = Math.hypot(pdown.lx - pdown.px, pdown.ly - pdown.py);
+			const wasDrag = pdown.moved && total >= TAP_MAX;
+			const origin = {
+				x: pdown.ox,
+				y: pdown.oy
+			};
+			const startedDrag = pdown.moved;
+			pdown = null;
+			if (!wasDrag) {
+				if (startedDrag && mode === "drag") {
+					main.snap({
+						x: origin.x,
+						y: origin.y,
+						w: PUCK,
+						h: PUCK,
+						r: PUCK / 2
+					});
+					placePuck(origin.x, origin.y);
+					ui.puck.classList.remove("pb-ghost");
+					hideMorph();
+					mode = "puck";
+				}
+				restore(false);
+				return;
+			}
+			if (host.reduced) {
+				if (puckPos) {
+					const p = clampPos(puckPos);
+					placePuck(p.x, p.y);
+					dock = { ...p };
+				}
+				mode = "puck";
+				persist();
+				return;
+			}
+			const p = clampPos({
+				x: main.tgt.x,
+				y: main.tgt.y
+			});
+			main.to({
+				...p,
+				w: PUCK,
+				h: PUCK,
+				r: PUCK / 2
+			}, MORPH_SPRING);
+			mode = "settle";
+			ensureLoop();
+		}
+		/** Keyboard/AT activation is a synthesized click (detail 0) with no pointer events. */
+		function onClick(e) {
+			if (e.detail === 0) restore(true);
+		}
+		function onResize() {
+			if (mode === "puck" && puckPos !== null) {
+				const p = clampPos(puckPos);
+				placePuck(p.x, p.y);
+			}
+			if (dock !== null) dock = clampPos(dock);
+		}
+		ui.puck.addEventListener("pointerdown", onPointerDown);
+		ui.puck.addEventListener("pointermove", onPointerMove);
+		ui.puck.addEventListener("pointerup", onPointerUp);
+		ui.puck.addEventListener("pointercancel", onPointerUp);
+		ui.puck.addEventListener("click", onClick);
+		win.addEventListener("resize", onResize);
+		return {
+			minimized: () => mode !== "bar",
+			mode: () => mode,
+			minimize,
+			restore,
+			applyInitial() {
+				if (!loadMinimized()) return;
+				const apply = () => {
+					if (mode !== "bar") return;
+					const d = clampPos(dock ?? defaultDock());
+					bar.classList.add("pb-ghost");
+					placePuck(d.x, d.y);
+					ui.puck.classList.remove("pb-ghost");
+					mode = "puck";
+					host.onSettled(true, false);
+				};
+				if (host.reduced) apply();
+				else win.requestAnimationFrame(apply);
+			},
+			destroy() {
+				ui.puck.removeEventListener("pointerdown", onPointerDown);
+				ui.puck.removeEventListener("pointermove", onPointerMove);
+				ui.puck.removeEventListener("pointerup", onPointerUp);
+				ui.puck.removeEventListener("pointercancel", onPointerUp);
+				ui.puck.removeEventListener("click", onClick);
+				win.removeEventListener("resize", onResize);
+				if (raf !== 0) win.cancelAnimationFrame(raf);
+				raf = 0;
+				win.clearTimeout(holdTimer);
+				win.clearTimeout(fadeTimer);
+				win.clearTimeout(hideTimer);
+			}
+		};
+	}
+	//#endregion
 	//#region src/screenshot.ts
 	const WEBP_QUALITY = .7;
 	const PLACEHOLDER_MAX = 32;
@@ -420,7 +862,8 @@ var Pinbox = (function(exports) {
 			activePinId: null,
 			inboxOpen: false,
 			connection: "connecting",
-			queuedIds: /* @__PURE__ */ new Set()
+			queuedIds: /* @__PURE__ */ new Set(),
+			minimized: false
 		};
 	}
 	function createStore() {
@@ -1115,6 +1558,7 @@ var Pinbox = (function(exports) {
 	const THEME_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
 	const COPY_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
 	const IDENT_ICON = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"var(--pb-amber)\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"var(--pb-amber)\" stroke=\"none\"/></svg>";
+	const MIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M6.5 2.5v4h-4\"/><path d=\"M9.5 13.5v-4h4\"/></svg>";
 	const CONNECTION_LABEL = {
 		connecting: "PINBOX",
 		live: "PINBOX",
@@ -1124,7 +1568,7 @@ var Pinbox = (function(exports) {
 	function createBar(doc, on) {
 		const root = doc.createElement("div");
 		root.className = "pb-bar";
-		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button>`;
+		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button><button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
 		const ref = (name) => root.querySelector(`[data-ref="${name}"]`);
 		const label = ref("label");
 		const pinBtn = ref("pin");
@@ -1135,6 +1579,7 @@ var Pinbox = (function(exports) {
 		ref("copy").addEventListener("click", on.onCopy);
 		ref("theme").addEventListener("click", on.onTheme);
 		ref("help").addEventListener("click", on.onHelp);
+		ref("min").addEventListener("click", (e) => on.onMinimize(e.detail === 0));
 		return {
 			root,
 			update(state) {
@@ -1631,6 +2076,43 @@ var Pinbox = (function(exports) {
 		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(visible.length + 1, null));
 	}
 	//#endregion
+	//#region src/ui/puck.ts
+	/** The bar's ident mark, sized up for the 48px puck face. */
+	const PUCK_ICON = "<svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/></svg>";
+	function createMinimizeUi(doc) {
+		const puck = doc.createElement("button");
+		puck.type = "button";
+		puck.className = "pb-puck pb-ghost";
+		puck.setAttribute("aria-label", "Restore Pinbox toolbar");
+		puck.innerHTML = `<span class="in">${PUCK_ICON}</span><span class="badge" data-ref="count" hidden>0</span><span class="cdot"></span>`;
+		const morphWrap = doc.createElement("div");
+		morphWrap.className = "pb-morph-wrap";
+		morphWrap.hidden = true;
+		const surface = doc.createElement("div");
+		surface.className = "pb-morph";
+		const carrier = doc.createElement("div");
+		carrier.className = "pb-carrier";
+		carrier.innerHTML = `${PUCK_ICON}<span class="badge" data-ref="count" hidden>0</span>`;
+		morphWrap.appendChild(surface);
+		morphWrap.appendChild(carrier);
+		const badges = [puck.querySelector("[data-ref=\"count\"]"), carrier.querySelector("[data-ref=\"count\"]")];
+		return {
+			puck,
+			morphWrap,
+			surface,
+			carrier,
+			update(state) {
+				const open = String(state.pins.filter((p) => p.status !== "resolved").length);
+				for (const badge of badges) {
+					if (badge.textContent !== open) badge.textContent = open;
+					badge.hidden = open === "0";
+				}
+				const degraded = state.connection === "offline" || state.connection === "incompatible";
+				puck.classList.toggle("degraded", degraded);
+			}
+		};
+	}
+	//#endregion
 	//#region src/ui/reticle.ts
 	function createReticle(doc) {
 		const crosshair = doc.createElement("div");
@@ -1686,6 +2168,7 @@ var Pinbox = (function(exports) {
 		["Send comment", "⌘ ↵"],
 		["Mark pin resolved", "R"],
 		["Copy open pins", "C"],
+		["Minimize toolbar", "M"],
 		["Cancel", "ESC"]
 	];
 	function createShortcutsModal(doc, onClose) {
@@ -1896,6 +2379,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-item .mm .sdot { width: 5px; height: 5px; border-radius: 999px; }
 .pb-empty { padding: 26px 16px; font-size: 12.5px; color: var(--pb-fg3); }
 
+/* minimize: floating puck + morph layer (ui/puck.ts, minimize.ts) — v3 design.
+   The morph surface is styled identically to the bar so endpoint handoffs are
+   pixel-invisible. Ghosting keeps layout (getBoundingClientRect still measures
+   morph targets) while dropping the element from paint and the tab order. */
+.pb-ghost { opacity: 0 !important; pointer-events: none !important; visibility: hidden; transition: opacity 90ms linear, visibility 0s 90ms; }
+.pb-bar { transition: opacity 90ms linear; }
+.pb-morph-wrap { position: fixed; inset: 0; z-index: 89; pointer-events: none; opacity: 0; transition: opacity 90ms linear; }
+.pb-morph-wrap.on { opacity: 1; }
+.pb-morph { position: absolute; left: 0; top: 0; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); will-change: transform, width, height; }
+.pb-carrier { position: absolute; left: 0; top: 0; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: var(--pb-amber); opacity: 0; transition: opacity 140ms linear; will-change: transform; }
+.pb-carrier.show { opacity: 1; }
+/* Above the bar (90) and drawer (85), below the aim layer (100) and modal (120). */
+.pb-puck { position: fixed; left: 0; top: 0; width: 48px; height: 48px; z-index: 95; border-radius: 999px; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); display: flex; align-items: center; justify-content: center; color: var(--pb-amber); cursor: grab; touch-action: none; transition: opacity 90ms linear; }
+.pb-puck:active { cursor: grabbing; }
+.pb-puck .in { display: flex; transition: transform 160ms var(--pb-ease); }
+.pb-puck:hover .in { transform: scale(1.12); }
+.pb-puck .badge, .pb-carrier .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+/* The bar says "· OFFLINE" in words; the puck's amber dot is the same signal. */
+.pb-puck .cdot { position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 999px; background: var(--pb-amber); border: 2px solid var(--pb-canvas); display: none; }
+.pb-puck.degraded .cdot { display: block; }
+
 /* shortcuts modal (ui/shortcuts.ts) — prototype lines 226–232 */
 .pb-modal { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: var(--pb-scrim); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: pb-fade 200ms ease-out both; }
 .pb-modal .mx { width: 430px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); animation: pb-in 280ms var(--pb-ease) both; }
@@ -1951,6 +2455,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** Pending viewport-refresh frame, 0 when none is queued. */
 		#viewportFrame = 0;
 		#modal = null;
+		#minUi = null;
+		#min = null;
 		#helpOpen = false;
 		#pageStyle = null;
 		#unsubscribe = null;
@@ -1991,6 +2497,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			document.head.appendChild(style);
 			this.#pageStyle = style;
 			if (this.#aim === null) this.#mountAim();
+			if (this.#min === null) this.#mountMinimize();
 			document.addEventListener("mousemove", this.#onMouseMove);
 			window.addEventListener("scroll", this.#onViewportChange, { passive: true });
 			window.addEventListener("resize", this.#onViewportChange);
@@ -2036,6 +2543,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#viewportFrame = 0;
 			this.#aim?.destroy();
 			this.#aim = null;
+			this.#min?.destroy();
+			this.#min = null;
 			this.#unsubscribe?.();
 			this.#unsubscribe = null;
 			this.#pageStyle?.remove();
@@ -2089,9 +2598,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				onInbox: () => this.store.update({ inboxOpen: !this.store.get().inboxOpen }),
 				onTheme: () => this.#toggleTheme(),
 				onHelp: () => this.#toggleHelp(),
-				onCopy: () => this.#copyOpenPins()
+				onCopy: () => this.#copyOpenPins(),
+				onMinimize: (keyboard) => this.minimize(keyboard)
 			});
 			shadow.appendChild(this.#bar.root);
+			this.#minUi = createMinimizeUi(document);
+			shadow.appendChild(this.#minUi.morphWrap);
+			shadow.appendChild(this.#minUi.puck);
 			this.#drawer = createDrawer(document, {
 				onActivate: (pinId) => this.#activateFromInbox(pinId),
 				onClose: () => this.store.update({ inboxOpen: false })
@@ -2101,6 +2614,52 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
 			shadow.appendChild(this.#modal.root);
 			this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
+		}
+		/** Same lifetime split as #mountAim: the controller's window listeners and timers die on
+		* disconnect, so it is (re)built on connect and re-applies the persisted resting state. */
+		#mountMinimize() {
+			const ui = this.#minUi;
+			const bar = this.#bar;
+			if (ui === null || bar === null) return;
+			this.#min = createMinimize({
+				win: window,
+				bar: bar.root,
+				ui,
+				storage: globalThis.localStorage ?? null,
+				storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
+				reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+				initialMinimized: this.config?.minimized === true,
+				onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard)
+			});
+			this.#min.applyInitial();
+		}
+		#onMinimizeSettled(minimized, keyboard) {
+			if (this.store.get().minimized !== minimized) this.store.update({ minimized });
+			this.dispatchEvent(new CustomEvent(minimized ? "pinbox:minimize" : "pinbox:restore", {
+				bubbles: true,
+				composed: true
+			}));
+			if (!keyboard) return;
+			if (minimized) this.#minUi?.puck.focus();
+			else this.#bar?.root.querySelector("[data-ref=\"min\"]")?.focus();
+		}
+		/** Public: collapse the bar to the floating puck. Bar surfaces close first —
+		* the morph must never sweep over an open card, drawer, or armed reticle. */
+		minimize(keyboard = false) {
+			const state = this.store.get();
+			if (state.mode === "placing" || state.activePinId !== null || state.draft !== null) this.#dismiss();
+			if (state.inboxOpen) this.store.update({ inboxOpen: false });
+			this.#setHelp(false);
+			this.#min?.minimize(keyboard);
+		}
+		/** Public: bring the bar back from the puck. */
+		restore(keyboard = false) {
+			this.#min?.restore(keyboard);
+		}
+		/** Bar-surface shortcuts pressed while minimized restore the bar, then run. */
+		#surfaced(run) {
+			if (this.#min?.minimized() === true) this.restore(false);
+			run();
 		}
 		/**
 		* Task 8 wiring: WS events mutate the store, connection state renders in the
@@ -2325,14 +2884,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			if (state.inboxOpen) this.store.update({ inboxOpen: false });
 			if (state.activePinId || state.draft) this.#dismiss();
 		};
-		/** Prototype keyboard map (v2-command-bar.html lines 701–712). */
+		/** Prototype keyboard map (v2-command-bar.html lines 701–712) + M (v3 minimize). */
 		#shortcuts = {
 			escape: () => this.#dismiss(),
-			p: () => this.#togglePlacing(),
-			i: () => this.#toggleInbox(),
+			p: () => this.#surfaced(() => this.#togglePlacing()),
+			i: () => this.#surfaced(() => this.#toggleInbox()),
 			d: () => this.#toggleTheme(),
 			r: () => this.#resolveActive(),
 			c: () => this.#copyOpenPins(),
+			m: () => this.#min?.minimized() === true ? this.restore(true) : this.minimize(true),
 			"?": () => this.#toggleHelp()
 		};
 		#onKeyDown = (e) => {
@@ -2370,6 +2930,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
 			this.#drawer?.update(state);
 			this.#bar?.update(state);
+			this.#minUi?.update(state);
 		}
 	};
 	//#endregion

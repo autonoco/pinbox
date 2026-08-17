@@ -16,6 +16,8 @@ const COPY_ICON =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></svg>';
 const IDENT_ICON =
   '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--pb-amber)" stroke-width="1.4"><rect x="2.5" y="1.5" width="11" height="7" rx="1"/><path d="M8 8.5v6"/><circle cx="8" cy="14.6" r=".9" fill="var(--pb-amber)" stroke="none"/></svg>';
+const MIN_ICON =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6.5 2.5v4h-4"/><path d="M9.5 13.5v-4h4"/></svg>';
 
 export interface BarHandlers {
   onPin(): void;
@@ -24,6 +26,8 @@ export interface BarHandlers {
   onHelp(): void;
   /** "Copy open pins" — the markdown offline-fallback affordance. */
   onCopy(): void;
+  /** Collapse to the floating puck; keyboard=true for synthesized (AT) clicks. */
+  onMinimize(keyboard: boolean): void;
 }
 
 export interface Bar {
@@ -50,7 +54,8 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
     '<div class="div" style="margin:0 3px"></div>' +
     `<button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON}</button>` +
     `<button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button>` +
-    '<button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button>';
+    '<button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button>' +
+    `<button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
 
   const ref = (name: string): HTMLElement =>
     root.querySelector(`[data-ref="${name}"]`) as HTMLElement;
@@ -63,6 +68,8 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
   ref("copy").addEventListener("click", on.onCopy);
   ref("theme").addEventListener("click", on.onTheme);
   ref("help").addEventListener("click", on.onHelp);
+  // detail 0 = keyboard/AT-synthesized click — focus should follow the puck.
+  ref("min").addEventListener("click", (e) => on.onMinimize(e.detail === 0));
 
   return {
     root,

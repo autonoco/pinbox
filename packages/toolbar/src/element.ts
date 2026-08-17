@@ -10,6 +10,7 @@ import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
 import { pinsToMarkdown } from "./markdown.ts";
+import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { captureElement, uploadAttachment } from "./screenshot.ts";
 import {
   appendThreadMessage,
@@ -26,6 +27,7 @@ import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
 import { renderPins } from "./ui/pins.ts";
+import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
 import { createReticle, type Reticle } from "./ui/reticle.ts";
 import { createShortcutsModal, type ShortcutsModal } from "./ui/shortcuts.ts";
 import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
@@ -75,6 +77,8 @@ export class PinboxToolbarElement extends BaseElement {
   /** Pending viewport-refresh frame, 0 when none is queued. */
   #viewportFrame = 0;
   #modal: ShortcutsModal | null = null;
+  #minUi: MinimizeUi | null = null;
+  #min: MinimizeController | null = null;
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -117,9 +121,10 @@ export class PinboxToolbarElement extends BaseElement {
     style.textContent = PAGE_CSS;
     document.head.appendChild(style);
     this.#pageStyle = style;
-    // `#build` runs once; the aim controller's listeners do not survive a disconnect, so it is
-    // rebuilt here rather than there.
+    // `#build` runs once; the aim and minimize controllers' listeners and timers do not survive
+    // a disconnect, so both are rebuilt here rather than there.
     if (this.#aim === null) this.#mountAim();
+    if (this.#min === null) this.#mountMinimize();
     document.addEventListener("mousemove", this.#onMouseMove);
     // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
     window.addEventListener("scroll", this.#onViewportChange, { passive: true });
@@ -169,6 +174,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#viewportFrame = 0;
     this.#aim?.destroy();
     this.#aim = null;
+    this.#min?.destroy();
+    this.#min = null;
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#pageStyle?.remove();
@@ -226,8 +233,12 @@ export class PinboxToolbarElement extends BaseElement {
       onTheme: () => this.#toggleTheme(),
       onHelp: () => this.#toggleHelp(),
       onCopy: () => this.#copyOpenPins(),
+      onMinimize: (keyboard) => this.minimize(keyboard),
     });
     shadow.appendChild(this.#bar.root);
+    this.#minUi = createMinimizeUi(document);
+    shadow.appendChild(this.#minUi.morphWrap);
+    shadow.appendChild(this.#minUi.puck);
     this.#drawer = createDrawer(document, {
       onActivate: (pinId) => this.#activateFromInbox(pinId),
       onClose: () => this.store.update({ inboxOpen: false }),
@@ -237,6 +248,62 @@ export class PinboxToolbarElement extends BaseElement {
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
     shadow.appendChild(this.#modal.root);
     this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
+  }
+
+  /** Same lifetime split as #mountAim: the controller's window listeners and timers die on
+   * disconnect, so it is (re)built on connect and re-applies the persisted resting state. */
+  #mountMinimize(): void {
+    const ui = this.#minUi;
+    const bar = this.#bar;
+    if (ui === null || bar === null) return;
+    this.#min = createMinimize({
+      win: window,
+      bar: bar.root,
+      ui,
+      storage: globalThis.localStorage ?? null,
+      storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      initialMinimized: this.config?.minimized === true,
+      onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard),
+    });
+    this.#min.applyInitial();
+  }
+
+  #onMinimizeSettled(minimized: boolean, keyboard: boolean): void {
+    if (this.store.get().minimized !== minimized) this.store.update({ minimized });
+    this.dispatchEvent(
+      new CustomEvent(minimized ? "pinbox:minimize" : "pinbox:restore", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
+    // Keyboard-initiated toggles hand focus to the surface that remains.
+    if (!keyboard) return;
+    if (minimized) this.#minUi?.puck.focus();
+    else this.#bar?.root.querySelector<HTMLElement>('[data-ref="min"]')?.focus();
+  }
+
+  /** Public: collapse the bar to the floating puck. Bar surfaces close first —
+   * the morph must never sweep over an open card, drawer, or armed reticle. */
+  minimize(keyboard = false): void {
+    const state = this.store.get();
+    if (state.mode === "placing" || state.activePinId !== null || state.draft !== null) {
+      this.#dismiss();
+    }
+    if (state.inboxOpen) this.store.update({ inboxOpen: false });
+    this.#setHelp(false);
+    this.#min?.minimize(keyboard);
+  }
+
+  /** Public: bring the bar back from the puck. */
+  restore(keyboard = false): void {
+    this.#min?.restore(keyboard);
+  }
+
+  /** Bar-surface shortcuts pressed while minimized restore the bar, then run. */
+  #surfaced(run: () => void): void {
+    if (this.#min?.minimized() === true) this.restore(false);
+    run();
   }
 
   /**
@@ -512,14 +579,15 @@ export class PinboxToolbarElement extends BaseElement {
     if (state.activePinId || state.draft) this.#dismiss();
   };
 
-  /** Prototype keyboard map (v2-command-bar.html lines 701–712). */
+  /** Prototype keyboard map (v2-command-bar.html lines 701–712) + M (v3 minimize). */
   #shortcuts: Record<string, () => void> = {
     escape: () => this.#dismiss(),
-    p: () => this.#togglePlacing(),
-    i: () => this.#toggleInbox(),
+    p: () => this.#surfaced(() => this.#togglePlacing()),
+    i: () => this.#surfaced(() => this.#toggleInbox()),
     d: () => this.#toggleTheme(),
     r: () => this.#resolveActive(),
     c: () => this.#copyOpenPins(),
+    m: () => (this.#min?.minimized() === true ? this.restore(true) : this.minimize(true)),
     "?": () => this.#toggleHelp(),
   };
 
@@ -562,5 +630,6 @@ export class PinboxToolbarElement extends BaseElement {
     if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
     this.#drawer?.update(state);
     this.#bar?.update(state);
+    this.#minUi?.update(state);
   }
 }

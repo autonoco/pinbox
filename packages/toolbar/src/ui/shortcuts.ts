@@ -11,6 +11,7 @@ const ROWS: [string, string][] = [
   ["Send comment", "⌘ ↵"],
   ["Mark pin resolved", "R"],
   ["Copy open pins", "C"],
+  ["Minimize toolbar", "M"],
   ["Cancel", "ESC"],
 ];
 

@@ -27,6 +27,11 @@ export interface PinboxConfig {
    * pixels.
    */
   screenshots?: boolean;
+  /**
+   * Start with the bar collapsed to the floating puck. Default false. A
+   * visitor's own choice, persisted per endpoint, wins over this on reload.
+   */
+  minimized?: boolean;
 }
 
 /** Register <pinbox-toolbar>; no-op outside a browser or when already defined. */

@@ -43,6 +43,24 @@ describe("createMinimizeUi", () => {
     expect(u.puck.classList.contains("degraded")).toBe(false);
   });
 
+  test("fan ships all four actions and mirrors the badge", () => {
+    const u = ui();
+    const acts = [...u.fan.querySelectorAll("[data-act]")].map((el) => el.getAttribute("data-act"));
+    expect(acts).toEqual(["pin", "inbox", "theme", "expand"]);
+    u.update(stateWith({ pins: [pin("a", "open")] }));
+    const fanBadge = u.fan.querySelector('[data-ref="count"]') as HTMLElement;
+    expect(fanBadge.textContent).toBe("1");
+    expect(u.fan.hidden).toBe(true);
+  });
+
+  test("placing mode arms the puck", () => {
+    const u = ui();
+    u.update(stateWith({ mode: "placing" }));
+    expect(u.puck.classList.contains("armed")).toBe(true);
+    u.update(stateWith({ mode: "idle" }));
+    expect(u.puck.classList.contains("armed")).toBe(false);
+  });
+
   test("starts ghosted with the morph layer hidden", () => {
     const u = ui();
     expect(u.puck.classList.contains("pb-ghost")).toBe(true);

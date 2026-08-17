@@ -101,3 +101,15 @@ user's remembered choice always wins on reload.
    cannot touch it.)
 
 Estimate: about a day including tests and review.
+
+## v3.1 — the puck fan menu (shipped with 0.10)
+
+Tapping the puck no longer restores; it fans a vertical quick-menu out of the
+puck (skiper98 idiom — icon pill, staggered spring, slide-out labels with key
+chips): PIN, INBOX (count badge), THEME, EXPAND. Actions run WITHOUT
+restoring — placing, the drawer, and the theme are all independent of the bar,
+and the puck carries the armed ring while placing. EXPAND (or `M`) brings the
+bar back. The fan opens away from the nearer vertical edge, labels slide
+toward screen center; drag closes it, Escape closes it before dismissing
+anything else, click-away closes it, and `prefers-reduced-motion` gets it
+instantly. Validated in the same prototype (`v3-minimize.html`, fan revision).

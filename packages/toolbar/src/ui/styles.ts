@@ -218,10 +218,28 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-puck:active { cursor: grabbing; }
 .pb-puck .in { display: flex; transition: transform 160ms var(--pb-ease); }
 .pb-puck:hover .in { transform: scale(1.12); }
-.pb-puck .badge, .pb-carrier .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+.pb-puck .badge, .pb-carrier .badge, .pb-fan-item .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
 /* The bar says "· OFFLINE" in words; the puck's amber dot is the same signal. */
 .pb-puck .cdot { position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 999px; background: var(--pb-amber); border: 2px solid var(--pb-canvas); display: none; }
 .pb-puck.degraded .cdot { display: block; }
+/* Placing armed from the fan: the bar's armed-ring is hidden with the bar. */
+.pb-puck.armed { border-color: var(--pb-amber); box-shadow: 0 0 0 4px var(--pb-amber-soft), var(--pb-shadow); }
+
+/* puck fan menu (ui/puck.ts, minimize.ts) — tap the puck and a vertical
+   quick-menu fans out of it; EXPAND is how the bar comes back. Items stagger
+   from the puck; hovering slides a label + key chip toward screen center. */
+.pb-fan { position: fixed; z-index: 96; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.pb-fan-item { position: relative; width: 40px; height: 40px; border-radius: 999px; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); color: var(--pb-fg2); display: flex; align-items: center; justify-content: center; opacity: 0; transform: var(--fan-from) scale(0.5); transition: transform 300ms var(--pb-ease), opacity 180ms linear, color 140ms linear, border-color 140ms linear; transition-delay: calc(var(--i) * 35ms); }
+.pb-fan.up { --fan-from: translateY(16px); }
+.pb-fan.down { --fan-from: translateY(-16px); }
+.pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
+.pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item .badge { pointer-events: none; }
+.pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
+.pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }
+.pb-fan.labels-left .fl { right: calc(100% + 10px); transform: translateY(-50%) translateX(6px); }
+.pb-fan-item:hover .fl { opacity: 1; transform: translateY(-50%) translateX(0); }
+.pb-fan-item .fl i { font-style: normal; padding: 1px 5px; border: 1px solid var(--pb-line-2); border-radius: 2px; background: var(--pb-sunken); color: var(--pb-fg3); }
 
 /* shortcuts modal (ui/shortcuts.ts) — prototype lines 226–232 */
 .pb-modal { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: var(--pb-scrim); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: pb-fade 200ms ease-out both; }

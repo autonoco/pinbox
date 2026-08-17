@@ -369,6 +369,8 @@ var Pinbox = (function(exports) {
 	const BAR_RADIUS = 4;
 	/** The carrier icon rides the surface only while it is puck-like (< this width). */
 	const CARRIER_MAX_W = 260;
+	/** Fan close transition length before display:none. */
+	const FAN_HIDE = 300;
 	function createMinimize(host) {
 		const { win, bar, ui } = host;
 		const main = mkSpring({
@@ -388,6 +390,8 @@ var Pinbox = (function(exports) {
 		let holdTimer = 0;
 		let fadeTimer = 0;
 		let hideTimer = 0;
+		let fanOpen = false;
+		let fanTimer = 0;
 		function loadDock() {
 			try {
 				const raw = host.storage?.getItem(`${host.storagePrefix}:dock`);
@@ -535,6 +539,7 @@ var Pinbox = (function(exports) {
 		}
 		function restore(keyboard = false) {
 			if (mode !== "puck" || puckPos === null) return;
+			closeFan();
 			pdown = null;
 			keyboardToggle = keyboard;
 			dock = { ...puckPos };
@@ -569,6 +574,54 @@ var Pinbox = (function(exports) {
 				ensureLoop();
 			}, HOLD_RESTORE);
 		}
+		/** Fan out of the puck: direction away from the nearer vertical edge,
+		* labels sliding toward screen center. */
+		function openFan() {
+			if (mode !== "puck" || puckPos === null) return;
+			win.clearTimeout(fanTimer);
+			ui.fan.hidden = false;
+			const upward = puckPos.y + PUCK / 2 > win.innerHeight / 2;
+			ui.fan.classList.toggle("up", upward);
+			ui.fan.classList.toggle("down", !upward);
+			ui.fan.classList.toggle("labels-right", puckPos.x + PUCK / 2 < win.innerWidth / 2);
+			ui.fan.classList.toggle("labels-left", puckPos.x + PUCK / 2 >= win.innerWidth / 2);
+			ui.fan.style.left = `${puckPos.x + PUCK / 2 - 20}px`;
+			ui.fan.offsetHeight;
+			const h = ui.fan.offsetHeight;
+			ui.fan.style.top = upward ? `${puckPos.y - h - 10}px` : `${puckPos.y + PUCK + 10}px`;
+			ui.fan.classList.add("on");
+			ui.puck.setAttribute("aria-expanded", "true");
+			fanOpen = true;
+		}
+		function closeFan() {
+			if (!fanOpen) return false;
+			ui.fan.classList.remove("on");
+			ui.puck.setAttribute("aria-expanded", "false");
+			fanOpen = false;
+			win.clearTimeout(fanTimer);
+			fanTimer = win.setTimeout(() => {
+				ui.fan.hidden = true;
+			}, FAN_HIDE);
+			return true;
+		}
+		function onFanClick(e) {
+			const act = (e.target.closest?.("[data-act]"))?.getAttribute("data-act");
+			if (act == null) return;
+			if (act === "expand") {
+				closeFan();
+				restore(e.detail === 0);
+				return;
+			}
+			host.onFanAction(act);
+		}
+		/** Click-away, at the document level: shadow events retarget, so membership
+		* is checked via composedPath, not target. */
+		function onDocPointerDown(e) {
+			if (!fanOpen) return;
+			const path = e.composedPath();
+			if (path.includes(ui.fan) || path.includes(ui.puck)) return;
+			closeFan();
+		}
 		function onPointerDown(e) {
 			if (mode !== "puck" || e.button !== 0) return;
 			try {
@@ -598,6 +651,7 @@ var Pinbox = (function(exports) {
 				}
 				if (Math.hypot(dx, dy) < DRAG_START) return;
 				pdown.moved = true;
+				closeFan();
 				mode = "drag";
 				if (!host.reduced) {
 					ui.puck.classList.add("pb-ghost");
@@ -653,7 +707,7 @@ var Pinbox = (function(exports) {
 					hideMorph();
 					mode = "puck";
 				}
-				restore(false);
+				if (!closeFan()) openFan();
 				return;
 			}
 			if (host.reduced) {
@@ -681,9 +735,11 @@ var Pinbox = (function(exports) {
 		}
 		/** Keyboard/AT activation is a synthesized click (detail 0) with no pointer events. */
 		function onClick(e) {
-			if (e.detail === 0) restore(true);
+			if (e.detail !== 0) return;
+			if (!closeFan()) openFan();
 		}
 		function onResize() {
+			closeFan();
 			if (mode === "puck" && puckPos !== null) {
 				const p = clampPos(puckPos);
 				placePuck(p.x, p.y);
@@ -695,12 +751,15 @@ var Pinbox = (function(exports) {
 		ui.puck.addEventListener("pointerup", onPointerUp);
 		ui.puck.addEventListener("pointercancel", onPointerUp);
 		ui.puck.addEventListener("click", onClick);
+		ui.fan.addEventListener("click", onFanClick);
+		win.document.addEventListener("pointerdown", onDocPointerDown);
 		win.addEventListener("resize", onResize);
 		return {
 			minimized: () => mode !== "bar",
 			mode: () => mode,
 			minimize,
 			restore,
+			closeFan,
 			applyInitial() {
 				if (!loadMinimized()) return;
 				const apply = () => {
@@ -721,12 +780,18 @@ var Pinbox = (function(exports) {
 				ui.puck.removeEventListener("pointerup", onPointerUp);
 				ui.puck.removeEventListener("pointercancel", onPointerUp);
 				ui.puck.removeEventListener("click", onClick);
+				ui.fan.removeEventListener("click", onFanClick);
+				win.document.removeEventListener("pointerdown", onDocPointerDown);
 				win.removeEventListener("resize", onResize);
 				if (raf !== 0) win.cancelAnimationFrame(raf);
 				raf = 0;
 				win.clearTimeout(holdTimer);
 				win.clearTimeout(fadeTimer);
 				win.clearTimeout(hideTimer);
+				win.clearTimeout(fanTimer);
+				ui.fan.hidden = true;
+				ui.fan.classList.remove("on");
+				fanOpen = false;
 			}
 		};
 	}
@@ -2079,12 +2144,25 @@ var Pinbox = (function(exports) {
 	//#region src/ui/puck.ts
 	/** The bar's ident mark, sized up for the 48px puck face. */
 	const PUCK_ICON = "<svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/></svg>";
+	const FAN_PIN = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
+	const FAN_INBOX = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
+	const FAN_THEME = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
+	const FAN_EXPAND = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M9.5 6.5v-4h4\"/><path d=\"M6.5 9.5v4h-4\"/></svg>";
+	function fanItem(act, index, icon, label, key) {
+		return `<button type="button" class="pb-fan-item" data-act="${act}" style="--i:${index}" aria-label="${label}">${icon}${act === "inbox" ? "<span class=\"badge\" data-ref=\"count\" hidden>0</span>" : ""}<span class="fl">${label.toUpperCase()}<i>${key}</i></span></button>`;
+	}
 	function createMinimizeUi(doc) {
 		const puck = doc.createElement("button");
 		puck.type = "button";
 		puck.className = "pb-puck pb-ghost";
-		puck.setAttribute("aria-label", "Restore Pinbox toolbar");
+		puck.setAttribute("aria-label", "Pinbox menu");
+		puck.setAttribute("aria-haspopup", "menu");
 		puck.innerHTML = `<span class="in">${PUCK_ICON}</span><span class="badge" data-ref="count" hidden>0</span><span class="cdot"></span>`;
+		const fan = doc.createElement("div");
+		fan.className = "pb-fan";
+		fan.hidden = true;
+		fan.setAttribute("role", "menu");
+		fan.innerHTML = fanItem("pin", 0, FAN_PIN, "Drop a pin", "P") + fanItem("inbox", 1, FAN_INBOX, "Inbox", "I") + fanItem("theme", 2, FAN_THEME, "Theme", "D") + fanItem("expand", 3, FAN_EXPAND, "Expand", "M");
 		const morphWrap = doc.createElement("div");
 		morphWrap.className = "pb-morph-wrap";
 		morphWrap.hidden = true;
@@ -2095,9 +2173,14 @@ var Pinbox = (function(exports) {
 		carrier.innerHTML = `${PUCK_ICON}<span class="badge" data-ref="count" hidden>0</span>`;
 		morphWrap.appendChild(surface);
 		morphWrap.appendChild(carrier);
-		const badges = [puck.querySelector("[data-ref=\"count\"]"), carrier.querySelector("[data-ref=\"count\"]")];
+		const badges = [
+			puck.querySelector("[data-ref=\"count\"]"),
+			carrier.querySelector("[data-ref=\"count\"]"),
+			fan.querySelector("[data-ref=\"count\"]")
+		];
 		return {
 			puck,
+			fan,
 			morphWrap,
 			surface,
 			carrier,
@@ -2109,6 +2192,7 @@ var Pinbox = (function(exports) {
 				}
 				const degraded = state.connection === "offline" || state.connection === "incompatible";
 				puck.classList.toggle("degraded", degraded);
+				puck.classList.toggle("armed", state.mode === "placing");
 			}
 		};
 	}
@@ -2395,10 +2479,28 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-puck:active { cursor: grabbing; }
 .pb-puck .in { display: flex; transition: transform 160ms var(--pb-ease); }
 .pb-puck:hover .in { transform: scale(1.12); }
-.pb-puck .badge, .pb-carrier .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+.pb-puck .badge, .pb-carrier .badge, .pb-fan-item .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
 /* The bar says "· OFFLINE" in words; the puck's amber dot is the same signal. */
 .pb-puck .cdot { position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 999px; background: var(--pb-amber); border: 2px solid var(--pb-canvas); display: none; }
 .pb-puck.degraded .cdot { display: block; }
+/* Placing armed from the fan: the bar's armed-ring is hidden with the bar. */
+.pb-puck.armed { border-color: var(--pb-amber); box-shadow: 0 0 0 4px var(--pb-amber-soft), var(--pb-shadow); }
+
+/* puck fan menu (ui/puck.ts, minimize.ts) — tap the puck and a vertical
+   quick-menu fans out of it; EXPAND is how the bar comes back. Items stagger
+   from the puck; hovering slides a label + key chip toward screen center. */
+.pb-fan { position: fixed; z-index: 96; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.pb-fan-item { position: relative; width: 40px; height: 40px; border-radius: 999px; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); color: var(--pb-fg2); display: flex; align-items: center; justify-content: center; opacity: 0; transform: var(--fan-from) scale(0.5); transition: transform 300ms var(--pb-ease), opacity 180ms linear, color 140ms linear, border-color 140ms linear; transition-delay: calc(var(--i) * 35ms); }
+.pb-fan.up { --fan-from: translateY(16px); }
+.pb-fan.down { --fan-from: translateY(-16px); }
+.pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
+.pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item .badge { pointer-events: none; }
+.pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
+.pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }
+.pb-fan.labels-left .fl { right: calc(100% + 10px); transform: translateY(-50%) translateX(6px); }
+.pb-fan-item:hover .fl { opacity: 1; transform: translateY(-50%) translateX(0); }
+.pb-fan-item .fl i { font-style: normal; padding: 1px 5px; border: 1px solid var(--pb-line-2); border-radius: 2px; background: var(--pb-sunken); color: var(--pb-fg3); }
 
 /* shortcuts modal (ui/shortcuts.ts) — prototype lines 226–232 */
 .pb-modal { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: var(--pb-scrim); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: pb-fade 200ms ease-out both; }
@@ -2605,6 +2707,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#minUi = createMinimizeUi(document);
 			shadow.appendChild(this.#minUi.morphWrap);
 			shadow.appendChild(this.#minUi.puck);
+			shadow.appendChild(this.#minUi.fan);
 			this.#drawer = createDrawer(document, {
 				onActivate: (pinId) => this.#activateFromInbox(pinId),
 				onClose: () => this.store.update({ inboxOpen: false })
@@ -2629,7 +2732,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
 				reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 				initialMinimized: this.config?.minimized === true,
-				onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard)
+				onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard),
+				onFanAction: (action) => {
+					if (action === "pin") this.#togglePlacing();
+					else if (action === "inbox") this.#toggleInbox();
+					else this.#toggleTheme();
+				}
 			});
 			this.#min.applyInitial();
 		}
@@ -2655,11 +2763,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** Public: bring the bar back from the puck. */
 		restore(keyboard = false) {
 			this.#min?.restore(keyboard);
-		}
-		/** Bar-surface shortcuts pressed while minimized restore the bar, then run. */
-		#surfaced(run) {
-			if (this.#min?.minimized() === true) this.restore(false);
-			run();
 		}
 		/**
 		* Task 8 wiring: WS events mutate the store, connection state renders in the
@@ -2886,9 +2989,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		};
 		/** Prototype keyboard map (v2-command-bar.html lines 701–712) + M (v3 minimize). */
 		#shortcuts = {
-			escape: () => this.#dismiss(),
-			p: () => this.#surfaced(() => this.#togglePlacing()),
-			i: () => this.#surfaced(() => this.#toggleInbox()),
+			escape: () => {
+				if (this.#min?.closeFan() === true) return;
+				this.#dismiss();
+			},
+			p: () => this.#togglePlacing(),
+			i: () => this.#toggleInbox(),
 			d: () => this.#toggleTheme(),
 			r: () => this.#resolveActive(),
 			c: () => this.#copyOpenPins(),

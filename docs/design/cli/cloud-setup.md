@@ -34,7 +34,7 @@ standing up the hub itself.
 | # | Trap | Symptom | Automation |
 |---|---|---|---|
 | 1 | Multi-account wrangler | `More than one account available` | `wrangler whoami` → picker → pin `account_id` into the generated config |
-| 2 | R2 not enabled | API error 10042 | Print the exact dashboard URL, poll `r2 bucket list` until it succeeds |
+| 2 | R2 not enabled | API error 10042 | Print the exact dashboard URL, poll `r2 bucket list` with backoff up to a deadline (~2 min); on timeout, record the step incomplete and exit reprinting the URL — re-running `pinbox init` resumes here |
 | 3 | S3 keys are dashboard-only | presign 401s | Guided step with the exact URL; accept the two keys via hidden prompt straight into `wrangler secret put` (never echoed) |
 | 4 | `content-length` is a signed header | mysterious presign 403s | Verification PUTs the exact presigned size |
 | 5 | No CORS in the template | `live` connection, pins stuck `QUEUED` | Port the CORS handling (worker `CORS_ORIGINS` + preflight + never wrapping 101s) into `templates/worker`; ask for app origins up front |
@@ -70,10 +70,14 @@ The checklist init walks when the cloud option is picked:
 3. **Token** — generate (`crypto.randomBytes`), `secret put PINBOX_TOKEN`, and
    print ONE machine-readable line (`PINBOX_HUB_TOKEN=<value>`) for the host's
    secret store — the only time it is shown. Rotation = `pinbox init --cloud
-   --rotate-token` (re-runs just this step with a fresh value).
+   --rotate-token` (re-runs just this step with a fresh value). The step is
+   recorded complete only after the handoff line prints: wrangler secrets cannot
+   be read back, so a run interrupted between `secret put` and the print re-runs
+   the whole step on resume — fresh token, replaced secret, new handoff line
+   (the same path `--rotate-token` takes).
 4. **Deploy** — clean stale artifacts (trap 8), `wrangler deploy`, capture the
    workers.dev URL.
-5. **Media (optional, prompted)** — R2 enablement poll (trap 2), bucket create,
+5. **Media (optional, prompted)** — bounded R2 enablement poll (trap 2), bucket create,
    bucket CORS (trap 6), guided S3-key entry (trap 3), binding + vars, redeploy.
 6. **Verify** — the suite from the Lark deployment, automated: WS `hello` →
    `catch-up` (and a bad-token connect must close 4401), REST pin
@@ -88,7 +92,8 @@ The checklist init walks when the cloud option is picked:
 ### Non-goals
 
 - No Cloudflare account creation, payment enablement, or API-token minting — the
-  two dashboard-only steps stay human, but guided (exact URL, poll until done).
+  two dashboard-only steps stay human, but guided (exact URL, bounded poll —
+  trap 2's deadline applies; a timeout is a clean resumable exit, never a hang).
 - No host-app code generation beyond the printed snippet: token distribution is
   the host's auth domain (Lark gates it behind an operator check; every app will
   differ).

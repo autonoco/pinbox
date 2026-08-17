@@ -21,7 +21,9 @@ SQLite storage, with hibernating WebSockets and R2-backed attachments.
    allowing `PUT`/`GET` from the same origins), or text pins will work while screenshot
    uploads fail. Without `CORS_ORIGINS` the websocket still connects (CORS-exempt), so
    the toolbar reads "live" while every REST write quietly queues offline.
-6. `wrangler deploy`. Local loop: copy `.dev.vars.example` to `.dev.vars`, `wrangler dev`.
+6. `bun run deploy` — runs the locally installed wrangler (pinned `^4.118.0` in
+   `package.json`; wrangler < 3.91 silently ignores `wrangler.jsonc`, so don't reach for a
+   global). Local loop: copy `.dev.vars.example` to `.dev.vars`, `bun run dev`.
 
 The hub mounts under `/_pinbox` (health: `GET /_pinbox/health`, tokenless). **Point
 consumers at `https://<worker-host>/_pinbox`** — mount path included; the origin root

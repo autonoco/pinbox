@@ -17,7 +17,13 @@
   "vars": {
     "AUTH_STRATEGY": "token",
     "PINBOX_PROJECT": "default",
-    "ORIGIN_URL": ""
+    "ORIGIN_URL": "",
+    // Origins allowed to call the hub cross-origin (comma-separated), for host apps
+    // that mount the toolbar themselves instead of using ORIGIN_URL injection.
+    // Websockets are CORS-exempt, REST is not: left empty in that mode, the toolbar
+    // reads "live" while every pin quietly queues offline. Browser screenshot uploads
+    // ALSO need CORS on the R2 bucket itself (see README step 5).
+    "CORS_ORIGINS": ""
   },
   // The toolbar bundle ships as text (served verbatim at /_pinbox/pinbox.js).
   "rules": [{ "type": "Text", "globs": ["**/*.iife.js"], "fallthrough": true }],

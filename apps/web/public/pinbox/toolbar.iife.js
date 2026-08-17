@@ -1,5 +1,29 @@
 var Pinbox = (function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+	//#region src/anchor-watch.ts
+	function watchAnchors(win, onChange) {
+		let frame = 0;
+		const schedule = () => {
+			if (frame !== 0) return;
+			frame = win.requestAnimationFrame(() => {
+				frame = 0;
+				onChange();
+			});
+		};
+		const observer = new (win.MutationObserver ?? MutationObserver)(schedule);
+		observer.observe(win.document.body, {
+			childList: true,
+			subtree: true
+		});
+		win.addEventListener("popstate", schedule);
+		return { destroy() {
+			observer.disconnect();
+			win.removeEventListener("popstate", schedule);
+			if (frame !== 0) win.cancelAnimationFrame(frame);
+			frame = 0;
+		} };
+	}
+	//#endregion
 	//#region src/targeting/dom.ts
 	/**
 	* Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
@@ -272,7 +296,7 @@ var Pinbox = (function(exports) {
 	function block(pin, thread) {
 		const { selector, url, source } = pin.target ?? {};
 		return [
-			`## Pin ${pin.id} — OPEN`,
+			`## Pin ${pin.id} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
@@ -287,6 +311,11 @@ var Pinbox = (function(exports) {
 		const open = pins.filter((p) => p.status === "open");
 		if (open.length === 0) return "No open pins.\n";
 		return `${open.map((p) => block(p, threads.get(p.id) ?? [])).join("\n\n")}\n`;
+	}
+	/** One pin's block — the card's per-pin copy (dogfood: "I want to copy an
+	* individual pin"); any status, since you copy exactly what you're looking at. */
+	function pinToMarkdown(pin, thread) {
+		return `${block(pin, thread)}\n`;
 	}
 	//#endregion
 	//#region src/motion/spring.ts
@@ -839,39 +868,6 @@ var Pinbox = (function(exports) {
 		});
 		return video;
 	}
-	/**
-	* The one live capture stream, reused across pins. getDisplayMedia MUST
-	* prompt on every call (spec — no persistent grant exists), so the only way
-	* to stop asking per pin is to never re-call it: prompt once, keep the track,
-	* and read a fresh frame from the still-playing video for every capture.
-	* The browser's "sharing this tab" indicator stays on while the track lives —
-	* honest, and the user ending it from there simply re-prompts on the next pin.
-	*/
-	let liveCapture = null;
-	async function captureVideo(win, media) {
-		const track = liveCapture?.stream.getVideoTracks()[0];
-		if (liveCapture && track?.readyState === "live") return liveCapture.video;
-		releaseCapture();
-		const stream = await media.getDisplayMedia({
-			video: true,
-			audio: false,
-			preferCurrentTab: true
-		});
-		const video = await firstFrame(win, stream);
-		stream.getVideoTracks()[0]?.addEventListener("ended", releaseCapture, { once: true });
-		liveCapture = {
-			stream,
-			video
-		};
-		return video;
-	}
-	/** Stop the cached stream (toolbar disconnect; also the track-ended handler). */
-	function releaseCapture() {
-		if (liveCapture === null) return;
-		for (const t of liveCapture.stream.getTracks()) t.stop();
-		liveCapture.video.srcObject = null;
-		liveCapture = null;
-	}
 	/** webp-encode a bitmap; also emit the ≤32px placeholder data URL. */
 	async function encode(bmp) {
 		const canvas = new OffscreenCanvas(bmp.width, bmp.height);
@@ -911,14 +907,21 @@ var Pinbox = (function(exports) {
 		const crop = visibleCropRect(el);
 		if (source === null || crop === null) return null;
 		const { win, media } = source;
+		let stream = null;
 		try {
-			const video = await captureVideo(win, media);
+			stream = await media.getDisplayMedia({
+				video: true,
+				audio: false,
+				preferCurrentTab: true
+			});
+			const video = await firstFrame(win, stream);
 			const sx = video.videoWidth / win.innerWidth;
 			const sy = video.videoHeight / win.innerHeight;
 			return await encode(await createImageBitmap(video, Math.round(crop.x * sx), Math.round(crop.y * sy), Math.max(1, Math.round(crop.width * sx)), Math.max(1, Math.round(crop.height * sy))));
 		} catch {
-			releaseCapture();
 			return null;
+		} finally {
+			if (stream) for (const track of stream.getTracks()) track.stop();
 		}
 	}
 	/**
@@ -954,7 +957,8 @@ var Pinbox = (function(exports) {
 			inboxOpen: false,
 			connection: "connecting",
 			queuedIds: /* @__PURE__ */ new Set(),
-			minimized: false
+			minimized: false,
+			pinsHidden: false
 		};
 	}
 	function createStore() {
@@ -981,7 +985,8 @@ var Pinbox = (function(exports) {
 					...state,
 					draft,
 					mode: "idle",
-					activePinId: null
+					activePinId: null,
+					pinsHidden: false
 				});
 			},
 			discardDraft() {
@@ -1646,8 +1651,8 @@ var Pinbox = (function(exports) {
 	//#region src/ui/bar.ts
 	const PIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const INBOX_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
-	const THEME_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
-	const COPY_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
+	const THEME_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 2a4 4 0 0 0 6 6 6 6 0 1 1-6-6z\"/></svg>";
+	const COPY_ICON$1 = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
 	const IDENT_ICON = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"var(--pb-amber)\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"var(--pb-amber)\" stroke=\"none\"/></svg>";
 	const MIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M6.5 2.5v4h-4\"/><path d=\"M9.5 13.5v-4h4\"/></svg>";
 	const CONNECTION_LABEL = {
@@ -1659,7 +1664,7 @@ var Pinbox = (function(exports) {
 	function createBar(doc, on) {
 		const root = doc.createElement("div");
 		root.className = "pb-bar";
-		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button><button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
+		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON$1}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button><button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
 		const ref = (name) => root.querySelector(`[data-ref="${name}"]`);
 		const label = ref("label");
 		const pinBtn = ref("pin");
@@ -1723,6 +1728,7 @@ var Pinbox = (function(exports) {
 	};
 	const CHECK_ICON = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M3 8.5l3.2 3.2L13 4.8\"/></svg>";
 	const X_ICON$1 = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg>";
+	const COPY_ICON = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
 	const ctxByCard = /* @__PURE__ */ new WeakMap();
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const nodeMemo = /* @__PURE__ */ new WeakMap();
@@ -1832,7 +1838,14 @@ var Pinbox = (function(exports) {
 		else if (action === "close") ctx.actions.close();
 		else if (ctx.pid !== "draft") {
 			if (action === "resolve") ctx.actions.resolve(ctx.pid);
-			else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
+			else if (action === "copy") {
+				ctx.actions.copy(ctx.pid);
+				const btn = e.target.closest?.("[data-action=\"copy\"]");
+				if (btn) {
+					btn.classList.add("ok");
+					card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+				}
+			} else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
 			else if (action === "verify-reopen") {
 				ctx.actions.verify(ctx.pid, "reopened");
 				card.querySelector("textarea")?.focus();
@@ -1856,8 +1869,8 @@ var Pinbox = (function(exports) {
 		}, true);
 		if (isDraft) ta.focus();
 	}
-	function hdHtml(n, targetLabel, status, resolvable) {
-		return `<div class="meta"><span class="num">${pinNumber(n)}</span><span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div><div style="display:flex;gap:2px">` + (resolvable ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>` : "") + `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON$1}</button></div>`;
+	function hdHtml(n, targetLabel, status, resolvable, copyable) {
+		return `<div class="meta"><span class="num">${pinNumber(n)}</span><span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div><div style="display:flex;gap:2px">` + (copyable ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>` : "") + (resolvable ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>` : "") + `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON$1}</button></div>`;
 	}
 	/** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
 	function linkHtml(pin) {
@@ -1978,7 +1991,7 @@ var Pinbox = (function(exports) {
 		const queued = view.pin !== null && state.queuedIds.has(view.pin.id);
 		const statusLabel = queued ? "QUEUED" : view.status ? STATUS_LABEL[view.status] : "NEW";
 		const resolvable = view.pin?.status === "open" && !queued;
-		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
+		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
 		setPart(card, ctx, "link", linkHtml(view.pin));
 		setPart(card, ctx, "verify", verifyHtml(view.status));
 		const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
@@ -2088,6 +2101,54 @@ var Pinbox = (function(exports) {
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const chipMemo = /* @__PURE__ */ new WeakMap();
 	/**
+	* Does the pin's captured URL still describe the view on screen? Path + search
+	* only — hashes are anchors, not views. An absent or unparseable URL never
+	* gates: old pins (and CLI pins) keep rendering exactly as before.
+	*/
+	function sameView(win, url) {
+		if (url === void 0) return true;
+		try {
+			const target = new URL(url, win.location.href);
+			return target.pathname === win.location.pathname && target.search === win.location.search;
+		} catch {
+			return true;
+		}
+	}
+	/**
+	* Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
+	* views after SPA tab switches, because placement trusted the stored rect
+	* forever). Re-resolve the captured selector on every render:
+	*  - it resolves with layout → snap to the LIVE rect (also fixes drift);
+	*  - it resolves without layout (test DOMs, display:none) → stored rect;
+	*  - it does not resolve → no marker; the drawer stays the see-everything list.
+	* A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
+	*/
+	function anchorRect(layer, pin) {
+		const stored = pin.target?.rect;
+		if (stored === void 0) return null;
+		const doc = layer.ownerDocument;
+		const win = doc.defaultView;
+		if (win === null) return stored;
+		if (!sameView(win, pin.target?.url)) return null;
+		const selector = pin.target?.selector;
+		if (selector === void 0) return stored;
+		let el;
+		try {
+			el = doc.querySelector(selector);
+		} catch {
+			return stored;
+		}
+		if (el === null) return null;
+		const r = el.getBoundingClientRect();
+		if (r.width <= 0 && r.height <= 0) return stored;
+		return {
+			x: r.left + win.scrollX,
+			y: r.top + win.scrollY,
+			width: r.width,
+			height: r.height
+		};
+	}
+	/**
 	* Where the needle lands: the point inside the element that was actually clicked, when the pin
 	* recorded one, else the centre of its box.
 	*
@@ -2137,11 +2198,13 @@ var Pinbox = (function(exports) {
 	* active pin regardless of status, and the client-only draft (key "draft").
 	*/
 	function renderPins(layer, state) {
+		layer.hidden = state.pinsHidden;
+		if (state.pinsHidden) return;
 		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
 		const placed = [];
 		visible.forEach((pin, i) => {
-			const rect = pin.target?.rect;
-			if (rect === void 0) return;
+			const rect = anchorRect(layer, pin);
+			if (rect === null) return;
 			const spot = pin.target?.spot;
 			placed.push(spot === void 0 ? {
 				pin,
@@ -2172,7 +2235,9 @@ var Pinbox = (function(exports) {
 	const PUCK_ICON = "<svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/></svg>";
 	const FAN_PIN = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const FAN_INBOX = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
-	const FAN_THEME = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
+	const FAN_THEME = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 2a4 4 0 0 0 6 6 6 6 0 1 1-6-6z\"/></svg>";
+	const FAN_EYE = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.6 8S4 3.8 8 3.8 14.4 8 14.4 8 12 12.2 8 12.2 1.6 8 1.6 8z\"/><circle cx=\"8\" cy=\"8\" r=\"1.8\"/></svg>";
+	const FAN_EYE_OFF = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M2.3 2.3l11.4 11.4\"/><path d=\"M4.9 4.9C2.7 6.2 1.6 8 1.6 8s2.4 4.2 6.4 4.2c1.2 0 2.3-.3 3.1-.8M6.7 4c.4-.1.9-.2 1.3-.2 4 0 6.4 4.2 6.4 4.2s-.8 1.4-2.2 2.5\"/></svg>";
 	const FAN_EXPAND = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M9.5 6.5v-4h4\"/><path d=\"M6.5 9.5v4h-4\"/></svg>";
 	function fanItem(act, index, icon, label, key) {
 		return `<button type="button" class="pb-fan-item" data-act="${act}" style="--i:${index}" aria-label="${label}">${icon}${act === "inbox" ? "<span class=\"badge\" data-ref=\"count\" hidden>0</span>" : ""}<span class="fl">${label.toUpperCase()}<i>${key}</i></span></button>`;
@@ -2188,7 +2253,7 @@ var Pinbox = (function(exports) {
 		fan.className = "pb-fan";
 		fan.hidden = true;
 		fan.setAttribute("role", "menu");
-		fan.innerHTML = fanItem("pin", 0, FAN_PIN, "Drop a pin", "P") + fanItem("inbox", 1, FAN_INBOX, "Inbox", "I") + fanItem("theme", 2, FAN_THEME, "Theme", "D") + fanItem("expand", 3, FAN_EXPAND, "Expand", "M");
+		fan.innerHTML = fanItem("pin", 0, FAN_PIN, "Drop a pin", "P") + fanItem("inbox", 1, FAN_INBOX, "Inbox", "I") + fanItem("theme", 2, FAN_THEME, "Theme", "D") + fanItem("hide", 3, FAN_EYE_OFF, "Hide pins", "H") + fanItem("expand", 4, FAN_EXPAND, "Expand", "M");
 		const morphWrap = doc.createElement("div");
 		morphWrap.className = "pb-morph-wrap";
 		morphWrap.hidden = true;
@@ -2204,6 +2269,9 @@ var Pinbox = (function(exports) {
 			carrier.querySelector("[data-ref=\"count\"]"),
 			fan.querySelector("[data-ref=\"count\"]")
 		];
+		const hideItem = fan.querySelector("[data-act=\"hide\"]");
+		/** Last-rendered hide state; the item's markup is swapped only on change. */
+		let hideShown = null;
 		return {
 			puck,
 			fan,
@@ -2219,6 +2287,13 @@ var Pinbox = (function(exports) {
 				const degraded = state.connection === "offline" || state.connection === "incompatible";
 				puck.classList.toggle("degraded", degraded);
 				puck.classList.toggle("armed", state.mode === "placing");
+				if (hideShown !== state.pinsHidden) {
+					hideShown = state.pinsHidden;
+					const label = state.pinsHidden ? "Show pins" : "Hide pins";
+					hideItem.innerHTML = `${state.pinsHidden ? FAN_EYE : FAN_EYE_OFF}<span class="fl">${label.toUpperCase()}<i>H</i></span>`;
+					hideItem.setAttribute("aria-label", label);
+					hideItem.classList.toggle("lit", state.pinsHidden);
+				}
 			}
 		};
 	}
@@ -2278,6 +2353,7 @@ var Pinbox = (function(exports) {
 		["Send comment", "⌘ ↵"],
 		["Mark pin resolved", "R"],
 		["Copy open pins", "C"],
+		["Hide / show pins", "H"],
 		["Minimize toolbar", "M"],
 		["Cancel", "ESC"]
 	];
@@ -2521,6 +2597,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-fan.down { --fan-from: translateY(-16px); }
 .pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
 .pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item.lit { color: var(--pb-amber); border-color: var(--pb-amber); }
 .pb-fan-item .badge { pointer-events: none; }
 .pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
 .pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }
@@ -2585,6 +2662,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#modal = null;
 		#minUi = null;
 		#min = null;
+		/** SPA view watcher: DOM/history changes re-run the anchor-gated render. */
+		#anchors = null;
 		#helpOpen = false;
 		#pageStyle = null;
 		#unsubscribe = null;
@@ -2594,6 +2673,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			send: (pinId, text) => this.actions.send?.(pinId, text),
 			verify: (pinId, outcome) => this.actions.verify?.(pinId, outcome),
 			resolve: (pinId) => this.actions.resolve?.(pinId),
+			copy: (pinId) => this.#copyPin(pinId),
 			close: () => this.#dismiss()
 		};
 		/** Programmatic path (Pinbox.init). The snippet path reads hub/token attributes. */
@@ -2626,6 +2706,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#pageStyle = style;
 			if (this.#aim === null) this.#mountAim();
 			if (this.#min === null) this.#mountMinimize();
+			this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
 			document.addEventListener("mousemove", this.#onMouseMove);
 			window.addEventListener("scroll", this.#onViewportChange, { passive: true });
 			window.addEventListener("resize", this.#onViewportChange);
@@ -2673,7 +2754,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#aim = null;
 			this.#min?.destroy();
 			this.#min = null;
-			releaseCapture();
+			this.#anchors?.destroy();
+			this.#anchors = null;
 			this.#unsubscribe?.();
 			this.#unsubscribe = null;
 			this.#pageStyle?.remove();
@@ -2763,6 +2845,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				onFanAction: (action) => {
 					if (action === "pin") this.#togglePlacing();
 					else if (action === "inbox") this.#toggleInbox();
+					else if (action === "hide") this.#togglePinsHidden();
 					else this.#toggleTheme();
 				}
 			});
@@ -2889,6 +2972,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			try {
 				navigator.clipboard.writeText(pinsToMarkdown(state.pins, state.threads));
 			} catch {}
+		}
+		/** The card's copy: exactly the pin you are looking at, thread included. */
+		#copyPin(pinId) {
+			const state = this.store.get();
+			const pin = state.pins.find((p) => p.id === pinId);
+			if (pin === void 0) return;
+			try {
+				navigator.clipboard.writeText(pinToMarkdown(pin, state.threads.get(pinId) ?? []));
+			} catch {}
+		}
+		#togglePinsHidden() {
+			this.store.update({ pinsHidden: !this.store.get().pinsHidden });
 		}
 		#setHelp(open) {
 			this.#helpOpen = open;
@@ -3025,6 +3120,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			d: () => this.#toggleTheme(),
 			r: () => this.#resolveActive(),
 			c: () => this.#copyOpenPins(),
+			h: () => this.#togglePinsHidden(),
 			m: () => this.#min?.minimized() === true ? this.restore(true) : this.minimize(true),
 			"?": () => this.#toggleHelp()
 		};

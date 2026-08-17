@@ -1,4 +1,4 @@
-# pinbox cloud — one-command Cloudflare hub setup
+# pinbox init — automatic Cloudflare hub setup
 
 **Status: planned.** Born from the first real cloud deployment (Lark's staging admin,
 2026-08-16/17): getting the shipped worker template from "copied into the repo" to
@@ -45,17 +45,23 @@ standing up the hub itself.
 
 ## Design
 
-Three subcommands, plus an entry in init's existing picker ("Wire a cloud hub —
-Cloudflare"):
+**No new verb.** Cloud setup is a choice inside the `pinbox init` flow the CLI
+already has: the toolbar-wiring picker gains a **"Cloud hub (Cloudflare)"**
+option alongside the existing local wiring, and choosing it runs the whole
+setup inline as init steps. Everything below is init behavior:
 
-```
-pinbox cloud up       scaffold + configure + deploy + verify; idempotent, resumable
-pinbox cloud verify   the full probe suite against an existing hub
-pinbox cloud status   what exists and what's missing (worker, secrets, bucket, CORS)
-```
+- Re-running `pinbox init` on a repo with a scaffolded hub **resumes**: every
+  step is skip-if-done (state file below), so a run interrupted at the R2
+  dashboard step picks up exactly there. Re-run-to-repair is also the answer to
+  "something broke" — the verification pass at the end reports what, and the
+  matching step re-runs.
+- Headless: the same flags agents already use with init, extended —
+  `pinbox init --cloud --origins https://app.example --name my-hub --no-media --yes`.
+- Verification is not a separate command either: it always runs as init's final
+  step, and re-running init on a healthy setup is a cheap no-op that ends with
+  the same PASS/FAIL table (that IS the health check).
 
-`up` walks a checklist where every step is skip-if-done, so a run interrupted at
-the R2 dashboard step resumes where it left off:
+The checklist init walks when the cloud option is picked:
 
 1. **Preflight** — wrangler auth (`whoami`), account selection, pinned wrangler
    version.
@@ -63,8 +69,8 @@ the R2 dashboard step resumes where it left off:
    name/account/project; prompt for the app origin(s) → `CORS_ORIGINS`.
 3. **Token** — generate (`crypto.randomBytes`), `secret put PINBOX_TOKEN`, and
    print ONE machine-readable line (`PINBOX_HUB_TOKEN=<value>`) for the host's
-   secret store — the only time it is shown, with a rotation one-liner
-   (`pinbox cloud rotate-token`) documented beside it.
+   secret store — the only time it is shown. Rotation = `pinbox init --cloud
+   --rotate-token` (re-runs just this step with a fresh value).
 4. **Deploy** — clean stale artifacts (trap 8), `wrangler deploy`, capture the
    workers.dev URL.
 5. **Media (optional, prompted)** — R2 enablement poll (trap 2), bucket create,
@@ -86,31 +92,38 @@ the R2 dashboard step resumes where it left off:
 - No host-app code generation beyond the printed snippet: token distribution is
   the host's auth domain (Lark gates it behind an operator check; every app will
   differ).
-- No other clouds in this pass. The hub is a `(Request) => Response` handler, so
-  the verb namespace (`cloud up`) deliberately leaves room.
+- No new CLI surface. One command to remember: `pinbox init`. If a future need
+  outgrows init (say, fleet status across many hubs), that is its own design
+  conversation — not smuggled in here.
+- No other clouds in this pass. The hub is a `(Request) => Response` handler,
+  so the door stays open.
 
 ### Implementation notes
 
-- Lives in `packages/cli/src/cloud/` (new): `up.ts`, `verify.ts`, `status.ts`,
-  `wrangler.ts` (spawn wrapper: pinned version, JSON parsing, redacted logging).
-  The verify probes reuse `@autono/pinbox-core` schema types; WS probe via Bun's
-  `WebSocket`.
+- Lives in `packages/cli/src/init/cloud/` (new, sibling to the existing init
+  modules): `steps.ts` (the checklist planner), `verify.ts` (probe suite),
+  `wrangler.ts` (spawn wrapper: pinned version, JSON parsing, redacted
+  logging). The verify probes reuse `@autono/pinbox-core` schema types; WS
+  probe via Bun's `WebSocket`.
 - All secrets flow machine-to-machine (generated value → `secret put` stdin);
   nothing is ever echoed except the single deliberate handoff line in step 3.
 - State for resumability sits in the scaffolded dir (`.pinbox-cloud.json`:
   account, worker name, completed steps) — committed, secrets never in it.
-- TUI follows the existing OpenTUI init picker; every prompt has a flag
-  (`--origins`, `--no-media`, `--name`, `--yes`) so agents can run it headless.
-- **Prerequisite PR** (small, immediate): port Lark's CORS handling into
-  `templates/worker` and gitignore the deploy artifact — the template is broken
-  for any cross-origin consumer today, tooling or not.
+- TUI: a new pane in the existing OpenTUI init flow (same look as the agent
+  and toolbar pickers); every prompt has a flag (`--cloud`, `--origins`,
+  `--no-media`, `--name`, `--rotate-token`, `--yes`) so agents run it headless.
+- **Prerequisite** (shipped with this plan): Lark's CORS handling ported into
+  `templates/worker` plus a template gitignore for the deploy artifact — the
+  template is broken for any cross-origin consumer today, tooling or not.
 
 ## Landing sequence
 
-1. Prerequisite template PR (CORS + gitignore) — unblocks anyone copying the
-   template by hand.
-2. `pinbox cloud` verb + verify suite; `bun test` coverage for the planner
-   (step skipping, resume) with the wrangler spawn mocked.
-3. Init picker entry; docs page `docs/cli/cloud.mdx`; changeset (minor, CLI).
-4. Dogfood: re-run `pinbox cloud verify` against the live Lark hub (should pass
-   untouched), then `pinbox cloud up` from scratch in a throwaway account.
+1. Template prerequisite (in this PR): CORS + gitignore — unblocks anyone
+   copying the template by hand.
+2. Init cloud pane + checklist planner + verify suite; `bun test` coverage for
+   step skipping and resume with the wrangler spawn mocked.
+3. Docs: fold into the init page (`docs/cli/init.mdx`) — no separate command
+   page, because there is no separate command; changeset (minor, CLI).
+4. Dogfood: `pinbox init` re-run against the repo holding the live Lark hub
+   (must resume, verify green, change nothing), then a from-scratch run in a
+   throwaway Cloudflare account.

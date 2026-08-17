@@ -17,6 +17,8 @@ export interface CardActions {
   send(pinId: string | "draft", text: string): void;
   verify(pinId: string, outcome: "accepted" | "reopened"): void;
   resolve(pinId: string): void;
+  /** Copy THIS pin's markdown block (the bar's C copies every open pin). */
+  copy(pinId: string): void;
   close(): void;
 }
 
@@ -32,6 +34,8 @@ const CHECK_ICON =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
 const X_ICON =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+const COPY_ICON =
+  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></svg>';
 
 interface CardCtx {
   pid: string | null;
@@ -215,7 +219,16 @@ function onCardClick(card: HTMLElement, ctx: CardCtx, e: Event): void {
   else if (action === "close") ctx.actions.close();
   else if (ctx.pid !== "draft") {
     if (action === "resolve") ctx.actions.resolve(ctx.pid);
-    else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
+    else if (action === "copy") {
+      ctx.actions.copy(ctx.pid);
+      // A moment of green on the button is the whole receipt — there is no
+      // toast layer, and the header part-memo never resets a class toggle.
+      const btn = (e.target as Element).closest?.('[data-action="copy"]');
+      if (btn) {
+        btn.classList.add("ok");
+        card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+      }
+    } else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
     else if (action === "verify-reopen") {
       // reopen flips the pin open and focuses the composer (the sticky-session rule
       // makes the follow-up reply route to the same session; here it is a thread POST).
@@ -263,11 +276,20 @@ function buildSkeleton(
   if (isDraft) ta.focus();
 }
 
-function hdHtml(n: number, targetLabel: string, status: string, resolvable: boolean): string {
+function hdHtml(
+  n: number,
+  targetLabel: string,
+  status: string,
+  resolvable: boolean,
+  copyable: boolean,
+): string {
   return (
     `<div class="meta"><span class="num">${pinNumber(n)}</span>` +
     `<span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div>` +
     '<div style="display:flex;gap:2px">' +
+    (copyable
+      ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>`
+      : "") +
     (resolvable
       ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>`
       : "") +
@@ -425,7 +447,8 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   const queued = view.pin !== null && state.queuedIds.has(view.pin.id);
   const statusLabel = queued ? "QUEUED" : view.status ? STATUS_LABEL[view.status] : "NEW";
   const resolvable = view.pin?.status === "open" && !queued;
-  setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
+  // A draft has nothing committed to copy; every real pin does.
+  setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
   setPart(card, ctx, "verify", verifyHtml(view.status));
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];

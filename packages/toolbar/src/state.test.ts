@@ -85,6 +85,13 @@ describe("createStore", () => {
     expect(store.get().mode).toBe("idle");
   });
 
+  test("place() unhides the pin layer — a fresh marker is never invisible", () => {
+    const store = createStore();
+    store.update({ pinsHidden: true });
+    store.place(makeDraft());
+    expect(store.get().pinsHidden).toBe(false);
+  });
+
   test("discardDraft() clears the draft without touching pins", () => {
     const store = createStore();
     const pin = makePin();

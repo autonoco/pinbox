@@ -7,9 +7,10 @@
 // esc / click-away discards. Overlay coordinates are page-space (pageX/pageY),
 // the pin layer sits at the document origin; the reticle is position: fixed.
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
+import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
 import { captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
-import { pinsToMarkdown } from "./markdown.ts";
+import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
 import {
@@ -79,6 +80,8 @@ export class PinboxToolbarElement extends BaseElement {
   #modal: ShortcutsModal | null = null;
   #minUi: MinimizeUi | null = null;
   #min: MinimizeController | null = null;
+  /** SPA view watcher: DOM/history changes re-run the anchor-gated render. */
+  #anchors: AnchorWatch | null = null;
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
@@ -89,6 +92,7 @@ export class PinboxToolbarElement extends BaseElement {
     send: (pinId, text) => this.actions.send?.(pinId, text),
     verify: (pinId, outcome) => this.actions.verify?.(pinId, outcome),
     resolve: (pinId) => this.actions.resolve?.(pinId),
+    copy: (pinId) => this.#copyPin(pinId),
     close: () => this.#dismiss(),
   };
 
@@ -125,6 +129,7 @@ export class PinboxToolbarElement extends BaseElement {
     // a disconnect, so both are rebuilt here rather than there.
     if (this.#aim === null) this.#mountAim();
     if (this.#min === null) this.#mountMinimize();
+    this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
     document.addEventListener("mousemove", this.#onMouseMove);
     // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
     window.addEventListener("scroll", this.#onViewportChange, { passive: true });
@@ -177,6 +182,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#min?.destroy();
     this.#min = null;
     releaseCapture(); // drop the shared tab-capture stream (and its indicator)
+    this.#anchors?.destroy();
+    this.#anchors = null;
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#pageStyle?.remove();
@@ -272,6 +279,7 @@ export class PinboxToolbarElement extends BaseElement {
       onFanAction: (action) => {
         if (action === "pin") this.#togglePlacing();
         else if (action === "inbox") this.#toggleInbox();
+        else if (action === "hide") this.#togglePinsHidden();
         else this.#toggleTheme();
       },
     });
@@ -443,6 +451,22 @@ export class PinboxToolbarElement extends BaseElement {
     }
   }
 
+  /** The card's copy: exactly the pin you are looking at, thread included. */
+  #copyPin(pinId: string): void {
+    const state = this.store.get();
+    const pin = state.pins.find((p) => p.id === pinId);
+    if (pin === undefined) return;
+    try {
+      void navigator.clipboard.writeText(pinToMarkdown(pin, state.threads.get(pinId) ?? []));
+    } catch {
+      // same degradation as #copyOpenPins
+    }
+  }
+
+  #togglePinsHidden(): void {
+    this.store.update({ pinsHidden: !this.store.get().pinsHidden });
+  }
+
   #setHelp(open: boolean): void {
     this.#helpOpen = open;
     this.#modal?.set(open);
@@ -594,6 +618,7 @@ export class PinboxToolbarElement extends BaseElement {
     d: () => this.#toggleTheme(),
     r: () => this.#resolveActive(),
     c: () => this.#copyOpenPins(),
+    h: () => this.#togglePinsHidden(),
     m: () => (this.#min?.minimized() === true ? this.restore(true) : this.minimize(true)),
     "?": () => this.#toggleHelp(),
   };

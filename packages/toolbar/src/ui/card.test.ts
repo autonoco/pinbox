@@ -57,9 +57,10 @@ function spyActions(): CardActions & {
   send: ReturnType<typeof mock>;
   verify: ReturnType<typeof mock>;
   resolve: ReturnType<typeof mock>;
+  copy: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
 } {
-  return { send: mock(), verify: mock(), resolve: mock(), close: mock() };
+  return { send: mock(), verify: mock(), resolve: mock(), copy: mock(), close: mock() };
 }
 
 const RESOLUTION = { by: "agent", at: "2026-08-04T11:00:00.000Z" } as const;
@@ -132,6 +133,21 @@ describe("renderCard actions", () => {
     expect(actions.resolve).toHaveBeenCalledWith(pin.id);
     (shadow.querySelector('[data-action="close"]') as HTMLElement).click();
     expect(actions.close).toHaveBeenCalled();
+  });
+
+  test("copy fires with the pin id and flashes the button; drafts have no copy", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    const btn = shadow.querySelector('[data-action="copy"]') as HTMLElement;
+    btn.click();
+    expect(actions.copy).toHaveBeenCalledWith(pin.id);
+    expect(btn.classList.contains("ok")).toBe(true); // the moment-of-green receipt
+    // a draft has nothing committed to copy
+    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 1, y: 2 } };
+    renderCard(shadow, stateWith({ draft }), actions);
+    expect(shadow.querySelector('[data-action="copy"]')).toBeNull();
   });
 
   test("verify buttons fire with the right outcome", () => {

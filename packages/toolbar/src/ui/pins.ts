@@ -11,6 +11,51 @@ import { esc, pinNumber } from "./html.ts";
 const chipMemo = new WeakMap<Element, string>();
 
 /**
+ * Does the pin's captured URL still describe the view on screen? Path + search
+ * only — hashes are anchors, not views. An absent or unparseable URL never
+ * gates: old pins (and CLI pins) keep rendering exactly as before.
+ */
+function sameView(win: Window, url: string | undefined): boolean {
+  if (url === undefined) return true;
+  try {
+    const target = new URL(url, win.location.href);
+    return target.pathname === win.location.pathname && target.search === win.location.search;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
+ * views after SPA tab switches, because placement trusted the stored rect
+ * forever). Re-resolve the captured selector on every render:
+ *  - it resolves with layout → snap to the LIVE rect (also fixes drift);
+ *  - it resolves without layout (test DOMs, display:none) → stored rect;
+ *  - it does not resolve → no marker; the drawer stays the see-everything list.
+ * A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
+ */
+function anchorRect(layer: HTMLElement, pin: Pin): Rect | null {
+  const stored = pin.target?.rect;
+  if (stored === undefined) return null;
+  const doc = layer.ownerDocument;
+  const win = doc.defaultView;
+  if (win === null) return stored;
+  if (!sameView(win, pin.target?.url)) return null;
+  const selector = pin.target?.selector;
+  if (selector === undefined) return stored;
+  let el: Element | null;
+  try {
+    el = doc.querySelector(selector);
+  } catch {
+    return stored; // a selector we cannot evaluate must not hide the pin forever
+  }
+  if (el === null) return null;
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 && r.height <= 0) return stored;
+  return { x: r.left + win.scrollX, y: r.top + win.scrollY, width: r.width, height: r.height };
+}
+
+/**
  * Where the needle lands: the point inside the element that was actually clicked, when the pin
  * recorded one, else the centre of its box.
  *
@@ -69,13 +114,18 @@ function patchNode(
  * active pin regardless of status, and the client-only draft (key "draft").
  */
 export function renderPins(layer: HTMLElement, state: ToolbarState): void {
+  // Hidden: the layer vanishes whole; nodes stay put so unhiding is instant.
+  layer.hidden = state.pinsHidden;
+  if (state.pinsHidden) return;
   const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-  // A pin with no captured rect — a terminal `pinbox pin` — has no place on the page,
-  // so the overlay draws no needle for it. It keeps its ordinal (the drawer lists it).
+  // A pin with no captured rect — a terminal `pinbox pin` — has no place on the
+  // page, and a pin whose anchor is not on the CURRENT view (other URL, selector
+  // gone) has no honest place either: the overlay draws no needle for it. Both
+  // keep their ordinal — the drawer lists them.
   const placed: { pin: Pin; n: number; rect: Rect; spot?: { x: number; y: number } }[] = [];
   visible.forEach((pin, i) => {
-    const rect = pin.target?.rect;
-    if (rect === undefined) return;
+    const rect = anchorRect(layer, pin);
+    if (rect === null) return;
     const spot = pin.target?.spot;
     placed.push(spot === undefined ? { pin, n: i + 1, rect } : { pin, n: i + 1, rect, spot });
   });

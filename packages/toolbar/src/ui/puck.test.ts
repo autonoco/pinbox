@@ -43,14 +43,28 @@ describe("createMinimizeUi", () => {
     expect(u.puck.classList.contains("degraded")).toBe(false);
   });
 
-  test("fan ships all four actions and mirrors the badge", () => {
+  test("fan ships all five actions and mirrors the badge", () => {
     const u = ui();
     const acts = [...u.fan.querySelectorAll("[data-act]")].map((el) => el.getAttribute("data-act"));
-    expect(acts).toEqual(["pin", "inbox", "theme", "expand"]);
+    expect(acts).toEqual(["pin", "inbox", "theme", "hide", "expand"]);
     u.update(stateWith({ pins: [pin("a", "open")] }));
     const fanBadge = u.fan.querySelector('[data-ref="count"]') as HTMLElement;
     expect(fanBadge.textContent).toBe("1");
     expect(u.fan.hidden).toBe(true);
+  });
+
+  test("the hide item flips label and lights while pins are hidden", () => {
+    const u = ui();
+    const item = u.fan.querySelector('[data-act="hide"]') as HTMLElement;
+    expect(item.textContent).toContain("HIDE PINS");
+    expect(item.classList.contains("lit")).toBe(false);
+    u.update(stateWith({ pinsHidden: true }));
+    expect(item.textContent).toContain("SHOW PINS");
+    expect(item.getAttribute("aria-label")).toBe("Show pins");
+    expect(item.classList.contains("lit")).toBe(true);
+    u.update(stateWith({ pinsHidden: false }));
+    expect(item.textContent).toContain("HIDE PINS");
+    expect(item.classList.contains("lit")).toBe(false);
   });
 
   test("placing mode arms the puck", () => {

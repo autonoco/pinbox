@@ -100,7 +100,8 @@ describe("minimize/restore cycle", () => {
     h.pointer("pointerup", 100, 100);
     (h.ui.fan.querySelector('[data-act="pin"]') as HTMLElement).click();
     (h.ui.fan.querySelector('[data-act="inbox"]') as HTMLElement).click();
-    expect(h.fanActions).toEqual(["pin", "inbox"]);
+    (h.ui.fan.querySelector('[data-act="hide"]') as HTMLElement).click();
+    expect(h.fanActions).toEqual(["pin", "inbox", "hide"]);
     expect(h.controller.mode()).toBe("puck");
   });
 

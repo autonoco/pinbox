@@ -234,6 +234,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-fan.down { --fan-from: translateY(-16px); }
 .pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
 .pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item.lit { color: var(--pb-amber); border-color: var(--pb-amber); }
 .pb-fan-item .badge { pointer-events: none; }
 .pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
 .pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }

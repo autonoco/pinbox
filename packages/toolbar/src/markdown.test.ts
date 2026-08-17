@@ -1,7 +1,7 @@
 // @autono/pinbox-toolbar — copy-as-markdown tests.
 import { describe, expect, test } from "bun:test";
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
-import { pinsToMarkdown } from "./markdown.ts";
+import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 
 function makePin(id: string, overrides: Partial<Pin> = {}): Pin {
   return {
@@ -74,5 +74,20 @@ describe("pinsToMarkdown", () => {
       resolution: { by: "agent", at: "2026-08-04T11:00:00.000Z" },
     });
     expect(pinsToMarkdown([resolved], new Map())).toBe("No open pins.\n");
+  });
+});
+
+describe("pinToMarkdown", () => {
+  test("one block, any status — you copy exactly the pin you are looking at", () => {
+    const resolved = makePin("pin_bbbbbbbbbb", {
+      status: "resolved",
+      resolution: { by: "agent", at: "2026-08-04T11:00:00.000Z" },
+    });
+    const md = pinToMarkdown(resolved, [
+      makeMsg("msg_1111111111", resolved.id, "human", "Any progress?"),
+    ]);
+    expect(md).toContain("## Pin pin_bbbbbbbbbb — RESOLVED");
+    expect(md).toContain("- human: Any progress?");
+    expect(md.endsWith("\n")).toBe(true);
   });
 });

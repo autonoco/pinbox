@@ -32,7 +32,7 @@ function threadTail(thread: ThreadMessage[]): string[] {
 function block(pin: Pin, thread: ThreadMessage[]): string {
   const { selector, url, source } = pin.target ?? {};
   return [
-    `## Pin ${pin.id} — OPEN`,
+    `## Pin ${pin.id} — ${pin.status.toUpperCase()}`,
     `- label: ${line(label(pin))}`,
     // Each locus line is present only when the fact is — a terminal pin has a
     // source anchor and no selector; a pin created with no anchor at all has none.
@@ -54,4 +54,10 @@ export function pinsToMarkdown(pins: Pin[], threads: Map<string, ThreadMessage[]
   const open = pins.filter((p) => p.status === "open");
   if (open.length === 0) return "No open pins.\n";
   return `${open.map((p) => block(p, threads.get(p.id) ?? [])).join("\n\n")}\n`;
+}
+
+/** One pin's block — the card's per-pin copy (dogfood: "I want to copy an
+ * individual pin"); any status, since you copy exactly what you're looking at. */
+export function pinToMarkdown(pin: Pin, thread: ThreadMessage[]): string {
+  return `${block(pin, thread)}\n`;
 }

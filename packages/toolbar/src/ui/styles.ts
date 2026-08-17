@@ -202,6 +202,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-item .mm .sdot { width: 5px; height: 5px; border-radius: 999px; }
 .pb-empty { padding: 26px 16px; font-size: 12.5px; color: var(--pb-fg3); }
 
+/* minimize: floating puck + morph layer (ui/puck.ts, minimize.ts) — v3 design.
+   The morph surface is styled identically to the bar so endpoint handoffs are
+   pixel-invisible. Ghosting keeps layout (getBoundingClientRect still measures
+   morph targets) while dropping the element from paint and the tab order. */
+.pb-ghost { opacity: 0 !important; pointer-events: none !important; visibility: hidden; transition: opacity 90ms linear, visibility 0s 90ms; }
+.pb-bar { transition: opacity 90ms linear; }
+.pb-morph-wrap { position: fixed; inset: 0; z-index: 89; pointer-events: none; opacity: 0; transition: opacity 90ms linear; }
+.pb-morph-wrap.on { opacity: 1; }
+.pb-morph { position: absolute; left: 0; top: 0; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); will-change: transform, width, height; }
+.pb-carrier { position: absolute; left: 0; top: 0; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: var(--pb-amber); opacity: 0; transition: opacity 140ms linear; will-change: transform; }
+.pb-carrier.show { opacity: 1; }
+/* Above the bar (90) and drawer (85), below the aim layer (100) and modal (120). */
+.pb-puck { position: fixed; left: 0; top: 0; width: 48px; height: 48px; z-index: 95; border-radius: 999px; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow); display: flex; align-items: center; justify-content: center; color: var(--pb-amber); cursor: grab; touch-action: none; transition: opacity 90ms linear; }
+.pb-puck:active { cursor: grabbing; }
+.pb-puck .in { display: flex; transition: transform 160ms var(--pb-ease); }
+.pb-puck:hover .in { transform: scale(1.12); }
+.pb-puck .badge, .pb-carrier .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+/* The bar says "· OFFLINE" in words; the puck's amber dot is the same signal. */
+.pb-puck .cdot { position: absolute; bottom: -1px; right: -1px; width: 9px; height: 9px; border-radius: 999px; background: var(--pb-amber); border: 2px solid var(--pb-canvas); display: none; }
+.pb-puck.degraded .cdot { display: block; }
+
 /* shortcuts modal (ui/shortcuts.ts) — prototype lines 226–232 */
 .pb-modal { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: var(--pb-scrim); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: pb-fade 200ms ease-out both; }
 .pb-modal .mx { width: 430px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); animation: pb-in 280ms var(--pb-ease) both; }

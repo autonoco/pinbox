@@ -23,6 +23,12 @@ export interface ToolbarState {
   connection: "connecting" | "live" | "offline" | "incompatible";
   /** Outbox-queued pin ids (offline creates) — flagged "queued" in the UI until the flush. */
   queuedIds: ReadonlySet<string>;
+  /**
+   * Bar collapsed to the floating puck. The RESTING state only — the minimize
+   * controller owns transitions and writes this when a toggle settles; pins,
+   * chips, and cards stay live either way.
+   */
+  minimized: boolean;
 }
 
 export interface Store {
@@ -48,6 +54,7 @@ export function initialState(): ToolbarState {
     inboxOpen: false,
     connection: "connecting",
     queuedIds: new Set(),
+    minimized: false,
   };
 }
 

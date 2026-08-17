@@ -36,7 +36,7 @@ Deliberately **not** in scope, tried and cut in the prototype:
 | Pending-drag hygiene | `restore()`/`minimize()` clear any pending pointer state; a restore that runs mid-hold (keyboard) makes the next pointermove abandon the stale drag instead of hijacking the morph |
 | Ghosting | hidden elements get opacity 0 + `visibility: hidden` (delayed 90ms) + `pointer-events: none` — out of the tab order, but `getBoundingClientRect()` still measures for morph targets |
 | Reduced motion | `prefers-reduced-motion`: no morph layer, instant swap. Note `styles.ts` already clamps every shadow-root transition to 1ms under reduced motion — don't promise CSS fades here; the swap is simply instant |
-| Persistence | the transport's `StorageLike` seam (`transport/mirror.ts` — injectable, memory fallback), with the mirror's key convention: `pinbox:<endpoint>:dock` (viewport coords, re-clamped on load/resize) and `pinbox:<endpoint>:minimized`, so a reload keeps the choice |
+| Persistence | the transport's `StorageLike` seam (`transport/mirror.ts`), resolved exactly as the transport already does (`opts.storage ?? globalThis.localStorage ?? memoryStorage()`): `localStorage` is the production store; `memoryStorage()` is the SSR-import/test fallback only and, being per-instance, never survives a reload. Keys follow the mirror's convention: `pinbox:<endpoint>:dock` (viewport coords, re-clamped on load/resize) and `pinbox:<endpoint>:minimized`. Reads and writes go through the mirror's throw-swallowing wrappers, so reload persistence is best-effort: guaranteed only when persistent storage is available and the write succeeded (private mode / quota degrades to session-only state, nothing else breaks). Read precedence on load: a persisted `pinbox:<endpoint>:minimized` wins; `PinboxConfig.minimized` is an initial default consulted only when no persisted value exists. Writes happen only on user toggles; config changes never write the key |
 | While minimized | pins and chips stay live — only the bar's surfaces go. Minimizing dismisses an open card/drawer first (the same `#dismiss` Escape uses), so the morph never sweeps over them. Puck shows the open-pin count badge; a small amber dot marks degraded connection (`offline` / `incompatible`), replacing the bar's `· OFFLINE` text |
 | Mode interplay | minimize while placing exits placing first (armed state needs the bar). `p`/`i`/`c` pressed while minimized restore the bar, then run — the bar is those features' surface |
 | z-order (shadow ladder) | morph layer 89 (below bar 90), puck 97 (above the toast at 96, so a docked puck stays clickable) — both clear the card (80) and drawer (85), stay under aim (100) and the shortcuts modal (120) |
@@ -66,7 +66,10 @@ in it lives in the new modules. If review finds it creeping further, extract the
 Public API stays additive: element methods `minimize()` / `restore()`, an optional
 `minimized` boolean on `PinboxConfig` (that's what keeps the React/Vue/Svelte wrappers
 change-free — they forward the config wholesale), and `pinbox:minimize` /
-`pinbox:restore` composed events so hosts can react.
+`pinbox:restore` composed events so hosts can react. `minimized` is an initial
+default, not an override: it seeds the state only when no
+`pinbox:<endpoint>:minimized` value is persisted (see the Persistence row), so a
+user's remembered choice always wins on reload.
 
 ## Tests (`bun test`, happy-dom per-test instances — the `aim.test.ts` pattern)
 

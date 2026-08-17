@@ -280,7 +280,7 @@
 
   <div class="hint">
     <span>Minimize the bar<br>drag the puck anywhere<br>tap to restore</span>
-    <small>M minimize · ESC restore · shift-click slow-mo</small>
+    <small>M toggles minimize · shift-click slow-mo</small>
     <i></i>
   </div>
 
@@ -584,7 +584,11 @@
       }
       pdown = { px: e.clientX, py: e.clientY, ox: puckPos.x, oy: puckPos.y, lx: e.clientX, ly: e.clientY, moved: false };
     });
-    puck.addEventListener("pointermove", (e) => {
+    // Move/end listeners live on document, not puck: pointer capture is an
+    // optimization, not a requirement. If capture fails (see the catch above),
+    // `.ghost` makes the puck non-interactive mid-drag and puck-scoped
+    // listeners would never see pointerup — wedging the drag forever.
+    document.addEventListener("pointermove", (e) => {
       if (!pdown) return;
       pdown.lx = e.clientX;
       pdown.ly = e.clientY;
@@ -592,7 +596,7 @@
       const dy = e.clientY - pdown.py;
       if (!pdown.moved) {
         if (mode !== "puck") {
-          // A restore (Escape/M) ran mid-hold — abandon the pending drag.
+          // A restore (M) ran mid-hold — abandon the pending drag.
           pdown = null;
           return;
         }
@@ -652,8 +656,8 @@
       mode = "settle";
       ensureLoop();
     };
-    puck.addEventListener("pointerup", endDrag);
-    puck.addEventListener("pointercancel", endDrag);
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
     // Keyboard/AT activation dispatches a synthesized click (detail 0) with no
     // pointer events — restore directly. Pointer taps are handled in endDrag.
     puck.addEventListener("click", (e) => {
@@ -682,8 +686,6 @@
       if (e.key === "m" || e.key === "M") {
         if (mode === "bar") minimize(e.shiftKey, true);
         else if (mode === "puck") restore(e.shiftKey, true);
-      } else if (e.key === "Escape" && mode === "puck") {
-        restore(false, true);
       }
     });
 

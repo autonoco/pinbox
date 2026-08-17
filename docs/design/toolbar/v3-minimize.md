@@ -31,7 +31,7 @@ Deliberately **not** in scope, tried and cut in the prototype:
 | Morph sequencing | swap first, move second: the bar crossfades (90ms) into an identical-geometry surface, the spring **holds** during the swap (90ms minimize / 70ms restore), then morphs. Endpoints reverse it: real element fades in over the settled surface, morph layer fades out 100ms later. An opaque surface exists at every instant |
 | Carrier icon | ident icon + badge ride the morph surface only while it is puck-like (width < 260px) — never double-exposed over bar content |
 | Tap vs drag | drag starts at ≥8px; release under 12px total travel is a tap and **restores** (trackpad clicks travel several px; this was the "stops responding" bug) |
-| Drag | pointer capture, primary button only (`e.button !== 0` guard — right-click on macOS never delivers pointerup and wedged the prototype), free placement, clamped 16px margins |
+| Drag | pointer capture as an optimization only — move/end listeners attach to `document`, not the puck, so a failed `setPointerCapture` (the ghosted puck stops receiving pointer events mid-drag) can never wedge the drag. Primary button only (`e.button !== 0` guard — right-click on macOS never delivers pointerup and wedged the prototype), free placement, clamped 16px margins |
 | Keyboard | `M` toggles minimize/restore. `Escape` keeps its existing dismiss semantics and does **not** restore. Keyboard-initiated toggles hand focus to the puck / minimize button; pointer-initiated toggles blur (no stray focus ring) |
 | Pending-drag hygiene | `restore()`/`minimize()` clear any pending pointer state; a restore that runs mid-hold (keyboard) makes the next pointermove abandon the stale drag instead of hijacking the morph |
 | Ghosting | hidden elements get opacity 0 + `visibility: hidden` (delayed 90ms) + `pointer-events: none` — out of the tab order, but `getBoundingClientRect()` still measures for morph targets |
@@ -39,7 +39,7 @@ Deliberately **not** in scope, tried and cut in the prototype:
 | Persistence | the transport's `StorageLike` seam (`transport/mirror.ts` — injectable, memory fallback), with the mirror's key convention: `pinbox:<endpoint>:dock` (viewport coords, re-clamped on load/resize) and `pinbox:<endpoint>:minimized`, so a reload keeps the choice |
 | While minimized | pins and chips stay live — only the bar's surfaces go. Minimizing dismisses an open card/drawer first (the same `#dismiss` Escape uses), so the morph never sweeps over them. Puck shows the open-pin count badge; a small amber dot marks degraded connection (`offline` / `incompatible`), replacing the bar's `· OFFLINE` text |
 | Mode interplay | minimize while placing exits placing first (armed state needs the bar). `p`/`i`/`c` pressed while minimized restore the bar, then run — the bar is those features' surface |
-| z-order (shadow ladder) | morph layer 89 (below bar 90), puck 95 — both clear the card (80) and drawer (85), stay under aim (100) and the shortcuts modal (120) |
+| z-order (shadow ladder) | morph layer 89 (below bar 90), puck 97 (above the toast at 96, so a docked puck stays clickable) — both clear the card (80) and drawer (85), stay under aim (100) and the shortcuts modal (120) |
 
 ## Port architecture
 

@@ -1,0 +1,719 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Pinbox — Minimize Prototype</title>
+
+<style>
+  /* ---------------------------------------------------------------
+     Pinbox tokens, verbatim from packages/toolbar/src/ui/styles.ts.
+     Light is the :root base; dark overrides via media query, and the
+     viewer's explicit data-theme wins in both directions.
+     --------------------------------------------------------------- */
+  :root {
+    --pb-canvas: #fbf8f2;
+    --pb-surface: #ffffff;
+    --pb-elev: #ffffff;
+    --pb-sunken: #f2ede3;
+    --pb-line: rgba(23, 23, 23, 0.11);
+    --pb-line-2: rgba(23, 23, 23, 0.22);
+    --pb-hover: rgba(23, 23, 23, 0.05);
+    --pb-fg1: #141414;
+    --pb-fg2: #5a534d;
+    --pb-fg3: #8a827a;
+    --pb-fg4: #b8b0a5;
+    --pb-bar: rgba(251, 248, 242, 0.84);
+    --pb-shadow: 0 24px 64px rgba(58, 54, 51, 0.16);
+    --pb-amber: #b07d28;
+    --pb-amber-ink: #fbf8f2;
+    --pb-amber-soft: rgba(176, 125, 40, 0.12);
+    --pb-font-body: ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+    --pb-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --pb-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pb-canvas: #0f0f0f;
+      --pb-surface: #171717;
+      --pb-elev: #1f1c1a;
+      --pb-sunken: #0b0b0b;
+      --pb-line: rgba(245, 240, 230, 0.08);
+      --pb-line-2: rgba(245, 240, 230, 0.16);
+      --pb-hover: rgba(245, 240, 230, 0.06);
+      --pb-fg1: #f5f0e6;
+      --pb-fg2: #b8b0a5;
+      --pb-fg3: #8a827a;
+      --pb-fg4: #5a534d;
+      --pb-bar: rgba(15, 15, 15, 0.82);
+      --pb-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+      --pb-amber: #d4a04a;
+      --pb-amber-ink: #0f0f0f;
+      --pb-amber-soft: rgba(212, 160, 74, 0.14);
+    }
+  }
+  :root[data-theme="light"] {
+    --pb-canvas: #fbf8f2;
+    --pb-surface: #ffffff;
+    --pb-elev: #ffffff;
+    --pb-sunken: #f2ede3;
+    --pb-line: rgba(23, 23, 23, 0.11);
+    --pb-line-2: rgba(23, 23, 23, 0.22);
+    --pb-hover: rgba(23, 23, 23, 0.05);
+    --pb-fg1: #141414;
+    --pb-fg2: #5a534d;
+    --pb-fg3: #8a827a;
+    --pb-fg4: #b8b0a5;
+    --pb-bar: rgba(251, 248, 242, 0.84);
+    --pb-shadow: 0 24px 64px rgba(58, 54, 51, 0.16);
+    --pb-amber: #b07d28;
+    --pb-amber-ink: #fbf8f2;
+    --pb-amber-soft: rgba(176, 125, 40, 0.12);
+  }
+  :root[data-theme="dark"] {
+    --pb-canvas: #0f0f0f;
+    --pb-surface: #171717;
+    --pb-elev: #1f1c1a;
+    --pb-sunken: #0b0b0b;
+    --pb-line: rgba(245, 240, 230, 0.08);
+    --pb-line-2: rgba(245, 240, 230, 0.16);
+    --pb-hover: rgba(245, 240, 230, 0.06);
+    --pb-fg1: #f5f0e6;
+    --pb-fg2: #b8b0a5;
+    --pb-fg3: #8a827a;
+    --pb-fg4: #5a534d;
+    --pb-bar: rgba(15, 15, 15, 0.82);
+    --pb-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+    --pb-amber: #d4a04a;
+    --pb-amber-ink: #0f0f0f;
+    --pb-amber-soft: rgba(212, 160, 74, 0.14);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  .stage button:focus-visible { outline: 1px solid var(--pb-amber); outline-offset: 2px; }
+
+  .stage {
+    position: fixed; inset: 0; overflow: hidden;
+    background: var(--pb-canvas);
+    color: var(--pb-fg1);
+    font-family: var(--pb-font-body);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  /* ------------------------- mock host app ------------------------- */
+  .app { position: absolute; inset: 0; display: flex; flex-direction: column; opacity: 0.85; }
+  .app-head {
+    height: 52px; flex: none; display: flex; align-items: center; gap: 24px;
+    padding: 0 20px; background: var(--pb-surface); border-bottom: 1px solid var(--pb-line);
+  }
+  .app-mark { width: 20px; height: 20px; border-radius: 4px; background: var(--pb-sunken); border: 1px solid var(--pb-line-2); }
+  .app-body { flex: 1; display: flex; min-height: 0; }
+  .app-side {
+    width: 208px; flex: none; padding: 20px 16px; display: flex; flex-direction: column; gap: 18px;
+    background: var(--pb-surface); border-right: 1px solid var(--pb-line);
+  }
+  .app-main { flex: 1; padding: 28px 32px; display: flex; flex-direction: column; gap: 22px; overflow: hidden; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--pb-surface); border: 1px solid var(--pb-line); border-radius: 4px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .rows { background: var(--pb-surface); border: 1px solid var(--pb-line); border-radius: 4px; }
+  .row-item { display: flex; align-items: center; gap: 16px; padding: 13px 16px; }
+  .row-item + .row-item { border-top: 1px solid var(--pb-line); }
+  .sk { display: block; height: 8px; border-radius: 2px; background: var(--pb-line); flex: none; }
+  .sk.deep { background: var(--pb-line-2); }
+  .sk.tall { height: 20px; }
+  .dot-sk { width: 22px; height: 22px; border-radius: 999px; background: var(--pb-sunken); border: 1px solid var(--pb-line); flex: none; }
+
+  /* ----------------------------- hint ------------------------------ */
+  .hint {
+    position: absolute; top: 9%; left: 50%; transform: translateX(-50%);
+    display: grid; justify-items: center; text-align: center; pointer-events: none;
+  }
+  .hint span {
+    font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; line-height: 1.7; color: var(--pb-fg1); opacity: 0.4; max-width: 26ch;
+  }
+  .hint small {
+    display: block; margin-top: 10px;
+    font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--pb-fg1); opacity: 0.25;
+  }
+  .hint i {
+    display: block; width: 1px; height: 56px; margin-top: 12px;
+    background: linear-gradient(to bottom, transparent, var(--pb-fg1)); opacity: 0.35;
+  }
+
+  /* --------------------- command bar (replica) ---------------------- */
+  .pb-bar {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 90;
+    display: flex; align-items: center; height: 46px; padding: 0 6px; gap: 3px;
+    background: var(--pb-bar);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow);
+    transition: opacity 90ms linear;
+  }
+  .pb-bar .ident { display: flex; align-items: center; gap: 9px; padding: 0 12px 0 10px; min-width: 150px; }
+  .ident-mark { color: var(--pb-amber); display: flex; }
+  .pb-bar .ident .bl {
+    font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: 0.24em;
+    white-space: nowrap; color: var(--pb-fg1);
+  }
+  .pb-bar .div { width: 1px; height: 22px; background: var(--pb-line); flex: none; }
+  .pb-tb {
+    display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 11px;
+    border-radius: 2px; color: var(--pb-fg2); transition: background 140ms linear;
+    font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: 0.16em;
+  }
+  .pb-tb:hover { background: var(--pb-hover); }
+  .pb-tb.sq { width: 32px; padding: 0; justify-content: center; }
+
+  /* ------------------------------ puck ------------------------------ */
+  .pb-puck {
+    /* Above the toast (96): a docked puck must always stay clickable. */
+    position: fixed; left: 0; top: 0; width: 48px; height: 48px; z-index: 97;
+    border-radius: 999px; background: var(--pb-bar);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow);
+    display: flex; align-items: center; justify-content: center;
+    cursor: grab; touch-action: none;
+    transition: opacity 90ms linear;
+  }
+  .pb-puck:active { cursor: grabbing; }
+  .pb-puck .in { display: flex; color: var(--pb-amber); transition: transform 160ms var(--pb-ease); }
+  .pb-puck:hover .in { transform: scale(1.12); }
+  .badge {
+    position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink);
+    font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Fade out on the way in (adding .ghost animates via this transition; the
+     removal snaps, so the real element appears the same frame the morph layer
+     starts fading). visibility drops ghosted controls out of the tab order. */
+  .ghost {
+    opacity: 0 !important; pointer-events: none !important; visibility: hidden;
+    transition: opacity 90ms linear, visibility 0s 90ms;
+  }
+
+  /* --------------------------- morph layer --------------------------
+     One surface, styled exactly like the bar/puck (same translucent fill,
+     blur, border, shadow), spring-animated between the two geometries.
+     Endpoint swaps are pixel-identical, so they are invisible. */
+  .morph-wrap {
+    position: fixed; inset: 0; z-index: 89; pointer-events: none;
+    opacity: 0; transition: opacity 90ms linear;
+  }
+  .morph-wrap.on { opacity: 1; }
+  .morph-wrap[hidden] { display: none; }
+  .morph-surface {
+    position: absolute; left: 0; top: 0;
+    background: var(--pb-bar);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow);
+    will-change: transform, width, height;
+  }
+  .carrier {
+    position: absolute; left: 0; top: 0; width: 48px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--pb-amber); opacity: 0; transition: opacity 140ms linear;
+    will-change: transform;
+  }
+  .carrier.show { opacity: 1; }
+
+  /* ----------------------------- toast ------------------------------ */
+  .toast {
+    position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%); z-index: 96;
+    padding: 7px 12px; border-radius: 2px;
+    background: var(--pb-elev); border: 1px solid var(--pb-line-2); box-shadow: var(--pb-shadow);
+    font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: 0.16em; color: var(--pb-fg2);
+    opacity: 0; transition: opacity 180ms linear; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 900px) { .app-side { display: none; } }
+</style>
+
+<div class="stage" id="stage">
+  <!-- Mock host app: an anonymous admin-ish page so the toolbar reads in situ -->
+  <div class="app" aria-hidden="true">
+    <div class="app-head">
+      <div class="app-mark"></div>
+      <span class="sk deep" style="width: 90px"></span>
+      <span class="sk" style="width: 56px"></span>
+      <span class="sk" style="width: 56px"></span>
+      <span class="sk" style="width: 56px"></span>
+      <span style="flex: 1"></span>
+      <div class="dot-sk"></div>
+    </div>
+    <div class="app-body">
+      <div class="app-side">
+        <span class="sk deep" style="width: 70%"></span>
+        <span class="sk" style="width: 55%"></span>
+        <span class="sk" style="width: 62%"></span>
+        <span class="sk" style="width: 48%"></span>
+        <span class="sk" style="width: 58%"></span>
+        <span class="sk" style="width: 40%"></span>
+      </div>
+      <div class="app-main">
+        <span class="sk deep tall" style="width: 220px"></span>
+        <div class="cards">
+          <div class="card"><span class="sk" style="width: 50%"></span><span class="sk deep tall" style="width: 35%"></span></div>
+          <div class="card"><span class="sk" style="width: 55%"></span><span class="sk deep tall" style="width: 42%"></span></div>
+          <div class="card"><span class="sk" style="width: 45%"></span><span class="sk deep tall" style="width: 30%"></span></div>
+        </div>
+        <div class="rows">
+          <div class="row-item"><div class="dot-sk"></div><span class="sk" style="width: 26%"></span><span class="sk" style="width: 14%"></span><span style="flex:1"></span><span class="sk" style="width: 8%"></span></div>
+          <div class="row-item"><div class="dot-sk"></div><span class="sk" style="width: 32%"></span><span class="sk" style="width: 11%"></span><span style="flex:1"></span><span class="sk" style="width: 8%"></span></div>
+          <div class="row-item"><div class="dot-sk"></div><span class="sk" style="width: 22%"></span><span class="sk" style="width: 16%"></span><span style="flex:1"></span><span class="sk" style="width: 8%"></span></div>
+          <div class="row-item"><div class="dot-sk"></div><span class="sk" style="width: 29%"></span><span class="sk" style="width: 12%"></span><span style="flex:1"></span><span class="sk" style="width: 8%"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">
+    <span>Minimize the bar<br>drag the puck anywhere<br>tap to restore</span>
+    <small>M toggles minimize · shift-click slow-mo</small>
+    <i></i>
+  </div>
+
+  <!-- Command bar: replica of packages/toolbar src/ui/bar.ts + the new minimize button -->
+  <div class="pb-bar" id="bar">
+    <div class="ident">
+      <span class="ident-mark">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="1.5" width="11" height="7" rx="1"/><path d="M8 8.5v6"/><circle cx="8" cy="14.6" r=".9" fill="currentColor" stroke="none"/></svg>
+      </span>
+      <span class="bl">PINBOX</span>
+    </div>
+    <div class="div"></div>
+    <button type="button" class="pb-tb" data-toast title="Pin (P)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="1.5" width="10" height="6.5" rx="1"/><path d="M8 8v6.5"/></svg>PIN
+    </button>
+    <button type="button" class="pb-tb" data-toast title="Inbox (I)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.8 8.5h3.4l1 2h3.6l1-2h3.4"/><path d="M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z"/></svg><span>3</span>
+    </button>
+    <div class="div" style="margin: 0 3px"></div>
+    <button type="button" class="pb-tb sq" data-toast title="Copy open pins (C)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></svg>
+    </button>
+    <button type="button" class="pb-tb sq" id="btnTheme" title="Theme (D)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z"/></svg>
+    </button>
+    <button type="button" class="pb-tb sq" data-toast title="Shortcuts (?)">?</button>
+    <button type="button" class="pb-tb sq" id="btnMin" title="Minimize (M)" aria-label="Minimize toolbar">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6.5 2.5v4h-4"/><path d="M9.5 13.5v-4h4"/></svg>
+    </button>
+  </div>
+
+  <!-- Minimized state: the floating puck -->
+  <button type="button" class="pb-puck ghost" id="puck" aria-label="Restore Pinbox toolbar" style="transform: translate(-200px, -200px)">
+    <span class="in">
+      <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="1.5" width="11" height="7" rx="1"/><path d="M8 8.5v6"/><circle cx="8" cy="14.6" r=".9" fill="currentColor" stroke="none"/></svg>
+    </span>
+    <span class="badge">3</span>
+  </button>
+
+  <!-- Morph layer: one bar-styled surface spring-animated between geometries.
+       Visible only during transitions and drags; rest states use real DOM. -->
+  <div class="morph-wrap" id="morphWrap" hidden>
+    <div class="morph-surface" id="morphEl"></div>
+    <div class="carrier" id="carrier">
+      <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="1.5" width="11" height="7" rx="1"/><path d="M8 8.5v6"/><circle cx="8" cy="14.6" r=".9" fill="currentColor" stroke="none"/></svg>
+      <span class="badge">3</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">PROTOTYPE — NOT WIRED</div>
+</div>
+
+<script>
+  (() => {
+    "use strict";
+    const bar = document.getElementById("bar");
+    const btnMin = document.getElementById("btnMin");
+    const puck = document.getElementById("puck");
+    const morphWrap = document.getElementById("morphWrap");
+    const morphEl = document.getElementById("morphEl");
+    const carrier = document.getElementById("carrier");
+    const toast = document.getElementById("toast");
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const PUCK = 48;
+    const MARGIN = 16;
+    // A trackpad "click" often travels several pixels. Under 12px of total
+    // movement a release is a tap, never a drag — a sloppy click must restore
+    // the bar, not scoot the puck.
+    const DRAG_START = 8;
+    const TAP_MAX = 12;
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+    // Spring physics — skiper64's LOGO_SPRING: stiffness 300, damping 30.
+    const MORPH = { k: 300, c: 30 };
+    const FOLLOW = { k: 600, c: 38 }; // chasing the pointer
+
+    function mkSpring(init) {
+      const cur = { ...init };
+      const tgt = { ...init };
+      const vel = {};
+      for (const k in init) vel[k] = 0;
+      return {
+        cur,
+        tgt,
+        cfg: { ...MORPH },
+        snap(v) {
+          Object.assign(cur, v);
+          Object.assign(tgt, v);
+          for (const k in vel) vel[k] = 0;
+        },
+        to(v, cfg) {
+          Object.assign(tgt, v);
+          if (cfg) this.cfg = { ...cfg };
+        },
+        step(dt) {
+          // Semi-implicit Euler, substepped so a large frame gap (throttled
+          // tab, slow device) can never destabilize the spring.
+          let remaining = dt;
+          while (remaining > 1e-6) {
+            const h = Math.min(1 / 240, remaining);
+            remaining -= h;
+            for (const key in cur) {
+              const f = -this.cfg.k * (cur[key] - tgt[key]) - this.cfg.c * vel[key];
+              vel[key] += f * h;
+              cur[key] += vel[key] * h;
+            }
+          }
+          let done = true;
+          for (const key in cur) {
+            if (Math.abs(vel[key]) > 0.5 || Math.abs(cur[key] - tgt[key]) > 0.5) {
+              done = false;
+              break;
+            }
+          }
+          if (done) this.snap({ ...tgt });
+          return done;
+        },
+      };
+    }
+
+    const main = mkSpring({ x: 0, y: 0, w: 0, h: 0, r: 0 });
+
+    // mode: bar | toPuck | puck | drag | settle | toBar
+    let mode = "bar";
+    let puckPos = null; // {x, y} top-left while minimized
+    let dock = null; // remembered puck spot for the next minimize
+    let timeScale = 1;
+    let raf = null;
+    let last = 0;
+    let hideTimer = null;
+    let morphTimer = null; // holds the spring until the surface swap has finished
+    let fadeTimer = null; // delays morph-layer fade-out until the real element is back
+    let focusAfter = null; // "puck" | "bar" — keyboard-initiated toggles move focus
+
+    function render() {
+      const m = main.cur;
+      morphEl.style.width = m.w + "px";
+      morphEl.style.height = m.h + "px";
+      morphEl.style.borderRadius = m.r + "px";
+      morphEl.style.transform = `translate(${m.x}px, ${m.y}px)`;
+      carrier.style.transform = `translate(${m.x + m.w / 2 - PUCK / 2}px, ${m.y + m.h / 2 - PUCK / 2}px)`;
+      // The icon lives on the surface only while it is puck-like. Past ~260px
+      // it is bar territory: an icon there double-exposes over bar content.
+      const iconOn = mode === "drag" || mode === "settle" || ((mode === "toPuck" || mode === "toBar") && m.w < 260);
+      carrier.classList.toggle("show", iconOn);
+    }
+
+    function tick(now) {
+      const dt = Math.min((now - last) / 1000, 1 / 30) * timeScale;
+      last = now;
+      const done = main.step(dt);
+      render();
+      if (done && mode !== "drag") {
+        raf = null;
+        if (mode === "toPuck" || mode === "settle") finishPuck();
+        else if (mode === "toBar") finishBar();
+      } else {
+        raf = requestAnimationFrame(tick);
+      }
+    }
+
+    function ensureLoop() {
+      if (raf === null) {
+        last = performance.now();
+        raf = requestAnimationFrame(tick);
+      }
+    }
+
+    // Both ends of every morph are 90ms crossfades — and because the morph
+    // surface is styled identically to the bar/puck, the swaps are invisible.
+    function showMorph() {
+      clearTimeout(hideTimer);
+      clearTimeout(fadeTimer);
+      morphWrap.hidden = false;
+      void morphWrap.offsetWidth;
+      morphWrap.classList.add("on");
+    }
+    function hideMorph() {
+      morphWrap.classList.remove("on");
+      carrier.classList.remove("show");
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        morphWrap.hidden = true;
+      }, 140);
+    }
+
+    function placePuck(x, y) {
+      puckPos = { x, y };
+      puck.style.transform = `translate(${x}px, ${y}px)`;
+    }
+
+    function finishPuck() {
+      placePuck(main.cur.x, main.cur.y);
+      puck.classList.remove("ghost");
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(hideMorph, 100);
+      mode = "puck";
+      timeScale = 1;
+      if (focusAfter === "puck") puck.focus();
+      focusAfter = null;
+    }
+
+    function finishBar() {
+      bar.classList.remove("ghost");
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(hideMorph, 100);
+      mode = "bar";
+      timeScale = 1;
+      if (focusAfter === "bar") btnMin.focus();
+      focusAfter = null;
+    }
+
+    function barRect() {
+      return bar.getBoundingClientRect();
+    }
+
+    function defaultDock(br) {
+      return { x: br.left + br.width / 2 - PUCK / 2, y: br.top + (br.height - PUCK) / 2 };
+    }
+
+    function clampPos(p) {
+      return {
+        x: clamp(p.x, MARGIN, innerWidth - MARGIN - PUCK),
+        y: clamp(p.y, MARGIN, innerHeight - MARGIN - PUCK),
+      };
+    }
+
+    function minimize(slow, kb) {
+      if (mode !== "bar") return;
+      pdown = null;
+      focusAfter = kb ? "puck" : null;
+      if (!kb) btnMin.blur();
+      const br = barRect();
+      const d = clampPos(dock ?? defaultDock(br));
+      bar.classList.add("ghost");
+      if (reduced) {
+        placePuck(d.x, d.y);
+        puck.classList.remove("ghost");
+        mode = "puck";
+        if (focusAfter === "puck") puck.focus();
+        focusAfter = null;
+        return;
+      }
+      timeScale = slow ? 0.16 : 1;
+      main.snap({ x: br.left, y: br.top, w: br.width, h: br.height, r: 4 });
+      mode = "toPuck";
+      render();
+      showMorph();
+      // Hold the spring while the bar crossfades into the identical-geometry
+      // surface — morphing during the swap reads as a glitchy double exposure.
+      clearTimeout(morphTimer);
+      morphTimer = setTimeout(
+        () => {
+          main.to({ x: d.x, y: d.y, w: PUCK, h: PUCK, r: PUCK / 2 }, MORPH);
+          ensureLoop();
+        },
+        slow ? 500 : 90,
+      );
+    }
+
+    function restore(slow, kb) {
+      if (mode !== "puck") return;
+      pdown = null;
+      focusAfter = kb ? "bar" : null;
+      puck.blur();
+      dock = { ...puckPos };
+      puck.classList.add("ghost");
+      if (reduced) {
+        bar.classList.remove("ghost");
+        mode = "bar";
+        if (focusAfter === "bar") btnMin.focus();
+        focusAfter = null;
+        return;
+      }
+      timeScale = slow ? 0.16 : 1;
+      const br = barRect();
+      main.snap({ x: puckPos.x, y: puckPos.y, w: PUCK, h: PUCK, r: PUCK / 2 });
+      mode = "toBar";
+      render();
+      showMorph();
+      clearTimeout(morphTimer);
+      morphTimer = setTimeout(
+        () => {
+          main.to({ x: br.left, y: br.top, w: br.width, h: br.height, r: 4 }, MORPH);
+          ensureLoop();
+        },
+        slow ? 400 : 70,
+      );
+    }
+
+    // ------------------------------ drag ------------------------------
+    let pdown = null; // {px, py, ox, oy, lx, ly, moved}
+    puck.addEventListener("pointerdown", (e) => {
+      if (mode !== "puck") return;
+      if (e.button !== 0) return;
+      try {
+        puck.setPointerCapture(e.pointerId);
+      } catch {
+        /* synthetic pointer events have no capturable pointer */
+      }
+      pdown = { px: e.clientX, py: e.clientY, ox: puckPos.x, oy: puckPos.y, lx: e.clientX, ly: e.clientY, moved: false };
+    });
+    // Move/end listeners live on document, not puck: pointer capture is an
+    // optimization, not a requirement. If capture fails (see the catch above),
+    // `.ghost` makes the puck non-interactive mid-drag and puck-scoped
+    // listeners would never see pointerup — wedging the drag forever.
+    document.addEventListener("pointermove", (e) => {
+      if (!pdown) return;
+      pdown.lx = e.clientX;
+      pdown.ly = e.clientY;
+      const dx = e.clientX - pdown.px;
+      const dy = e.clientY - pdown.py;
+      if (!pdown.moved) {
+        if (mode !== "puck") {
+          // A restore (M) ran mid-hold — abandon the pending drag.
+          pdown = null;
+          return;
+        }
+        if (Math.hypot(dx, dy) < DRAG_START) return;
+        pdown.moved = true;
+        if (reduced) {
+          mode = "drag";
+        } else {
+          puck.classList.add("ghost");
+          main.snap({ x: puckPos.x, y: puckPos.y, w: PUCK, h: PUCK, r: PUCK / 2 });
+          mode = "drag";
+          render();
+          showMorph();
+        }
+      }
+      const nx = pdown.ox + dx;
+      const ny = pdown.oy + dy;
+      if (reduced) {
+        const p = clampPos({ x: nx, y: ny });
+        placePuck(p.x, p.y);
+      } else {
+        main.to({ x: nx, y: ny, w: PUCK, h: PUCK, r: PUCK / 2 }, FOLLOW);
+        ensureLoop();
+      }
+    });
+    const endDrag = (e) => {
+      if (!pdown) return;
+      const total = Math.hypot(pdown.lx - pdown.px, pdown.ly - pdown.py);
+      const wasDrag = pdown.moved && total >= TAP_MAX;
+      const origin = { x: pdown.ox, y: pdown.oy };
+      const startedDrag = pdown.moved;
+      pdown = null;
+      if (!wasDrag) {
+        // A tap (even a slightly sloppy one) restores. If a drag had visually
+        // started, put the puck back at its origin first so restore launches
+        // from the right spot.
+        if (startedDrag && mode === "drag") {
+          main.snap({ x: origin.x, y: origin.y, w: PUCK, h: PUCK, r: PUCK / 2 });
+          placePuck(origin.x, origin.y);
+          puck.classList.remove("ghost");
+          hideMorph();
+          mode = "puck";
+        }
+        restore(e.shiftKey, false);
+        return;
+      }
+      if (reduced) {
+        const p = clampPos({ x: puckPos.x, y: puckPos.y });
+        placePuck(p.x, p.y);
+        mode = "puck";
+        return;
+      }
+      // Free placement: settle right where it was released, just inside the
+      // viewport.
+      const p = clampPos({ x: main.tgt.x, y: main.tgt.y });
+      main.to({ x: p.x, y: p.y, w: PUCK, h: PUCK, r: PUCK / 2 }, MORPH);
+      mode = "settle";
+      ensureLoop();
+    };
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
+    // Keyboard/AT activation dispatches a synthesized click (detail 0) with no
+    // pointer events — restore directly. Pointer taps are handled in endDrag.
+    puck.addEventListener("click", (e) => {
+      if (e.detail === 0) restore(e.shiftKey, true);
+    });
+
+    // --------------------------- controls ----------------------------
+    btnMin.addEventListener("click", (e) => minimize(e.shiftKey, e.detail === 0));
+
+    document.getElementById("btnTheme").addEventListener("click", () => {
+      const sysDark = matchMedia("(prefers-color-scheme: dark)").matches;
+      const cur = document.documentElement.dataset.theme || (sysDark ? "dark" : "light");
+      document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+    });
+
+    let toastTimer = null;
+    for (const b of document.querySelectorAll("[data-toast]")) {
+      b.addEventListener("click", () => {
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 1500);
+      });
+    }
+
+    addEventListener("keydown", (e) => {
+      if (e.key === "m" || e.key === "M") {
+        if (mode === "bar") minimize(e.shiftKey, true);
+        else if (mode === "puck") restore(e.shiftKey, true);
+      }
+    });
+
+    addEventListener("resize", () => {
+      if (mode === "puck") {
+        const p = clampPos(puckPos);
+        placePuck(p.x, p.y);
+      }
+      if (dock) dock = clampPos(dock);
+    });
+
+    // Debug hook for automated testing of the prototype.
+    window.__pb = {
+      get mode() {
+        return mode;
+      },
+      get timeScale() {
+        return timeScale;
+      },
+      set timeScale(v) {
+        timeScale = v;
+      },
+      main,
+      minimize,
+      restore,
+    };
+  })();
+</script>
+
+</body>
+</html>

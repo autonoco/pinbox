@@ -239,6 +239,7 @@ export class PinboxToolbarElement extends BaseElement {
     this.#minUi = createMinimizeUi(document);
     shadow.appendChild(this.#minUi.morphWrap);
     shadow.appendChild(this.#minUi.puck);
+    shadow.appendChild(this.#minUi.fan);
     this.#drawer = createDrawer(document, {
       onActivate: (pinId) => this.#activateFromInbox(pinId),
       onClose: () => this.store.update({ inboxOpen: false }),
@@ -265,6 +266,13 @@ export class PinboxToolbarElement extends BaseElement {
       reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       initialMinimized: this.config?.minimized === true,
       onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard),
+      // Fan actions run WITHOUT restoring — placing, the drawer, and the theme
+      // all work independently of the bar; that is the point of the fan.
+      onFanAction: (action) => {
+        if (action === "pin") this.#togglePlacing();
+        else if (action === "inbox") this.#toggleInbox();
+        else this.#toggleTheme();
+      },
     });
     this.#min.applyInitial();
   }
@@ -298,12 +306,6 @@ export class PinboxToolbarElement extends BaseElement {
   /** Public: bring the bar back from the puck. */
   restore(keyboard = false): void {
     this.#min?.restore(keyboard);
-  }
-
-  /** Bar-surface shortcuts pressed while minimized restore the bar, then run. */
-  #surfaced(run: () => void): void {
-    if (this.#min?.minimized() === true) this.restore(false);
-    run();
   }
 
   /**
@@ -581,9 +583,13 @@ export class PinboxToolbarElement extends BaseElement {
 
   /** Prototype keyboard map (v2-command-bar.html lines 701–712) + M (v3 minimize). */
   #shortcuts: Record<string, () => void> = {
-    escape: () => this.#dismiss(),
-    p: () => this.#surfaced(() => this.#togglePlacing()),
-    i: () => this.#surfaced(() => this.#toggleInbox()),
+    // The fan closes first; every other surface works minimized or not.
+    escape: () => {
+      if (this.#min?.closeFan() === true) return;
+      this.#dismiss();
+    },
+    p: () => this.#togglePlacing(),
+    i: () => this.#toggleInbox(),
     d: () => this.#toggleTheme(),
     r: () => this.#resolveActive(),
     c: () => this.#copyOpenPins(),

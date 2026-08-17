@@ -14,12 +14,15 @@
 //   - restore()/minimize() clear pending pointer state, and a drag may only
 //     START from mode "puck" (a keyboard restore mid-hold otherwise let the
 //     next pointermove hijack the morph)
-//   - a release under TAP_MAX total travel is a tap and restores — trackpad
-//     clicks wander several pixels, and treating them as drags read as the
-//     puck "not responding"
+//   - a release under TAP_MAX total travel is a tap — trackpad clicks wander
+//     several pixels, and treating them as drags read as the puck "not
+//     responding"
+//
+// A tap toggles the fan menu (vertical quick-actions out of the puck); the
+// bar comes back via the fan's EXPAND, the M key, or restore().
 import { FOLLOW_SPRING, MORPH_SPRING, mkSpring } from "./motion/spring.ts";
 import type { StorageLike } from "./transport/mirror.ts";
-import type { MinimizeUi } from "./ui/puck.ts";
+import type { FanAction, MinimizeUi } from "./ui/puck.ts";
 
 const PUCK = 48;
 const MARGIN = 16;
@@ -37,6 +40,8 @@ const LAYER_HIDE = 140;
 const BAR_RADIUS = 4;
 /** The carrier icon rides the surface only while it is puck-like (< this width). */
 const CARRIER_MAX_W = 260;
+/** Fan close transition length before display:none. */
+const FAN_HIDE = 300;
 
 export type MinimizeMode = "bar" | "toPuck" | "puck" | "drag" | "settle" | "toBar";
 
@@ -55,6 +60,9 @@ export interface MinimizeHost {
   initialMinimized: boolean;
   /** A toggle settled: update the store, dispatch events, hand off focus. */
   onSettled(minimized: boolean, keyboard: boolean): void;
+  /** A fan item other than EXPAND was chosen — the element runs the action
+   * (placing, inbox, theme) WITHOUT restoring: that is the point of the fan. */
+  onFanAction(action: Exclude<FanAction, "expand">): void;
 }
 
 export interface MinimizeController {
@@ -62,6 +70,8 @@ export interface MinimizeController {
   mode(): MinimizeMode;
   minimize(keyboard?: boolean): void;
   restore(keyboard?: boolean): void;
+  /** Close the fan menu if open; true when something closed (Esc chaining). */
+  closeFan(): boolean;
   /** Apply persisted/config state on (re)connect, instantly — no morph. */
   applyInitial(): void;
   destroy(): void;
@@ -90,6 +100,8 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   let holdTimer = 0;
   let fadeTimer = 0;
   let hideTimer = 0;
+  let fanOpen = false;
+  let fanTimer = 0;
 
   // ---- persistence (mirror convention: storage never throws upward) -------
   function loadDock(): { x: number; y: number } | null {
@@ -237,6 +249,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
 
   function restore(keyboard = false): void {
     if (mode !== "puck" || puckPos === null) return;
+    closeFan();
     pdown = null;
     keyboardToggle = keyboard;
     dock = { ...puckPos };
@@ -258,6 +271,60 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
       main.to({ x: r.left, y: r.top, w: r.width, h: r.height, r: BAR_RADIUS }, MORPH_SPRING);
       ensureLoop();
     }, HOLD_RESTORE);
+  }
+
+  // ---- fan menu -----------------------------------------------------------
+  /** Fan out of the puck: direction away from the nearer vertical edge,
+   * labels sliding toward screen center. */
+  function openFan(): void {
+    if (mode !== "puck" || puckPos === null) return;
+    win.clearTimeout(fanTimer);
+    ui.fan.hidden = false;
+    const upward = puckPos.y + PUCK / 2 > win.innerHeight / 2;
+    ui.fan.classList.toggle("up", upward);
+    ui.fan.classList.toggle("down", !upward);
+    ui.fan.classList.toggle("labels-right", puckPos.x + PUCK / 2 < win.innerWidth / 2);
+    ui.fan.classList.toggle("labels-left", puckPos.x + PUCK / 2 >= win.innerWidth / 2);
+    ui.fan.style.left = `${puckPos.x + PUCK / 2 - 20}px`;
+    void ui.fan.offsetHeight;
+    const h = ui.fan.offsetHeight;
+    ui.fan.style.top = upward ? `${puckPos.y - h - 10}px` : `${puckPos.y + PUCK + 10}px`;
+    ui.fan.classList.add("on");
+    ui.puck.setAttribute("aria-expanded", "true");
+    fanOpen = true;
+  }
+
+  function closeFan(): boolean {
+    if (!fanOpen) return false;
+    ui.fan.classList.remove("on");
+    ui.puck.setAttribute("aria-expanded", "false");
+    fanOpen = false;
+    win.clearTimeout(fanTimer);
+    fanTimer = win.setTimeout(() => {
+      ui.fan.hidden = true;
+    }, FAN_HIDE);
+    return true;
+  }
+
+  function onFanClick(e: MouseEvent): void {
+    const item = (e.target as Element).closest?.("[data-act]");
+    const act = item?.getAttribute("data-act") as FanAction | null | undefined;
+    if (act == null) return;
+    if (act === "expand") {
+      closeFan();
+      restore(e.detail === 0);
+      return;
+    }
+    host.onFanAction(act);
+  }
+
+  /** Click-away, at the document level: shadow events retarget, so membership
+   * is checked via composedPath, not target. */
+  function onDocPointerDown(e: Event): void {
+    if (!fanOpen) return;
+    const path = e.composedPath();
+    if (path.includes(ui.fan) || path.includes(ui.puck)) return;
+    closeFan();
   }
 
   // ---- drag ---------------------------------------------------------------
@@ -294,6 +361,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
       }
       if (Math.hypot(dx, dy) < DRAG_START) return;
       pdown.moved = true;
+      closeFan();
       mode = "drag";
       if (!host.reduced) {
         ui.puck.classList.add("pb-ghost");
@@ -320,8 +388,9 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
     const startedDrag = pdown.moved;
     pdown = null;
     if (!wasDrag) {
-      // A tap (even a slightly sloppy one) restores. If a drag had visually
-      // started, put the puck back first so restore launches from its spot.
+      // A tap (even a slightly sloppy one) toggles the fan — the bar comes
+      // back via the fan's EXPAND. If a drag had visually started, put the
+      // puck back first.
       if (startedDrag && mode === "drag") {
         main.snap({ x: origin.x, y: origin.y, w: PUCK, h: PUCK, r: PUCK / 2 });
         placePuck(origin.x, origin.y);
@@ -329,7 +398,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
         hideMorph();
         mode = "puck";
       }
-      restore(false);
+      if (!closeFan()) openFan();
       return;
     }
     if (host.reduced) {
@@ -351,10 +420,12 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
 
   /** Keyboard/AT activation is a synthesized click (detail 0) with no pointer events. */
   function onClick(e: MouseEvent): void {
-    if (e.detail === 0) restore(true);
+    if (e.detail !== 0) return;
+    if (!closeFan()) openFan();
   }
 
   function onResize(): void {
+    closeFan();
     if (mode === "puck" && puckPos !== null) {
       const p = clampPos(puckPos);
       placePuck(p.x, p.y);
@@ -367,6 +438,8 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   ui.puck.addEventListener("pointerup", onPointerUp);
   ui.puck.addEventListener("pointercancel", onPointerUp);
   ui.puck.addEventListener("click", onClick);
+  ui.fan.addEventListener("click", onFanClick);
+  win.document.addEventListener("pointerdown", onDocPointerDown);
   win.addEventListener("resize", onResize);
 
   return {
@@ -374,6 +447,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
     mode: () => mode,
     minimize,
     restore,
+    closeFan,
     applyInitial() {
       if (!loadMinimized()) return;
       const apply = (): void => {
@@ -396,12 +470,18 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
       ui.puck.removeEventListener("pointerup", onPointerUp);
       ui.puck.removeEventListener("pointercancel", onPointerUp);
       ui.puck.removeEventListener("click", onClick);
+      ui.fan.removeEventListener("click", onFanClick);
+      win.document.removeEventListener("pointerdown", onDocPointerDown);
       win.removeEventListener("resize", onResize);
       if (raf !== 0) win.cancelAnimationFrame(raf);
       raf = 0;
       win.clearTimeout(holdTimer);
       win.clearTimeout(fadeTimer);
       win.clearTimeout(hideTimer);
+      win.clearTimeout(fanTimer);
+      ui.fan.hidden = true;
+      ui.fan.classList.remove("on");
+      fanOpen = false;
     },
   };
 }

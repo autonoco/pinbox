@@ -16,6 +16,7 @@ interface Harness {
   ui: MinimizeUi;
   storage: StorageLike;
   settled: Array<{ minimized: boolean; keyboard: boolean }>;
+  fanActions: string[];
   controller: ReturnType<typeof createMinimize>;
   pointer(type: string, x: number, y: number, button?: number): void;
 }
@@ -28,9 +29,11 @@ function harness(overrides: Partial<MinimizeHost> = {}): Harness {
   doc.body.appendChild(bar);
   const ui = createMinimizeUi(doc);
   doc.body.appendChild(ui.puck);
+  doc.body.appendChild(ui.fan);
   doc.body.appendChild(ui.morphWrap);
   const storage = memoryStorage();
   const settled: Harness["settled"] = [];
+  const fanActions: string[] = [];
   const controller = createMinimize({
     win,
     bar,
@@ -40,6 +43,7 @@ function harness(overrides: Partial<MinimizeHost> = {}): Harness {
     reduced: true,
     initialMinimized: false,
     onSettled: (minimized, keyboard) => settled.push({ minimized, keyboard }),
+    onFanAction: (action) => fanActions.push(action),
     ...overrides,
   });
   const pointer = (type: string, x: number, y: number, button = 0): void => {
@@ -48,7 +52,7 @@ function harness(overrides: Partial<MinimizeHost> = {}): Harness {
       new Ctor(type, { clientX: x, clientY: y, button, pointerId: 1, bubbles: true }),
     );
   };
-  return { win, bar, ui, storage, settled, controller, pointer };
+  return { win, bar, ui, storage, settled, fanActions, controller, pointer };
 }
 
 describe("minimize/restore cycle", () => {
@@ -62,14 +66,42 @@ describe("minimize/restore cycle", () => {
     expect(h.storage.getItem("pinbox:test:minimized")).toBe("1");
   });
 
-  test("a clean tap on the puck restores the bar", () => {
+  test("a clean tap opens the fan; EXPAND in the fan restores the bar", () => {
     const h = harness();
     h.controller.minimize(false);
     h.pointer("pointerdown", 100, 100);
     h.pointer("pointerup", 101, 101);
+    expect(h.controller.mode()).toBe("puck");
+    expect(h.ui.fan.hidden).toBe(false);
+    expect(h.ui.fan.classList.contains("on")).toBe(true);
+    const expand = h.ui.fan.querySelector('[data-act="expand"]') as HTMLElement;
+    expand.click();
     expect(h.controller.mode()).toBe("bar");
     expect(h.bar.classList.contains("pb-ghost")).toBe(false);
     expect(h.storage.getItem("pinbox:test:minimized")).toBe("0");
+  });
+
+  test("a second tap closes the fan without restoring", () => {
+    const h = harness();
+    h.controller.minimize(false);
+    h.pointer("pointerdown", 100, 100);
+    h.pointer("pointerup", 100, 100);
+    expect(h.ui.fan.classList.contains("on")).toBe(true);
+    h.pointer("pointerdown", 100, 100);
+    h.pointer("pointerup", 100, 100);
+    expect(h.ui.fan.classList.contains("on")).toBe(false);
+    expect(h.controller.mode()).toBe("puck");
+  });
+
+  test("fan actions delegate to the host without restoring", () => {
+    const h = harness();
+    h.controller.minimize(false);
+    h.pointer("pointerdown", 100, 100);
+    h.pointer("pointerup", 100, 100);
+    (h.ui.fan.querySelector('[data-act="pin"]') as HTMLElement).click();
+    (h.ui.fan.querySelector('[data-act="inbox"]') as HTMLElement).click();
+    expect(h.fanActions).toEqual(["pin", "inbox"]);
+    expect(h.controller.mode()).toBe("puck");
   });
 
   test("minimize is a no-op unless the bar is resting", () => {
@@ -84,12 +116,17 @@ describe("drag", () => {
   test("a real drag stays minimized and lands where released (free placement)", () => {
     const h = harness();
     h.controller.minimize(false);
+    // Open the fan first: starting a drag must close it.
+    h.pointer("pointerdown", 200, 200);
+    h.pointer("pointerup", 200, 200);
+    expect(h.ui.fan.classList.contains("on")).toBe(true);
     // Default dock clamps to (16,16) — happy-dom's bar rect is zero-sized.
     h.pointer("pointerdown", 200, 200);
     h.pointer("pointermove", 250, 230);
     h.pointer("pointermove", 300, 250);
     h.pointer("pointerup", 300, 250);
     expect(h.controller.mode()).toBe("puck");
+    expect(h.ui.fan.classList.contains("on")).toBe(false);
     expect(h.ui.puck.style.transform).toBe("translate(116px, 66px)");
     const dock = JSON.parse(h.storage.getItem("pinbox:test:dock") ?? "{}") as {
       x: number;
@@ -158,7 +195,7 @@ describe("prototype regressions", () => {
     expect(h.controller.mode()).toBe("bar");
   });
 
-  test("a sloppy trackpad tap (under 12px total) restores instead of scooting", () => {
+  test("a sloppy trackpad tap (under 12px total) is a tap — fan, not a scoot", () => {
     const h = harness();
     h.controller.minimize(false);
     h.pointer("pointerdown", 200, 200);
@@ -166,12 +203,14 @@ describe("prototype regressions", () => {
     h.pointer("pointermove", 206, 206);
     h.pointer("pointermove", 207, 206);
     h.pointer("pointerup", 207, 206);
-    expect(h.controller.mode()).toBe("bar");
-    // …while 13px+ of travel is a real drag and stays minimized.
-    h.controller.minimize(false);
+    expect(h.controller.mode()).toBe("puck");
+    expect(h.ui.fan.classList.contains("on")).toBe(true);
+    // …while 13px+ of travel is a real drag: no fan, puck moves.
+    h.controller.closeFan();
     h.pointer("pointerdown", 200, 200);
     h.pointer("pointermove", 210, 210);
     h.pointer("pointerup", 210, 210);
     expect(h.controller.mode()).toBe("puck");
+    expect(h.ui.fan.classList.contains("on")).toBe(false);
   });
 });

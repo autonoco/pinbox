@@ -1,0 +1,5 @@
+node_modules/
+# Wrangler build/deploy artifacts. A stale .wrangler/deploy/config.json hijacks
+# config discovery and deploys the wrong thing — never commit this directory.
+.wrangler/
+.dev.vars

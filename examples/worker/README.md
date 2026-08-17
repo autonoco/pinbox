@@ -17,10 +17,19 @@ SQLite storage, with hibernating WebSockets and R2-backed attachments.
 4. (Optional, attachments) Create an R2 API token and set the S3 credentials as secrets:
    `wrangler secret put R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` /
    `R2_SECRET_ACCESS_KEY`. The `MEDIA` binding serves reads; presigned PUTs need these.
-5. `wrangler deploy`. Local loop: copy `.dev.vars.example` to `.dev.vars`, `wrangler dev`.
+5. (Cross-origin hosts) If your app mounts the toolbar itself rather than being injected
+   via `ORIGIN_URL`, set `CORS_ORIGINS` in `wrangler.jsonc` to your app origin(s) — and
+   give the R2 bucket CORS too (`wrangler r2 bucket cors set <bucket> --file cors.json`,
+   allowing `PUT`/`GET` from the same origins), or text pins will work while screenshot
+   uploads fail. Without `CORS_ORIGINS` the websocket still connects (CORS-exempt), so
+   the toolbar reads "live" while every REST write quietly queues offline.
+6. `bun run deploy` — runs the locally installed wrangler (pinned `^4.118.0` in
+   `package.json`; wrangler < 3.91 silently ignores `wrangler.jsonc`, so don't reach for a
+   global). Local loop: copy `.dev.vars.example` to `.dev.vars`, `bun run dev`.
 
-The hub mounts under `/_pinbox` (health: `GET /_pinbox/health`, tokenless). One Durable
-Object exists per `PINBOX_PROJECT` name.
+The hub mounts under `/_pinbox` (health: `GET /_pinbox/health`, tokenless). **Point
+consumers at `https://<worker-host>/_pinbox`** — mount path included; the origin root
+deliberately 404s. One Durable Object exists per `PINBOX_PROJECT` name.
 
 ## Auth — no unauthenticated writes in any configuration
 

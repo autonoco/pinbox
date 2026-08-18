@@ -111,7 +111,7 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
           .map((p) =>
             itemHtml(
               p,
-              state.pins.indexOf(p) + 1,
+              p.n ?? state.pins.indexOf(p) + 1,
               p.id === state.activePinId,
               state.threads.get(p.id) ?? [],
               state.queuedIds.has(p.id),

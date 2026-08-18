@@ -32,7 +32,9 @@ function threadTail(thread: ThreadMessage[]): string[] {
 function block(pin: Pin, thread: ThreadMessage[]): string {
   const { selector, url, source } = pin.target ?? {};
   return [
-    `## Pin ${pin.id} — ${pin.status.toUpperCase()}`,
+    // The number people see on the chip leads when the pin has one; pre-`n` pins
+    // keep the exact old header shape.
+    `## Pin ${pin.n === undefined ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
     `- label: ${line(label(pin))}`,
     // Each locus line is present only when the fact is — a terminal pin has a
     // source anchor and no selector; a pin created with no anchor at all has none.

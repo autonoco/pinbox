@@ -132,6 +132,18 @@ describe("POST /pins", () => {
     expect(body.data.env.commit).toBe("abc1234");
   });
 
+  test("pins are numbered at birth — monotonic, never reused after a resolve", async () => {
+    const { handler, store } = makeHandler();
+    const first = await createPin(handler);
+    const second = await createPin(handler);
+    expect(first.n).toBe(1);
+    expect(second.n).toBe(2);
+    store.resolvePin(first.id, "human");
+    const third = await createPin(handler);
+    expect(third.n).toBe(3); // resolution frees nothing; numbers are issue numbers
+    expect(store.getPin(first.id)?.n).toBe(1); // and the resolved pin keeps its own
+  });
+
   test("400 with E_INVALID_INPUT on a bad body", async () => {
     const { handler } = makeHandler();
     const res = await handler(post("/pins", { ...validInput, text: "" }));

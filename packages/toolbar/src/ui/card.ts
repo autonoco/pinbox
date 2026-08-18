@@ -11,6 +11,7 @@
 import type { Attachment, Pin, ThreadMessage } from "@autono/pinbox-core/schema";
 import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
 import { esc, pinNumber, safeUrl } from "./html.ts";
+import { nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
   /** draft ⇒ createPin; else thread reply. */
@@ -370,10 +371,12 @@ function activePin(state: ToolbarState): Pin | null {
   return state.pins.find((p) => p.id === state.activePinId) ?? null;
 }
 
-/** Ordinal among visible pins (resolved pins hide unless active); drafts number last. */
+/** The pin's hub-born number; visible-index only for pre-`n` pins, drafts next up. */
 function ordinalOf(state: ToolbarState, pin: Pin | null): number {
+  if (pin === null) return nextOrdinal(state.pins);
+  if (pin.n !== undefined) return pin.n;
   const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-  return pin ? visible.indexOf(pin) + 1 : visible.length + 1;
+  return visible.indexOf(pin) + 1;
 }
 
 function anchorOf(pin: Pin | null, draft: ToolbarState["draft"]): { x: number; y: number } {

@@ -173,6 +173,12 @@ export const PinInputSchema = z.object({
 
 export const PinSchema = PinInputSchema.extend({
   id: z.string().regex(/^pin_[a-z0-9]{10}$/),
+  /**
+   * Stable per-project ordinal, hub-assigned at creation like an issue number —
+   * never renumbered by resolution or reordering (dogfood: index-derived chip
+   * numbers kept shifting). Optional because pins predate it; readers fall back.
+   */
+  n: z.number().int().positive().optional(),
   schemaVersion: z.literal(1),
   status: z.enum(["open", "resolved"]).default("open"),
   createdAt: z.string(),

@@ -10,6 +10,11 @@ import { esc, pinNumber } from "./html.ts";
 /** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 const chipMemo = new WeakMap<Element, string>();
 
+/** What the hub will number the next pin: max known `n`, else the pin count. */
+export function nextOrdinal(pins: Pin[]): number {
+  return Math.max(pins.length, ...pins.map((p) => p.n ?? 0)) + 1;
+}
+
 /**
  * Does the pin's captured URL still describe the view on screen? Path + search
  * only — hashes are anchors, not views. An absent or unparseable URL never
@@ -127,7 +132,8 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
     const rect = anchorRect(layer, pin);
     if (rect === null) return;
     const spot = pin.target?.spot;
-    placed.push(spot === undefined ? { pin, n: i + 1, rect } : { pin, n: i + 1, rect, spot });
+    const n = pin.n ?? i + 1; // hub-born issue number; index only for pre-`n` pins
+    placed.push(spot === undefined ? { pin, n, rect } : { pin, n, rect, spot });
   });
   const keys = new Set(placed.map((entry) => entry.pin.id));
   if (state.draft) keys.add("draft");
@@ -143,6 +149,6 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   }
   if (state.draft) {
     const node = ensureNode(layer, "draft", true);
-    patchNode(node, state.draft.placedAt, true, chipInner(visible.length + 1, null));
+    patchNode(node, state.draft.placedAt, true, chipInner(nextOrdinal(state.pins), null));
   }
 }

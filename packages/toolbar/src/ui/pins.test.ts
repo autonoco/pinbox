@@ -5,7 +5,7 @@ import type { Pin } from "@autono/pinbox-core/schema";
 import { Window } from "happy-dom";
 import type { BrowserPin } from "../capture.ts";
 import { initialState, type ToolbarState } from "../state.ts";
-import { renderPins } from "./pins.ts";
+import { nextOrdinal, renderPins } from "./pins.ts";
 
 // The window carries makePin's URL and a live `#hero` so the default fixtures
 // pass the anchor gate; happy-dom rects have no layout (all zeros), so
@@ -197,6 +197,27 @@ describe("anchor gating (dogfood #26: pins lingered over unrelated SPA views)", 
     const node = layer.querySelector('[data-pin="pin_noselector"]') as HTMLElement;
     expect(node.style.left).toBe("125px"); // stored-rect centre
   });
+});
+
+test("chips read the hub-born number, not the visible index", () => {
+  const layer = layerIn();
+  // Out-of-order arrival: the pin numbered 7 renders first in the array.
+  const seven = makePin("pin_numberseven", { n: 7 });
+  const two = makePin("pin_numbertwoxx", { n: 2 });
+  renderPins(layer, stateWith({ pins: [seven, two] }));
+  expect(layer.querySelector('[data-pin="pin_numberseven"] .pb-chipBtn')?.textContent).toContain(
+    "07",
+  );
+  expect(layer.querySelector('[data-pin="pin_numbertwoxx"] .pb-chipBtn')?.textContent).toContain(
+    "02",
+  );
+});
+
+test("nextOrdinal guesses the hub's next number for the draft chip", () => {
+  expect(nextOrdinal([])).toBe(1);
+  expect(nextOrdinal([makePin("pin_aaaaaaaaaa", { n: 7 })])).toBe(8);
+  // pre-`n` pins: count is the floor
+  expect(nextOrdinal([makePin("pin_aaaaaaaaaa"), makePin("pin_bbbbbbbbbb")])).toBe(3);
 });
 
 test("pinsHidden hides the layer whole; unhiding restores the same nodes", () => {

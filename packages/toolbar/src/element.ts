@@ -490,7 +490,13 @@ export class PinboxToolbarElement extends BaseElement {
 
   #togglePlacing(): void {
     const placing = this.store.get().mode === "placing";
-    this.store.update({ mode: placing ? "idle" : "placing", activePinId: null });
+    // Arming unhides: accumulation marks and the fresh marker both render into
+    // the pin layer, and an invisible receipt reads as a dead click.
+    this.store.update(
+      placing
+        ? { mode: "idle", activePinId: null }
+        : { mode: "placing", activePinId: null, pinsHidden: false },
+    );
   }
 
   #toggleInbox(): void {
@@ -684,6 +690,9 @@ export class PinboxToolbarElement extends BaseElement {
     const placing = state.mode === "placing";
     this.toggleAttribute("data-placing", placing);
     document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
+    // However placing ended — Esc, P, a commit, a card opening — the pending
+    // multi-target set dies with it; orphaned dashed outlines are lies.
+    if (!placing) this.#clearExtraTargets();
     if (!placing) this.#reticle?.release();
     this.#syncAim(placing);
     if (this.#pinsLayer) renderPins(this.#pinsLayer, state);

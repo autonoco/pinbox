@@ -3081,9 +3081,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		}
 		#togglePlacing() {
 			const placing = this.store.get().mode === "placing";
-			this.store.update({
-				mode: placing ? "idle" : "placing",
+			this.store.update(placing ? {
+				mode: "idle",
 				activePinId: null
+			} : {
+				mode: "placing",
+				activePinId: null,
+				pinsHidden: false
 			});
 		}
 		#toggleInbox() {
@@ -3251,6 +3255,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			const placing = state.mode === "placing";
 			this.toggleAttribute("data-placing", placing);
 			document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
+			if (!placing) this.#clearExtraTargets();
 			if (!placing) this.#reticle?.release();
 			this.#syncAim(placing);
 			if (this.#pinsLayer) renderPins(this.#pinsLayer, state);

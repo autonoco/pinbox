@@ -1675,25 +1675,6 @@ var Pinbox = (function(exports) {
 		};
 	}
 	//#endregion
-	//#region src/ui/multimarks.ts
-	const MARK_CLASS = "pb-multi-mark";
-	/** Replace the mark set to mirror `targets`; entries with no rect draw nothing. */
-	function renderMultiMarks(layer, targets) {
-		for (const node of [...layer.querySelectorAll(`.${MARK_CLASS}`)]) node.remove();
-		targets.forEach((target, i) => {
-			const rect = target.rect;
-			if (rect === void 0) return;
-			const mark = layer.ownerDocument.createElement("div");
-			mark.className = MARK_CLASS;
-			mark.style.left = `${rect.x}px`;
-			mark.style.top = `${rect.y}px`;
-			mark.style.width = `${rect.width}px`;
-			mark.style.height = `${rect.height}px`;
-			mark.innerHTML = `<span>${i + 1}</span>`;
-			layer.appendChild(mark);
-		});
-	}
-	//#endregion
 	//#region src/ui/bar.ts
 	const PIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const INBOX_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
@@ -2301,6 +2282,25 @@ var Pinbox = (function(exports) {
 				if (state.inboxOpen) render(state);
 			}
 		};
+	}
+	//#endregion
+	//#region src/ui/multimarks.ts
+	const MARK_CLASS = "pb-multi-mark";
+	/** Replace the mark set to mirror `targets`; entries with no rect draw nothing. */
+	function renderMultiMarks(layer, targets) {
+		for (const node of [...layer.querySelectorAll(`.${MARK_CLASS}`)]) node.remove();
+		targets.forEach((target, i) => {
+			const rect = target.rect;
+			if (rect === void 0) return;
+			const mark = layer.ownerDocument.createElement("div");
+			mark.className = MARK_CLASS;
+			mark.style.left = `${rect.x}px`;
+			mark.style.top = `${rect.y}px`;
+			mark.style.width = `${rect.width}px`;
+			mark.style.height = `${rect.height}px`;
+			mark.innerHTML = `<span>${i + 1}</span>`;
+			layer.appendChild(mark);
+		});
 	}
 	//#endregion
 	//#region src/ui/puck.ts

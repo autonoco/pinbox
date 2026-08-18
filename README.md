@@ -11,26 +11,31 @@ Drop a pin on a live app, and the coding agent already working on it picks the p
 
 ## Install
 
-Building from source is the only route that works today — nothing is on npm and no
-release is tagged yet. You need [Bun](https://bun.sh) 1.3 or newer to build, not to run.
+One line, no runtime needed — the installer pulls a prebuilt binary from
+[GitHub Releases](https://github.com/autonoco/pinbox/releases) and verifies its
+SHA-256 checksum before putting it on your `PATH`:
 
 ```sh
-git clone https://github.com/autonoco/pinbox.git
-cd pinbox
-bun install
-bun run build
-export PATH="$PWD/packages/cli/dist:$PATH"
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+Or from npm — [`@autono/pinbox`](https://www.npmjs.com/package/@autono/pinbox) is a
+launcher whose platform packages each carry one compiled binary, so your package
+manager downloads only the one matching your machine:
+
+```sh
+npm install -g @autono/pinbox
 ```
 
 ```console
 $ pinbox --version
-0.1.0
+0.14.0
 ```
 
-The binary at `packages/cli/dist/pinbox` is self-contained — Bun is compiled into it — so
-you can copy it anywhere on your `PATH`. Prebuilt binaries on GitHub Releases and an
-`@autono/pinbox` npm launcher are both wired up and will work as soon as the first release
-is tagged; see [`docs/installation.mdx`](docs/installation.mdx).
+The binary is self-contained — Bun is compiled into it — so you can copy it anywhere.
+To build from source instead (Bun 1.3+ to build, not to run): `git clone`, `bun install`,
+`bun run build`, and the same binary lands at `packages/cli/dist/pinbox`. Details and
+supported platforms: [`docs/installation.mdx`](docs/installation.mdx).
 
 ## Use it
 

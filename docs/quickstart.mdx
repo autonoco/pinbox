@@ -19,6 +19,14 @@ no runtime to install first.
 
 <CodeGroup>
 
+```sh Install script
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+```
+
+```sh npm
+npm install -g @autono/pinbox
+```
+
 ```sh Build from source
 git clone https://github.com/autonoco/pinbox.git
 cd pinbox
@@ -28,27 +36,19 @@ bun run build
 export PATH="$PWD/packages/cli/dist:$PATH"
 ```
 
-```sh Install script
-curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
-```
-
-```sh npm
-npx @autono/pinbox init
-```
-
 </CodeGroup>
 
 <Note>
-  Building from source is the route that works today — there is no published
-  release or npm package yet. See [Installation](/installation) for the full
-  picture and what each route needs.
+  The install script needs no JavaScript runtime at all; the npm route needs
+  one. See [Installation](/installation) for the full picture, supported
+  platforms, and checksum verification.
 </Note>
 
 Check that the command resolves:
 
 ```console
 $ pinbox --version
-0.0.0
+0.14.0
 ```
 
 </Step>

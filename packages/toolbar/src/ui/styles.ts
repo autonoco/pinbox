@@ -234,6 +234,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-fan.down { --fan-from: translateY(-16px); }
 .pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
 .pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item.lit { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-multi-mark { position: absolute; border: 1.5px dashed var(--pb-amber); border-radius: 4px; pointer-events: none; z-index: 15; }
+.pb-multi-mark span { position: absolute; top: -9px; left: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+.pb-loci { padding: 6px 14px 0; font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--pb-fg3); overflow-wrap: anywhere; }
 .pb-fan-item .badge { pointer-events: none; }
 .pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
 .pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }

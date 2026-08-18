@@ -138,15 +138,20 @@ class DoSqlitePinStore implements DoPinStore {
     const mergedEnv = { ...parsed.env };
     if (env.branch !== undefined) mergedEnv.branch = env.branch;
     if (env.commit !== undefined) mergedEnv.commit = env.commit;
-    const pin = PinSchema.parse({
-      ...parsed,
-      env: mergedEnv,
-      id: newId("pin"),
-      schemaVersion: 1,
-      status: "open",
-      createdAt: new Date().toISOString(),
-    });
     return this.mutate(() => {
+      // Same monotonic issue-number rule as the local store: assigned inside the
+      // mutation, COUNT(*)+1 over a table with no deletes.
+      const count =
+        this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM pins").toArray()[0]?.n ?? 0;
+      const pin = PinSchema.parse({
+        ...parsed,
+        env: mergedEnv,
+        id: newId("pin"),
+        n: count + 1,
+        schemaVersion: 1,
+        status: "open",
+        createdAt: new Date().toISOString(),
+      });
       this.sql.exec(
         "INSERT INTO pins (id, status, created_at, json) VALUES (?, ?, ?, ?)",
         pin.id,

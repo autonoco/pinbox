@@ -29,6 +29,12 @@ export interface ToolbarState {
    * chips, and cards stay live either way.
    */
   minimized: boolean;
+  /**
+   * Pin markers hidden (dogfood ask: "usually you can hide comments"). The
+   * overlay layer only — the drawer still lists everything, and placing a new
+   * pin unhides so the marker you just dropped is never invisible.
+   */
+  pinsHidden: boolean;
 }
 
 export interface Store {
@@ -55,6 +61,7 @@ export function initialState(): ToolbarState {
     connection: "connecting",
     queuedIds: new Set(),
     minimized: false,
+    pinsHidden: false,
   };
 }
 
@@ -77,7 +84,8 @@ export function createStore(): Store {
       commit({ ...state, ...patch });
     },
     place(draft) {
-      commit({ ...state, draft, mode: "idle", activePinId: null });
+      // Placing unhides: the marker you just dropped must never be invisible.
+      commit({ ...state, draft, mode: "idle", activePinId: null, pinsHidden: false });
     },
     discardDraft() {
       commit({ ...state, draft: null });

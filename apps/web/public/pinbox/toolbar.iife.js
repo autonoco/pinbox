@@ -1,5 +1,29 @@
 var Pinbox = (function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+	//#region src/anchor-watch.ts
+	function watchAnchors(win, onChange) {
+		let frame = 0;
+		const schedule = () => {
+			if (frame !== 0) return;
+			frame = win.requestAnimationFrame(() => {
+				frame = 0;
+				onChange();
+			});
+		};
+		const observer = new (win.MutationObserver ?? MutationObserver)(schedule);
+		observer.observe(win.document.body, {
+			childList: true,
+			subtree: true
+		});
+		win.addEventListener("popstate", schedule);
+		return { destroy() {
+			observer.disconnect();
+			win.removeEventListener("popstate", schedule);
+			if (frame !== 0) win.cancelAnimationFrame(frame);
+			frame = 0;
+		} };
+	}
+	//#endregion
 	//#region src/targeting/dom.ts
 	/**
 	* Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
@@ -272,9 +296,10 @@ var Pinbox = (function(exports) {
 	function block(pin, thread) {
 		const { selector, url, source } = pin.target ?? {};
 		return [
-			`## Pin ${pin.id} — OPEN`,
+			`## Pin ${pin.n === void 0 ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
+			...(pin.target?.targets ?? []).map((t) => t.selector ?? t.anchor ?? t.tag).filter((locus) => locus !== void 0).map((locus) => `- also: \`${line(locus)}\``),
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
 			...url === void 0 ? [] : [`- url: ${line(url)}`],
 			"",
@@ -287,6 +312,11 @@ var Pinbox = (function(exports) {
 		const open = pins.filter((p) => p.status === "open");
 		if (open.length === 0) return "No open pins.\n";
 		return `${open.map((p) => block(p, threads.get(p.id) ?? [])).join("\n\n")}\n`;
+	}
+	/** One pin's block — the card's per-pin copy (dogfood: "I want to copy an
+	* individual pin"); any status, since you copy exactly what you're looking at. */
+	function pinToMarkdown(pin, thread) {
+		return `${block(pin, thread)}\n`;
 	}
 	//#endregion
 	//#region src/motion/spring.ts
@@ -954,7 +984,8 @@ var Pinbox = (function(exports) {
 			inboxOpen: false,
 			connection: "connecting",
 			queuedIds: /* @__PURE__ */ new Set(),
-			minimized: false
+			minimized: false,
+			pinsHidden: false
 		};
 	}
 	function createStore() {
@@ -981,7 +1012,8 @@ var Pinbox = (function(exports) {
 					...state,
 					draft,
 					mode: "idle",
-					activePinId: null
+					activePinId: null,
+					pinsHidden: false
 				});
 			},
 			discardDraft() {
@@ -1646,8 +1678,8 @@ var Pinbox = (function(exports) {
 	//#region src/ui/bar.ts
 	const PIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const INBOX_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
-	const THEME_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
-	const COPY_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
+	const THEME_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 2a4 4 0 0 0 6 6 6 6 0 1 1-6-6z\"/></svg>";
+	const COPY_ICON$1 = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
 	const IDENT_ICON = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"var(--pb-amber)\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"var(--pb-amber)\" stroke=\"none\"/></svg>";
 	const MIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M6.5 2.5v4h-4\"/><path d=\"M9.5 13.5v-4h4\"/></svg>";
 	const CONNECTION_LABEL = {
@@ -1659,7 +1691,7 @@ var Pinbox = (function(exports) {
 	function createBar(doc, on) {
 		const root = doc.createElement("div");
 		root.className = "pb-bar";
-		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button><button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
+		root.innerHTML = `<div class="armed-ring"></div><div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div><div class="div"></div><button type="button" class="pb-tb" data-ref="pin" title="Pin (P)">${PIN_ICON}PIN</button><button type="button" class="pb-tb" data-ref="inbox" title="Inbox (I)">${INBOX_ICON}<span data-ref="count">0</span></button><div class="div" style="margin:0 3px"></div><button type="button" class="pb-tb sq" data-ref="copy" title="Copy open pins (C)">${COPY_ICON$1}</button><button type="button" class="pb-tb sq" data-ref="theme" title="Theme (D)">${THEME_ICON}</button><button type="button" class="pb-tb sq" data-ref="help" title="Shortcuts (?)">?</button><button type="button" class="pb-tb sq" data-ref="min" title="Minimize (M)" aria-label="Minimize toolbar">${MIN_ICON}</button>`;
 		const ref = (name) => root.querySelector(`[data-ref="${name}"]`);
 		const label = ref("label");
 		const pinBtn = ref("pin");
@@ -1713,6 +1745,144 @@ var Pinbox = (function(exports) {
 		return String(n).padStart(2, "0");
 	}
 	//#endregion
+	//#region src/ui/pins.ts
+	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
+	const chipMemo = /* @__PURE__ */ new WeakMap();
+	/** What the hub will number the next pin: max known `n`, else the pin count. */
+	function nextOrdinal(pins) {
+		return Math.max(pins.length, ...pins.map((p) => p.n ?? 0)) + 1;
+	}
+	/**
+	* Does the pin's captured URL still describe the view on screen? Path + search
+	* only — hashes are anchors, not views. An absent or unparseable URL never
+	* gates: old pins (and CLI pins) keep rendering exactly as before.
+	*/
+	function sameView(win, url) {
+		if (url === void 0) return true;
+		try {
+			const target = new URL(url, win.location.href);
+			return target.pathname === win.location.pathname && target.search === win.location.search;
+		} catch {
+			return true;
+		}
+	}
+	/**
+	* Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
+	* views after SPA tab switches, because placement trusted the stored rect
+	* forever). Re-resolve the captured selector on every render:
+	*  - it resolves with layout → snap to the LIVE rect (also fixes drift);
+	*  - it resolves without layout (test DOMs, display:none) → stored rect;
+	*  - it does not resolve → no marker; the drawer stays the see-everything list.
+	* A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
+	*/
+	function anchorRect(layer, pin) {
+		const stored = pin.target?.rect;
+		if (stored === void 0) return null;
+		const doc = layer.ownerDocument;
+		const win = doc.defaultView;
+		if (win === null) return stored;
+		if (!sameView(win, pin.target?.url)) return null;
+		const selector = pin.target?.selector;
+		if (selector === void 0) return stored;
+		let el;
+		try {
+			el = doc.querySelector(selector);
+		} catch {
+			return stored;
+		}
+		if (el === null) return null;
+		const r = el.getBoundingClientRect();
+		if (r.width <= 0 && r.height <= 0) return stored;
+		return {
+			x: r.left + win.scrollX,
+			y: r.top + win.scrollY,
+			width: r.width,
+			height: r.height
+		};
+	}
+	/**
+	* Where the needle lands: the point inside the element that was actually clicked, when the pin
+	* recorded one, else the centre of its box.
+	*
+	* `spot` is a fraction of the element, so the pin still tracks the element when it moves or
+	* resizes — it just stops sliding to the middle of a wide block the moment you commit it.
+	*/
+	function pinPoint(r, spot) {
+		const fx = spot?.x ?? .5;
+		const fy = spot?.y ?? .5;
+		return {
+			x: r.x + r.width * fx,
+			y: r.y + r.height * fy
+		};
+	}
+	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
+	* plus the queued badge while the pin waits in the outbox for the reconnect flush. */
+	function chipInner(n, pin, queued = false) {
+		const link = pin?.links?.[0];
+		const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
+		const qd = queued ? "<span class=\"qd\">QUEUED</span>" : "";
+		return `<span>${pinNumber(n)}</span>${badge}${qd}`;
+	}
+	function ensureNode(layer, key, fresh) {
+		let node = layer.querySelector(`[data-pin="${key}"]`);
+		if (!node) {
+			node = layer.ownerDocument.createElement("div");
+			node.className = "pb-pin";
+			node.setAttribute("data-pin", key);
+			node.innerHTML = `${fresh ? "<div class=\"ring\"></div>" : ""}<div class="dot"></div><div class="needle"></div><button type="button" class="pb-chipBtn" data-open="${esc(key)}"></button>`;
+			layer.appendChild(node);
+		}
+		return node;
+	}
+	function patchNode(node, at, hot, inner) {
+		node.style.left = `${at.x}px`;
+		node.style.top = `${at.y}px`;
+		node.style.zIndex = hot ? "40" : "20";
+		node.classList.toggle("hot", hot);
+		const chip = node.querySelector(".pb-chipBtn");
+		if (chip && chipMemo.get(chip) !== inner) {
+			chip.innerHTML = inner;
+			chipMemo.set(chip, inner);
+		}
+	}
+	/**
+	* Render the pin layer for a state snapshot. Visible pins are open pins, the
+	* active pin regardless of status, and the client-only draft (key "draft").
+	*/
+	function renderPins(layer, state) {
+		layer.hidden = state.pinsHidden;
+		if (state.pinsHidden) return;
+		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
+		const placed = [];
+		visible.forEach((pin, i) => {
+			const rect = anchorRect(layer, pin);
+			if (rect === null) return;
+			const spot = pin.target?.spot;
+			const n = pin.n ?? i + 1;
+			placed.push(spot === void 0 ? {
+				pin,
+				n,
+				rect
+			} : {
+				pin,
+				n,
+				rect,
+				spot
+			});
+		});
+		const keys = new Set(placed.map((entry) => entry.pin.id));
+		if (state.draft) keys.add("draft");
+		for (const node of [...layer.children]) if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
+		for (const { pin, n, rect, spot } of placed) {
+			const node = ensureNode(layer, pin.id, false);
+			const hot = pin.id === state.activePinId;
+			const queued = state.queuedIds.has(pin.id);
+			node.classList.toggle("queued", queued);
+			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
+		}
+		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(nextOrdinal(state.pins), null));
+	}
+	//#endregion
 	//#region src/ui/card.ts
 	const STATUS_LABEL = {
 		open: "OPEN",
@@ -1723,6 +1893,7 @@ var Pinbox = (function(exports) {
 	};
 	const CHECK_ICON = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M3 8.5l3.2 3.2L13 4.8\"/></svg>";
 	const X_ICON$1 = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg>";
+	const COPY_ICON = "<svg width=\"13\" height=\"13\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"8\" rx=\"1\"/><path d=\"M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1\"/></svg>";
 	const ctxByCard = /* @__PURE__ */ new WeakMap();
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const nodeMemo = /* @__PURE__ */ new WeakMap();
@@ -1744,8 +1915,15 @@ var Pinbox = (function(exports) {
 		if (!m.attachments?.length) return "";
 		return `<div class="atts">${m.attachments.map((att) => isImage(att) ? `<span class="pb-att"><img src="${esc(safeUrl(att.url ?? att.path ?? ""))}" alt="${esc(fileName(att))}" loading="lazy"></span>` : `<span class="pb-att-chip">${esc(fileName(att))}</span>`).join("")}</div>`;
 	}
+	/** "claude:lark-mac-agent" → "Claude · lark-mac-agent"; other shapes verbatim. */
+	function agentName(origin) {
+		const idx = origin.indexOf(":");
+		if (idx <= 0) return origin;
+		const agent = origin.slice(0, idx);
+		return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${origin.slice(idx + 1)}`;
+	}
 	function messageHtml(m) {
-		if (m.role === "agent") return `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col"><div class="line"><span class="who">Agent</span><span class="tm">${esc(timeOf(m.at))}</span></div><div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`;
+		if (m.role === "agent") return `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col"><div class="line"><span class="who">${esc(m.origin === void 0 ? "Agent" : agentName(m.origin))}</span><span class="tm">${esc(timeOf(m.at))}</span></div><div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`;
 		const mirror = m.role === "mirror";
 		const origin = mirror ? m.origin ?? "mirror" : null;
 		const who = origin ? origin.split(":")[1] ?? origin : "You";
@@ -1832,7 +2010,14 @@ var Pinbox = (function(exports) {
 		else if (action === "close") ctx.actions.close();
 		else if (ctx.pid !== "draft") {
 			if (action === "resolve") ctx.actions.resolve(ctx.pid);
-			else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
+			else if (action === "copy") {
+				ctx.actions.copy(ctx.pid);
+				const btn = e.target.closest?.("[data-action=\"copy\"]");
+				if (btn) {
+					btn.classList.add("ok");
+					card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+				}
+			} else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
 			else if (action === "verify-reopen") {
 				ctx.actions.verify(ctx.pid, "reopened");
 				card.querySelector("textarea")?.focus();
@@ -1840,7 +2025,7 @@ var Pinbox = (function(exports) {
 		}
 	}
 	function buildSkeleton(card, ctx, isDraft, hasThread) {
-		card.innerHTML = "<div class=\"in\"><div class=\"pb-hd\" data-ref=\"hd\"></div><div data-ref=\"link\"></div><div class=\"pb-thread\" data-ref=\"thread\"></div><div data-ref=\"verify\"></div><div class=\"pb-composer\"><textarea rows=\"2\"></textarea><div class=\"row\" data-ref=\"row\"></div></div></div>";
+		card.innerHTML = "<div class=\"in\"><div class=\"pb-hd\" data-ref=\"hd\"></div><div data-ref=\"link\"></div><div data-ref=\"loci\"></div><div class=\"pb-thread\" data-ref=\"thread\"></div><div data-ref=\"verify\"></div><div class=\"pb-composer\"><textarea rows=\"2\"></textarea><div class=\"row\" data-ref=\"row\"></div></div></div>";
 		const ta = card.querySelector("textarea");
 		ta.placeholder = hasThread ? "Ask a question or request a change…" : "What should change here?";
 		ta.addEventListener("keydown", (e) => {
@@ -1856,8 +2041,20 @@ var Pinbox = (function(exports) {
 		}, true);
 		if (isDraft) ta.focus();
 	}
-	function hdHtml(n, targetLabel, status, resolvable) {
-		return `<div class="meta"><span class="num">${pinNumber(n)}</span><span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div><div style="display:flex;gap:2px">` + (resolvable ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>` : "") + `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON$1}</button></div>`;
+	function hdHtml(n, targetLabel, status, resolvable, copyable) {
+		return `<div class="meta"><span class="num">${pinNumber(n)}</span><span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div><div style="display:flex;gap:2px">` + (copyable ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>` : "") + (resolvable ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>` : "") + `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON$1}</button></div>`;
+	}
+	/** One name per locus: selector first, else anchor, else tag. */
+	function locusName(t) {
+		return t.selector ?? t.anchor ?? t.tag?.toUpperCase();
+	}
+	/** The extra loci of a multi-target pin — the anchor leads, extras follow. */
+	function lociHtml(pin) {
+		const target = pin?.target;
+		const extras = target?.targets;
+		if (target === void 0 || extras === void 0 || extras.length === 0) return "";
+		const names = [target, ...extras].map((t) => esc(locusName(t) ?? "?"));
+		return `<div class="pb-loci">${names.length} targets: ${names.join(" · ")}</div>`;
 	}
 	/** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
 	function linkHtml(pin) {
@@ -1866,8 +2063,9 @@ var Pinbox = (function(exports) {
 		return `<div class="pb-linkbar"><span class="ch">${esc(link.connector)}</span><span class="mt">${esc(link.ref)}</span><span class="sp"></span><a class="pb-open" href="${esc(safeUrl(link.url))}" target="_blank" rel="noreferrer">OPEN</a></div>`;
 	}
 	function verifyHtml(status) {
-		if (status !== "verify") return "";
-		return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ok\" data-action=\"verify-accept\">Looks good</button><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Reopen</button></div>";
+		if (status === "verify") return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ok\" data-action=\"verify-accept\">Looks good</button><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Reopen</button></div>";
+		if (status === "resolved") return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Unresolve</button></div>";
+		return "";
 	}
 	function rowHtml(hasThread) {
 		return `<div class="pb-kbd">⌘ ↵</div><button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : "Comment"}</button>`;
@@ -1904,10 +2102,11 @@ var Pinbox = (function(exports) {
 		if (!state.activePinId) return null;
 		return state.pins.find((p) => p.id === state.activePinId) ?? null;
 	}
-	/** Ordinal among visible pins (resolved pins hide unless active); drafts number last. */
+	/** The pin's hub-born number; visible-index only for pre-`n` pins, drafts next up. */
 	function ordinalOf(state, pin) {
-		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-		return pin ? visible.indexOf(pin) + 1 : visible.length + 1;
+		if (pin === null) return nextOrdinal(state.pins);
+		if (pin.n !== void 0) return pin.n;
+		return state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId).indexOf(pin) + 1;
 	}
 	function anchorOf(pin, draft) {
 		const r = pin?.target?.rect;
@@ -1978,8 +2177,9 @@ var Pinbox = (function(exports) {
 		const queued = view.pin !== null && state.queuedIds.has(view.pin.id);
 		const statusLabel = queued ? "QUEUED" : view.status ? STATUS_LABEL[view.status] : "NEW";
 		const resolvable = view.pin?.status === "open" && !queued;
-		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
+		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
 		setPart(card, ctx, "link", linkHtml(view.pin));
+		setPart(card, ctx, "loci", lociHtml(view.pin));
 		setPart(card, ctx, "verify", verifyHtml(view.status));
 		const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
 		setPart(card, ctx, "row", rowHtml(messages.length > 0));
@@ -2051,7 +2251,7 @@ var Pinbox = (function(exports) {
 				doneTab.classList.toggle("on", tab === "resolved");
 			}
 			const list = tab === "open" ? open : resolved;
-			const html = list.length ? list.map((p) => itemHtml(p, state.pins.indexOf(p) + 1, p.id === state.activePinId, state.threads.get(p.id) ?? [], state.queuedIds.has(p.id))).join("") : "<div class=\"pb-empty\">Nothing here yet.</div>";
+			const html = list.length ? list.map((p) => itemHtml(p, p.n ?? state.pins.indexOf(p) + 1, p.id === state.activePinId, state.threads.get(p.id) ?? [], state.queuedIds.has(p.id))).join("") : "<div class=\"pb-empty\">Nothing here yet.</div>";
 			if (itemsMemo !== html) {
 				items.innerHTML = html;
 				itemsMemo = html;
@@ -2084,87 +2284,23 @@ var Pinbox = (function(exports) {
 		};
 	}
 	//#endregion
-	//#region src/ui/pins.ts
-	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
-	const chipMemo = /* @__PURE__ */ new WeakMap();
-	/**
-	* Where the needle lands: the point inside the element that was actually clicked, when the pin
-	* recorded one, else the centre of its box.
-	*
-	* `spot` is a fraction of the element, so the pin still tracks the element when it moves or
-	* resizes — it just stops sliding to the middle of a wide block the moment you commit it.
-	*/
-	function pinPoint(r, spot) {
-		const fx = spot?.x ?? .5;
-		const fy = spot?.y ?? .5;
-		return {
-			x: r.x + r.width * fx,
-			y: r.y + r.height * fy
-		};
-	}
-	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
-	* plus the queued badge while the pin waits in the outbox for the reconnect flush. */
-	function chipInner(n, pin, queued = false) {
-		const link = pin?.links?.[0];
-		const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
-		const qd = queued ? "<span class=\"qd\">QUEUED</span>" : "";
-		return `<span>${pinNumber(n)}</span>${badge}${qd}`;
-	}
-	function ensureNode(layer, key, fresh) {
-		let node = layer.querySelector(`[data-pin="${key}"]`);
-		if (!node) {
-			node = layer.ownerDocument.createElement("div");
-			node.className = "pb-pin";
-			node.setAttribute("data-pin", key);
-			node.innerHTML = `${fresh ? "<div class=\"ring\"></div>" : ""}<div class="dot"></div><div class="needle"></div><button type="button" class="pb-chipBtn" data-open="${esc(key)}"></button>`;
-			layer.appendChild(node);
-		}
-		return node;
-	}
-	function patchNode(node, at, hot, inner) {
-		node.style.left = `${at.x}px`;
-		node.style.top = `${at.y}px`;
-		node.style.zIndex = hot ? "40" : "20";
-		node.classList.toggle("hot", hot);
-		const chip = node.querySelector(".pb-chipBtn");
-		if (chip && chipMemo.get(chip) !== inner) {
-			chip.innerHTML = inner;
-			chipMemo.set(chip, inner);
-		}
-	}
-	/**
-	* Render the pin layer for a state snapshot. Visible pins are open pins, the
-	* active pin regardless of status, and the client-only draft (key "draft").
-	*/
-	function renderPins(layer, state) {
-		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-		const placed = [];
-		visible.forEach((pin, i) => {
-			const rect = pin.target?.rect;
+	//#region src/ui/multimarks.ts
+	const MARK_CLASS = "pb-multi-mark";
+	/** Replace the mark set to mirror `targets`; entries with no rect draw nothing. */
+	function renderMultiMarks(layer, targets) {
+		for (const node of [...layer.querySelectorAll(`.${MARK_CLASS}`)]) node.remove();
+		targets.forEach((target, i) => {
+			const rect = target.rect;
 			if (rect === void 0) return;
-			const spot = pin.target?.spot;
-			placed.push(spot === void 0 ? {
-				pin,
-				n: i + 1,
-				rect
-			} : {
-				pin,
-				n: i + 1,
-				rect,
-				spot
-			});
+			const mark = layer.ownerDocument.createElement("div");
+			mark.className = MARK_CLASS;
+			mark.style.left = `${rect.x}px`;
+			mark.style.top = `${rect.y}px`;
+			mark.style.width = `${rect.width}px`;
+			mark.style.height = `${rect.height}px`;
+			mark.innerHTML = `<span>${i + 1}</span>`;
+			layer.appendChild(mark);
 		});
-		const keys = new Set(placed.map((entry) => entry.pin.id));
-		if (state.draft) keys.add("draft");
-		for (const node of [...layer.children]) if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
-		for (const { pin, n, rect, spot } of placed) {
-			const node = ensureNode(layer, pin.id, false);
-			const hot = pin.id === state.activePinId;
-			const queued = state.queuedIds.has(pin.id);
-			node.classList.toggle("queued", queued);
-			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
-		}
-		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(visible.length + 1, null));
 	}
 	//#endregion
 	//#region src/ui/puck.ts
@@ -2172,7 +2308,9 @@ var Pinbox = (function(exports) {
 	const PUCK_ICON = "<svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"2.5\" y=\"1.5\" width=\"11\" height=\"7\" rx=\"1\"/><path d=\"M8 8.5v6\"/><circle cx=\"8\" cy=\"14.6\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/></svg>";
 	const FAN_PIN = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const FAN_INBOX = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
-	const FAN_THEME = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 1.6a6.4 6.4 0 100 12.8A5 5 0 018 1.6z\"/></svg>";
+	const FAN_THEME = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M8 2a4 4 0 0 0 6 6 6 6 0 1 1-6-6z\"/></svg>";
+	const FAN_EYE = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.6 8S4 3.8 8 3.8 14.4 8 14.4 8 12 12.2 8 12.2 1.6 8 1.6 8z\"/><circle cx=\"8\" cy=\"8\" r=\"1.8\"/></svg>";
+	const FAN_EYE_OFF = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M2.3 2.3l11.4 11.4\"/><path d=\"M4.9 4.9C2.7 6.2 1.6 8 1.6 8s2.4 4.2 6.4 4.2c1.2 0 2.3-.3 3.1-.8M6.7 4c.4-.1.9-.2 1.3-.2 4 0 6.4 4.2 6.4 4.2s-.8 1.4-2.2 2.5\"/></svg>";
 	const FAN_EXPAND = "<svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M9.5 6.5v-4h4\"/><path d=\"M6.5 9.5v4h-4\"/></svg>";
 	function fanItem(act, index, icon, label, key) {
 		return `<button type="button" class="pb-fan-item" data-act="${act}" style="--i:${index}" aria-label="${label}">${icon}${act === "inbox" ? "<span class=\"badge\" data-ref=\"count\" hidden>0</span>" : ""}<span class="fl">${label.toUpperCase()}<i>${key}</i></span></button>`;
@@ -2188,7 +2326,7 @@ var Pinbox = (function(exports) {
 		fan.className = "pb-fan";
 		fan.hidden = true;
 		fan.setAttribute("role", "menu");
-		fan.innerHTML = fanItem("pin", 0, FAN_PIN, "Drop a pin", "P") + fanItem("inbox", 1, FAN_INBOX, "Inbox", "I") + fanItem("theme", 2, FAN_THEME, "Theme", "D") + fanItem("expand", 3, FAN_EXPAND, "Expand", "M");
+		fan.innerHTML = fanItem("pin", 0, FAN_PIN, "Drop a pin", "P") + fanItem("inbox", 1, FAN_INBOX, "Inbox", "I") + fanItem("theme", 2, FAN_THEME, "Theme", "D") + fanItem("hide", 3, FAN_EYE_OFF, "Hide pins", "H") + fanItem("expand", 4, FAN_EXPAND, "Expand", "M");
 		const morphWrap = doc.createElement("div");
 		morphWrap.className = "pb-morph-wrap";
 		morphWrap.hidden = true;
@@ -2204,6 +2342,9 @@ var Pinbox = (function(exports) {
 			carrier.querySelector("[data-ref=\"count\"]"),
 			fan.querySelector("[data-ref=\"count\"]")
 		];
+		const hideItem = fan.querySelector("[data-act=\"hide\"]");
+		/** Last-rendered hide state; the item's markup is swapped only on change. */
+		let hideShown = null;
 		return {
 			puck,
 			fan,
@@ -2219,6 +2360,13 @@ var Pinbox = (function(exports) {
 				const degraded = state.connection === "offline" || state.connection === "incompatible";
 				puck.classList.toggle("degraded", degraded);
 				puck.classList.toggle("armed", state.mode === "placing");
+				if (hideShown !== state.pinsHidden) {
+					hideShown = state.pinsHidden;
+					const label = state.pinsHidden ? "Show pins" : "Hide pins";
+					hideItem.innerHTML = `${state.pinsHidden ? FAN_EYE : FAN_EYE_OFF}<span class="fl">${label.toUpperCase()}<i>H</i></span>`;
+					hideItem.setAttribute("aria-label", label);
+					hideItem.classList.toggle("lit", state.pinsHidden);
+				}
 			}
 		};
 	}
@@ -2278,6 +2426,7 @@ var Pinbox = (function(exports) {
 		["Send comment", "⌘ ↵"],
 		["Mark pin resolved", "R"],
 		["Copy open pins", "C"],
+		["Hide / show pins", "H"],
 		["Minimize toolbar", "M"],
 		["Cancel", "ESC"]
 	];
@@ -2521,6 +2670,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-fan.down { --fan-from: translateY(-16px); }
 .pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
 .pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-fan-item.lit { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-multi-mark { position: absolute; border: 1.5px dashed var(--pb-amber); border-radius: 4px; pointer-events: none; z-index: 15; }
+.pb-multi-mark span { position: absolute; top: -9px; left: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+.pb-loci { padding: 6px 14px 0; font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--pb-fg3); overflow-wrap: anywhere; }
 .pb-fan-item .badge { pointer-events: none; }
 .pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
 .pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }
@@ -2585,15 +2738,20 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#modal = null;
 		#minUi = null;
 		#min = null;
+		/** SPA view watcher: DOM/history changes re-run the anchor-gated render. */
+		#anchors = null;
 		#helpOpen = false;
 		#pageStyle = null;
 		#unsubscribe = null;
 		#hover = null;
+		/** Shift+click accumulation while placing — extra loci for ONE pending pin. */
+		#extraTargets = [];
 		/** Card → element: send/verify/resolve forward to the transport seam; close dismisses. */
 		#cardActions = {
 			send: (pinId, text) => this.actions.send?.(pinId, text),
 			verify: (pinId, outcome) => this.actions.verify?.(pinId, outcome),
 			resolve: (pinId) => this.actions.resolve?.(pinId),
+			copy: (pinId) => this.#copyPin(pinId),
 			close: () => this.#dismiss()
 		};
 		/** Programmatic path (Pinbox.init). The snippet path reads hub/token attributes. */
@@ -2626,6 +2784,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#pageStyle = style;
 			if (this.#aim === null) this.#mountAim();
 			if (this.#min === null) this.#mountMinimize();
+			this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
 			document.addEventListener("mousemove", this.#onMouseMove);
 			window.addEventListener("scroll", this.#onViewportChange, { passive: true });
 			window.addEventListener("resize", this.#onViewportChange);
@@ -2674,6 +2833,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#min?.destroy();
 			this.#min = null;
 			releaseCapture();
+			this.#anchors?.destroy();
+			this.#anchors = null;
 			this.#unsubscribe?.();
 			this.#unsubscribe = null;
 			this.#pageStyle?.remove();
@@ -2763,6 +2924,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				onFanAction: (action) => {
 					if (action === "pin") this.#togglePlacing();
 					else if (action === "inbox") this.#toggleInbox();
+					else if (action === "hide") this.#togglePinsHidden();
 					else this.#toggleTheme();
 				}
 			});
@@ -2890,6 +3052,18 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 				navigator.clipboard.writeText(pinsToMarkdown(state.pins, state.threads));
 			} catch {}
 		}
+		/** The card's copy: exactly the pin you are looking at, thread included. */
+		#copyPin(pinId) {
+			const state = this.store.get();
+			const pin = state.pins.find((p) => p.id === pinId);
+			if (pin === void 0) return;
+			try {
+				navigator.clipboard.writeText(pinToMarkdown(pin, state.threads.get(pinId) ?? []));
+			} catch {}
+		}
+		#togglePinsHidden() {
+			this.store.update({ pinsHidden: !this.store.get().pinsHidden });
+		}
 		#setHelp(open) {
 			this.#helpOpen = open;
 			this.#modal?.set(open);
@@ -2907,9 +3081,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		}
 		#togglePlacing() {
 			const placing = this.store.get().mode === "placing";
-			this.store.update({
-				mode: placing ? "idle" : "placing",
+			this.store.update(placing ? {
+				mode: "idle",
 				activePinId: null
+			} : {
+				mode: "placing",
+				activePinId: null,
+				pinsHidden: false
 			});
 		}
 		#toggleInbox() {
@@ -2926,6 +3104,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** esc / click-away: leave placing, discard the draft (client-only), deactivate. */
 		#dismiss() {
 			this.#setHelp(false);
+			this.#clearExtraTargets();
 			this.store.update({
 				mode: "idle",
 				activePinId: null
@@ -2991,12 +3170,14 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#placeDraft(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			const el = this.#hover ?? document.body;
+			const capture = captureTarget(this.#hover ?? document.body, { at: {
+				x: e.pageX,
+				y: e.pageY
+			} });
+			if (this.#extraTargets.length > 0) capture.target.targets = this.#extraTargets;
+			this.#clearExtraTargets();
 			this.store.place({
-				target: captureTarget(el, { at: {
-					x: e.pageX,
-					y: e.pageY
-				} }),
+				target: capture,
 				placedAt: {
 					x: e.pageX,
 					y: e.pageY
@@ -3004,11 +3185,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			});
 			this.#reticle?.release();
 		}
+		/** Shift+click while placing: capture WITHOUT committing; a numbered dashed
+		* outline is the receipt. Plain click still commits (with these attached). */
+		#accumulateTarget(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			const el = this.#hover ?? document.body;
+			this.#extraTargets = [...this.#extraTargets, captureTarget(el).target];
+			if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, this.#extraTargets);
+		}
+		#clearExtraTargets() {
+			if (this.#extraTargets.length === 0) return;
+			this.#extraTargets = [];
+			if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, []);
+		}
 		#onClickCapture = (e) => {
 			if (e.composedPath().includes(this)) return;
 			const state = this.store.get();
 			if (state.mode === "placing") {
-				if (!needsDragAim(window)) this.#placeDraft(e);
+				if (needsDragAim(window)) return;
+				if (e.shiftKey) this.#accumulateTarget(e);
+				else this.#placeDraft(e);
 				return;
 			}
 			if (state.inboxOpen) this.store.update({ inboxOpen: false });
@@ -3025,6 +3222,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			d: () => this.#toggleTheme(),
 			r: () => this.#resolveActive(),
 			c: () => this.#copyOpenPins(),
+			h: () => this.#togglePinsHidden(),
 			m: () => this.#min?.minimized() === true ? this.restore(true) : this.minimize(true),
 			"?": () => this.#toggleHelp()
 		};
@@ -3057,6 +3255,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			const placing = state.mode === "placing";
 			this.toggleAttribute("data-placing", placing);
 			document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
+			if (!placing) this.#clearExtraTargets();
 			if (!placing) this.#reticle?.release();
 			this.#syncAim(placing);
 			if (this.#pinsLayer) renderPins(this.#pinsLayer, state);

@@ -32,11 +32,18 @@ function threadTail(thread: ThreadMessage[]): string[] {
 function block(pin: Pin, thread: ThreadMessage[]): string {
   const { selector, url, source } = pin.target ?? {};
   return [
-    `## Pin ${pin.id} — OPEN`,
+    // The number people see on the chip leads when the pin has one; pre-`n` pins
+    // keep the exact old header shape.
+    `## Pin ${pin.n === undefined ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
     `- label: ${line(label(pin))}`,
     // Each locus line is present only when the fact is — a terminal pin has a
     // source anchor and no selector; a pin created with no anchor at all has none.
     ...(selector === undefined ? [] : [`- selector: \`${line(selector)}\``]),
+    // Multi-target pins: every extra locus, so an agent sees the pattern, not one instance.
+    ...(pin.target?.targets ?? [])
+      .map((t) => t.selector ?? t.anchor ?? t.tag)
+      .filter((locus): locus is string => locus !== undefined)
+      .map((locus) => `- also: \`${line(locus)}\``),
     ...(source === undefined
       ? []
       : [
@@ -54,4 +61,10 @@ export function pinsToMarkdown(pins: Pin[], threads: Map<string, ThreadMessage[]
   const open = pins.filter((p) => p.status === "open");
   if (open.length === 0) return "No open pins.\n";
   return `${open.map((p) => block(p, threads.get(p.id) ?? [])).join("\n\n")}\n`;
+}
+
+/** One pin's block — the card's per-pin copy (dogfood: "I want to copy an
+ * individual pin"); any status, since you copy exactly what you're looking at. */
+export function pinToMarkdown(pin: Pin, thread: ThreadMessage[]): string {
+  return `${block(pin, thread)}\n`;
 }

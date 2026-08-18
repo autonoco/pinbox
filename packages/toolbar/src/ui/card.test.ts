@@ -57,9 +57,10 @@ function spyActions(): CardActions & {
   send: ReturnType<typeof mock>;
   verify: ReturnType<typeof mock>;
   resolve: ReturnType<typeof mock>;
+  copy: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
 } {
-  return { send: mock(), verify: mock(), resolve: mock(), close: mock() };
+  return { send: mock(), verify: mock(), resolve: mock(), copy: mock(), close: mock() };
 }
 
 const RESOLUTION = { by: "agent", at: "2026-08-04T11:00:00.000Z" } as const;
@@ -94,6 +95,44 @@ describe("renderCard thread patching", () => {
   });
 });
 
+describe("renderCard agent identity", () => {
+  test("an agent message with an origin names its agent; without stays generic", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const threads = new Map([
+      [
+        pin.id,
+        [
+          {
+            ...makeMsg("msg_named11111", pin.id, "agent", "on it"),
+            origin: "claude:lark-mac-agent",
+          },
+          makeMsg("msg_anon222222", pin.id, "agent", "done"),
+        ],
+      ],
+    ]);
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id, threads }), spyActions());
+    const whos = [...shadow.querySelectorAll(".pb-msg .who")].map((n) => n.textContent);
+    expect(whos).toContain("Claude · lark-mac-agent");
+    expect(whos).toContain("Agent");
+  });
+});
+
+describe("renderCard multi-target loci", () => {
+  test("a multi-target pin lists every locus, anchor first; single-target shows none", () => {
+    const shadow = shadowIn();
+    const base = makePin("pin_aaaaaaaaaa");
+    const multi = makePin("pin_aaaaaaaaaa", {
+      target: { ...base.target, targets: [{ selector: "#row-2" }, { selector: "#row-3" }] },
+    });
+    renderCard(shadow, stateWith({ pins: [multi], activePinId: multi.id }), spyActions());
+    const loci = shadow.querySelector(".pb-loci");
+    expect(loci?.textContent).toBe("3 targets: #hero · #row-2 · #row-3");
+    renderCard(shadow, stateWith({ pins: [base], activePinId: base.id }), spyActions());
+    expect(shadow.querySelector(".pb-loci")).toBeNull();
+  });
+});
+
 describe("renderCard verify footer", () => {
   test("renders exactly when the pin is resolved and unverified", () => {
     const shadow = shadowIn();
@@ -114,6 +153,22 @@ describe("renderCard verify footer", () => {
     expect(shadow.querySelector('[data-action="verify-accept"]')).toBeNull();
   });
 
+  test("a verified-resolved pin offers Unresolve on the same reopen action", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const pin = makePin("pin_aaaaaaaaaa", {
+      status: "resolved",
+      resolution: RESOLUTION,
+      verification: VERIFICATION,
+    });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    expect(shadow.querySelector('[data-action="verify-accept"]')).toBeNull();
+    const unresolve = shadow.querySelector('[data-action="verify-reopen"]') as HTMLElement;
+    expect(unresolve.textContent).toBe("Unresolve");
+    unresolve.click();
+    expect(actions.verify).toHaveBeenCalledWith(pin.id, "reopened");
+  });
+
   test("absent for an open pin", () => {
     const shadow = shadowIn();
     const pin = makePin("pin_aaaaaaaaaa");
@@ -132,6 +187,21 @@ describe("renderCard actions", () => {
     expect(actions.resolve).toHaveBeenCalledWith(pin.id);
     (shadow.querySelector('[data-action="close"]') as HTMLElement).click();
     expect(actions.close).toHaveBeenCalled();
+  });
+
+  test("copy fires with the pin id and flashes the button; drafts have no copy", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    const btn = shadow.querySelector('[data-action="copy"]') as HTMLElement;
+    btn.click();
+    expect(actions.copy).toHaveBeenCalledWith(pin.id);
+    expect(btn.classList.contains("ok")).toBe(true); // the moment-of-green receipt
+    // a draft has nothing committed to copy
+    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 1, y: 2 } };
+    renderCard(shadow, stateWith({ draft }), actions);
+    expect(shadow.querySelector('[data-action="copy"]')).toBeNull();
   });
 
   test("verify buttons fire with the right outcome", () => {

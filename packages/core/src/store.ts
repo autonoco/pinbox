@@ -246,6 +246,10 @@ class CursorRow {
   last_seq!: number;
 }
 
+class CountRow {
+  n!: number;
+}
+
 class LinkRow {
   pin_id!: string;
   connector!: string;
@@ -288,6 +292,7 @@ class SqlitePinStore implements PinStore {
   private readonly selectEventsAfter;
   private readonly selectSummary;
   private readonly insertFts;
+  private readonly selectPinCount;
   private readonly selectSearch;
   private readonly insertLink;
   private readonly selectLinksForPin;
@@ -337,6 +342,7 @@ class SqlitePinStore implements PinStore {
       )
       .as(SummaryRow);
     this.insertFts = db.query("INSERT INTO pins_fts (pin_id, kind, body) VALUES (?, ?, ?)");
+    this.selectPinCount = db.query("SELECT COUNT(*) AS n FROM pins").as(CountRow);
     this.selectSearch = db
       .query(
         `SELECT json FROM pins
@@ -399,15 +405,20 @@ class SqlitePinStore implements PinStore {
     const mergedEnv = { ...parsed.env };
     if (env.branch !== undefined) mergedEnv.branch = env.branch;
     if (env.commit !== undefined) mergedEnv.commit = env.commit;
-    const pin = PinSchema.parse({
-      ...parsed,
-      env: mergedEnv,
-      id: newId("pin"),
-      schemaVersion: 1,
-      status: "open",
-      createdAt: new Date().toISOString(),
-    });
+    let pin!: Pin;
+    // `n` is read-then-assigned INSIDE the immediate transaction: pins are never
+    // deleted, so COUNT(*)+1 is a monotonic issue-number that two writers cannot race.
     this.mutate(() => {
+      const n = (this.selectPinCount.get()?.n ?? 0) + 1;
+      pin = PinSchema.parse({
+        ...parsed,
+        env: mergedEnv,
+        id: newId("pin"),
+        n,
+        schemaVersion: 1,
+        status: "open",
+        createdAt: new Date().toISOString(),
+      });
       this.insertPin.run(pin.id, pin.status, pin.createdAt, JSON.stringify(pin));
       this.insertFts.run(pin.id, "pin", pin.text);
       this.logEvent("pin.created", pin.createdAt, pin);

@@ -11,12 +11,15 @@
 import type { Attachment, Pin, ThreadMessage } from "@autono/pinbox-core/schema";
 import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
 import { esc, pinNumber, safeUrl } from "./html.ts";
+import { nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
   /** draft ⇒ createPin; else thread reply. */
   send(pinId: string | "draft", text: string): void;
   verify(pinId: string, outcome: "accepted" | "reopened"): void;
   resolve(pinId: string): void;
+  /** Copy THIS pin's markdown block (the bar's C copies every open pin). */
+  copy(pinId: string): void;
   close(): void;
 }
 
@@ -32,6 +35,8 @@ const CHECK_ICON =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
 const X_ICON =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+const COPY_ICON =
+  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></svg>';
 
 interface CardCtx {
   pid: string | null;
@@ -110,11 +115,23 @@ function attachmentsHtml(m: ThreadMessage): string {
   return `<div class="atts">${items.join("")}</div>`;
 }
 
+/** "claude:lark-mac-agent" → "Claude · lark-mac-agent"; other shapes verbatim. */
+function agentName(origin: string): string {
+  const idx = origin.indexOf(":");
+  if (idx <= 0) return origin;
+  const agent = origin.slice(0, idx);
+  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${origin.slice(idx + 1)}`;
+}
+
 function messageHtml(m: ThreadMessage): string {
   if (m.role === "agent") {
+    // Dogfood: "Which agent is replying to me?" — a REST watcher can identify
+    // itself via the message's origin ("claude:lark-mac-agent"); anonymous
+    // agent posts keep the generic label.
+    const who = m.origin === undefined ? "Agent" : agentName(m.origin);
     return (
       `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col">` +
-      `<div class="line"><span class="who">Agent</span><span class="tm">${esc(timeOf(m.at))}</span></div>` +
+      `<div class="line"><span class="who">${esc(who)}</span><span class="tm">${esc(timeOf(m.at))}</span></div>` +
       `<div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`
     );
   }
@@ -215,7 +232,16 @@ function onCardClick(card: HTMLElement, ctx: CardCtx, e: Event): void {
   else if (action === "close") ctx.actions.close();
   else if (ctx.pid !== "draft") {
     if (action === "resolve") ctx.actions.resolve(ctx.pid);
-    else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
+    else if (action === "copy") {
+      ctx.actions.copy(ctx.pid);
+      // A moment of green on the button is the whole receipt — there is no
+      // toast layer, and the header part-memo never resets a class toggle.
+      const btn = (e.target as Element).closest?.('[data-action="copy"]');
+      if (btn) {
+        btn.classList.add("ok");
+        card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+      }
+    } else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
     else if (action === "verify-reopen") {
       // reopen flips the pin open and focuses the composer (the sticky-session rule
       // makes the follow-up reply route to the same session; here it is a thread POST).
@@ -235,6 +261,7 @@ function buildSkeleton(
     '<div class="in">' +
     '<div class="pb-hd" data-ref="hd"></div>' +
     '<div data-ref="link"></div>' +
+    '<div data-ref="loci"></div>' +
     '<div class="pb-thread" data-ref="thread"></div>' +
     '<div data-ref="verify"></div>' +
     '<div class="pb-composer"><textarea rows="2"></textarea><div class="row" data-ref="row"></div></div>' +
@@ -263,16 +290,39 @@ function buildSkeleton(
   if (isDraft) ta.focus();
 }
 
-function hdHtml(n: number, targetLabel: string, status: string, resolvable: boolean): string {
+function hdHtml(
+  n: number,
+  targetLabel: string,
+  status: string,
+  resolvable: boolean,
+  copyable: boolean,
+): string {
   return (
     `<div class="meta"><span class="num">${pinNumber(n)}</span>` +
     `<span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div>` +
     '<div style="display:flex;gap:2px">' +
+    (copyable
+      ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>`
+      : "") +
     (resolvable
       ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>`
       : "") +
     `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON}</button></div>`
   );
+}
+
+/** One name per locus: selector first, else anchor, else tag. */
+function locusName(t: NonNullable<Pin["target"]>): string | undefined {
+  return t.selector ?? t.anchor ?? t.tag?.toUpperCase();
+}
+
+/** The extra loci of a multi-target pin — the anchor leads, extras follow. */
+function lociHtml(pin: Pin | null): string {
+  const target = pin?.target;
+  const extras = target?.targets;
+  if (target === undefined || extras === undefined || extras.length === 0) return "";
+  const names = [target, ...extras].map((t) => esc(locusName(t) ?? "?"));
+  return `<div class="pb-loci">${names.length} targets: ${names.join(" · ")}</div>`;
 }
 
 /** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
@@ -287,12 +337,23 @@ function linkHtml(pin: Pin | null): string {
 }
 
 function verifyHtml(status: UiStatus | null): string {
-  if (status !== "verify") return "";
-  return (
-    '<div class="pb-verify">' +
-    '<button type="button" class="pb-bt-ok" data-action="verify-accept">Looks good</button>' +
-    '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Reopen</button></div>'
-  );
+  if (status === "verify") {
+    return (
+      '<div class="pb-verify">' +
+      '<button type="button" class="pb-bt-ok" data-action="verify-accept">Looks good</button>' +
+      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Reopen</button></div>'
+    );
+  }
+  // A verified-resolved pin was previously a dead end (dogfood: "how would I
+  // unresolve a resolved comment?"). Same wire call as Reopen — the hub flips
+  // any resolved pin back to open — so the card offers it whenever resolved.
+  if (status === "resolved") {
+    return (
+      '<div class="pb-verify">' +
+      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Unresolve</button></div>'
+    );
+  }
+  return "";
 }
 
 function rowHtml(hasThread: boolean): string {
@@ -348,10 +409,12 @@ function activePin(state: ToolbarState): Pin | null {
   return state.pins.find((p) => p.id === state.activePinId) ?? null;
 }
 
-/** Ordinal among visible pins (resolved pins hide unless active); drafts number last. */
+/** The pin's hub-born number; visible-index only for pre-`n` pins, drafts next up. */
 function ordinalOf(state: ToolbarState, pin: Pin | null): number {
+  if (pin === null) return nextOrdinal(state.pins);
+  if (pin.n !== undefined) return pin.n;
   const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-  return pin ? visible.indexOf(pin) + 1 : visible.length + 1;
+  return visible.indexOf(pin) + 1;
 }
 
 function anchorOf(pin: Pin | null, draft: ToolbarState["draft"]): { x: number; y: number } {
@@ -425,8 +488,10 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   const queued = view.pin !== null && state.queuedIds.has(view.pin.id);
   const statusLabel = queued ? "QUEUED" : view.status ? STATUS_LABEL[view.status] : "NEW";
   const resolvable = view.pin?.status === "open" && !queued;
-  setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable));
+  // A draft has nothing committed to copy; every real pin does.
+  setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
+  setPart(card, ctx, "loci", lociHtml(view.pin));
   setPart(card, ctx, "verify", verifyHtml(view.status));
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
   setPart(card, ctx, "row", rowHtml(messages.length > 0));

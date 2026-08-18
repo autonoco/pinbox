@@ -1,7 +1,7 @@
 // @autono/pinbox-toolbar — copy-as-markdown tests.
 import { describe, expect, test } from "bun:test";
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
-import { pinsToMarkdown } from "./markdown.ts";
+import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 
 function makePin(id: string, overrides: Partial<Pin> = {}): Pin {
   return {
@@ -74,5 +74,35 @@ describe("pinsToMarkdown", () => {
       resolution: { by: "agent", at: "2026-08-04T11:00:00.000Z" },
     });
     expect(pinsToMarkdown([resolved], new Map())).toBe("No open pins.\n");
+  });
+});
+
+describe("pinToMarkdown", () => {
+  test("one block, any status — you copy exactly the pin you are looking at", () => {
+    const resolved = makePin("pin_bbbbbbbbbb", {
+      status: "resolved",
+      resolution: { by: "agent", at: "2026-08-04T11:00:00.000Z" },
+    });
+    const md = pinToMarkdown(resolved, [
+      makeMsg("msg_1111111111", resolved.id, "human", "Any progress?"),
+    ]);
+    expect(md).toContain("## Pin pin_bbbbbbbbbb — RESOLVED");
+    expect(md).toContain("- human: Any progress?");
+    expect(md.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("multi-target pins", () => {
+  test("every extra locus gets an also-line so agents see the pattern", () => {
+    const pin = makePin("pin_aaaaaaaaaa", {
+      target: {
+        ...makePin("pin_aaaaaaaaaa").target,
+        targets: [{ selector: "#row-2" }, { anchor: "Row three" }],
+      },
+    });
+    const md = pinsToMarkdown([pin], new Map());
+    expect(md).toContain("- selector: `#hero`");
+    expect(md).toContain("- also: `#row-2`");
+    expect(md).toContain("- also: `Row three`");
   });
 });

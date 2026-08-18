@@ -839,6 +839,39 @@ var Pinbox = (function(exports) {
 		});
 		return video;
 	}
+	/**
+	* The one live capture stream, reused across pins. getDisplayMedia MUST
+	* prompt on every call (spec — no persistent grant exists), so the only way
+	* to stop asking per pin is to never re-call it: prompt once, keep the track,
+	* and read a fresh frame from the still-playing video for every capture.
+	* The browser's "sharing this tab" indicator stays on while the track lives —
+	* honest, and the user ending it from there simply re-prompts on the next pin.
+	*/
+	let liveCapture = null;
+	async function captureVideo(win, media) {
+		const track = liveCapture?.stream.getVideoTracks()[0];
+		if (liveCapture && track?.readyState === "live") return liveCapture.video;
+		releaseCapture();
+		const stream = await media.getDisplayMedia({
+			video: true,
+			audio: false,
+			preferCurrentTab: true
+		});
+		const video = await firstFrame(win, stream);
+		stream.getVideoTracks()[0]?.addEventListener("ended", releaseCapture, { once: true });
+		liveCapture = {
+			stream,
+			video
+		};
+		return video;
+	}
+	/** Stop the cached stream (toolbar disconnect; also the track-ended handler). */
+	function releaseCapture() {
+		if (liveCapture === null) return;
+		for (const t of liveCapture.stream.getTracks()) t.stop();
+		liveCapture.video.srcObject = null;
+		liveCapture = null;
+	}
 	/** webp-encode a bitmap; also emit the ≤32px placeholder data URL. */
 	async function encode(bmp) {
 		const canvas = new OffscreenCanvas(bmp.width, bmp.height);
@@ -878,21 +911,14 @@ var Pinbox = (function(exports) {
 		const crop = visibleCropRect(el);
 		if (source === null || crop === null) return null;
 		const { win, media } = source;
-		let stream = null;
 		try {
-			stream = await media.getDisplayMedia({
-				video: true,
-				audio: false,
-				preferCurrentTab: true
-			});
-			const video = await firstFrame(win, stream);
+			const video = await captureVideo(win, media);
 			const sx = video.videoWidth / win.innerWidth;
 			const sy = video.videoHeight / win.innerHeight;
 			return await encode(await createImageBitmap(video, Math.round(crop.x * sx), Math.round(crop.y * sy), Math.max(1, Math.round(crop.width * sx)), Math.max(1, Math.round(crop.height * sy))));
 		} catch {
+			releaseCapture();
 			return null;
-		} finally {
-			if (stream) for (const track of stream.getTracks()) track.stop();
 		}
 	}
 	/**
@@ -2647,6 +2673,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			this.#aim = null;
 			this.#min?.destroy();
 			this.#min = null;
+			releaseCapture();
 			this.#unsubscribe?.();
 			this.#unsubscribe = null;
 			this.#pageStyle?.remove();

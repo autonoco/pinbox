@@ -11,7 +11,7 @@ import { captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
 import { pinsToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
-import { captureElement, uploadAttachment } from "./screenshot.ts";
+import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
 import {
   appendThreadMessage,
   applyHubEvent,
@@ -176,6 +176,7 @@ export class PinboxToolbarElement extends BaseElement {
     this.#aim = null;
     this.#min?.destroy();
     this.#min = null;
+    releaseCapture(); // drop the shared tab-capture stream (and its indicator)
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#pageStyle?.remove();

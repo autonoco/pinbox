@@ -2,7 +2,7 @@
 // only. Canvas paths need a real browser; the demo page checklist covers them.
 import { afterEach, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import { captureElement, uploadAttachment, visibleCropRect } from "./screenshot.ts";
+import { captureElement, releaseCapture, uploadAttachment, visibleCropRect } from "./screenshot.ts";
 
 function elementIn(html: string): { window: Window; el: Element } {
   const window = new Window({ url: "http://localhost:5173/" });
@@ -107,5 +107,12 @@ describe("uploadAttachment", () => {
     await expect(
       uploadAttachment("http://127.0.0.1:4141", "tok123", { blob, width: 1, height: 1 }),
     ).rejects.toThrow(/E_ATTACHMENT.*too large/);
+  });
+});
+
+describe("releaseCapture", () => {
+  test("is idempotent with nothing cached", () => {
+    releaseCapture();
+    releaseCapture();
   });
 });

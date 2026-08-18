@@ -67,6 +67,35 @@ async function firstFrame(win: Window, stream: MediaStream): Promise<HTMLVideoEl
   return video;
 }
 
+/**
+ * The one live capture stream, reused across pins. getDisplayMedia MUST
+ * prompt on every call (spec — no persistent grant exists), so the only way
+ * to stop asking per pin is to never re-call it: prompt once, keep the track,
+ * and read a fresh frame from the still-playing video for every capture.
+ * The browser's "sharing this tab" indicator stays on while the track lives —
+ * honest, and the user ending it from there simply re-prompts on the next pin.
+ */
+let liveCapture: { stream: MediaStream; video: HTMLVideoElement } | null = null;
+
+async function captureVideo(win: Window, media: DisplayMediaDevices): Promise<HTMLVideoElement> {
+  const track = liveCapture?.stream.getVideoTracks()[0];
+  if (liveCapture && track?.readyState === "live") return liveCapture.video;
+  releaseCapture();
+  const stream = await media.getDisplayMedia({ video: true, audio: false, preferCurrentTab: true });
+  const video = await firstFrame(win, stream);
+  stream.getVideoTracks()[0]?.addEventListener("ended", releaseCapture, { once: true });
+  liveCapture = { stream, video };
+  return video;
+}
+
+/** Stop the cached stream (toolbar disconnect; also the track-ended handler). */
+export function releaseCapture(): void {
+  if (liveCapture === null) return;
+  for (const t of liveCapture.stream.getTracks()) t.stop();
+  liveCapture.video.srcObject = null;
+  liveCapture = null;
+}
+
 /** webp-encode a bitmap; also emit the ≤32px placeholder data URL. */
 async function encode(bmp: ImageBitmap): Promise<CapturedImage> {
   const canvas = new OffscreenCanvas(bmp.width, bmp.height);
@@ -100,10 +129,9 @@ export async function captureElement(el: Element): Promise<CapturedImage | null>
   const crop = visibleCropRect(el);
   if (source === null || crop === null) return null;
   const { win, media } = source;
-  let stream: MediaStream | null = null;
   try {
-    stream = await media.getDisplayMedia({ video: true, audio: false, preferCurrentTab: true });
-    const video = await firstFrame(win, stream);
+    // Reused across pins — the prompt fires once per session, not per pin.
+    const video = await captureVideo(win, media);
     // Current-tab frames are the viewport at capture scale; map CSS px → frame px.
     const sx = video.videoWidth / win.innerWidth;
     const sy = video.videoHeight / win.innerHeight;
@@ -116,9 +144,9 @@ export async function captureElement(el: Element): Promise<CapturedImage | null>
     );
     return await encode(bmp);
   } catch {
+    // A denied prompt (or dead stream) must not leave a poisoned cache behind.
+    releaseCapture();
     return null;
-  } finally {
-    if (stream) for (const track of stream.getTracks()) track.stop();
   }
 }
 

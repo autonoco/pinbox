@@ -1914,8 +1914,15 @@ var Pinbox = (function(exports) {
 		if (!m.attachments?.length) return "";
 		return `<div class="atts">${m.attachments.map((att) => isImage(att) ? `<span class="pb-att"><img src="${esc(safeUrl(att.url ?? att.path ?? ""))}" alt="${esc(fileName(att))}" loading="lazy"></span>` : `<span class="pb-att-chip">${esc(fileName(att))}</span>`).join("")}</div>`;
 	}
+	/** "claude:lark-mac-agent" → "Claude · lark-mac-agent"; other shapes verbatim. */
+	function agentName(origin) {
+		const idx = origin.indexOf(":");
+		if (idx <= 0) return origin;
+		const agent = origin.slice(0, idx);
+		return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${origin.slice(idx + 1)}`;
+	}
 	function messageHtml(m) {
-		if (m.role === "agent") return `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col"><div class="line"><span class="who">Agent</span><span class="tm">${esc(timeOf(m.at))}</span></div><div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`;
+		if (m.role === "agent") return `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col"><div class="line"><span class="who">${esc(m.origin === void 0 ? "Agent" : agentName(m.origin))}</span><span class="tm">${esc(timeOf(m.at))}</span></div><div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`;
 		const mirror = m.role === "mirror";
 		const origin = mirror ? m.origin ?? "mirror" : null;
 		const who = origin ? origin.split(":")[1] ?? origin : "You";

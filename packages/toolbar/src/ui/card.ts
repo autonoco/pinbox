@@ -115,11 +115,23 @@ function attachmentsHtml(m: ThreadMessage): string {
   return `<div class="atts">${items.join("")}</div>`;
 }
 
+/** "claude:lark-mac-agent" → "Claude · lark-mac-agent"; other shapes verbatim. */
+function agentName(origin: string): string {
+  const idx = origin.indexOf(":");
+  if (idx <= 0) return origin;
+  const agent = origin.slice(0, idx);
+  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${origin.slice(idx + 1)}`;
+}
+
 function messageHtml(m: ThreadMessage): string {
   if (m.role === "agent") {
+    // Dogfood: "Which agent is replying to me?" — a REST watcher can identify
+    // itself via the message's origin ("claude:lark-mac-agent"); anonymous
+    // agent posts keep the generic label.
+    const who = m.origin === undefined ? "Agent" : agentName(m.origin);
     return (
       `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col">` +
-      `<div class="line"><span class="who">Agent</span><span class="tm">${esc(timeOf(m.at))}</span></div>` +
+      `<div class="line"><span class="who">${esc(who)}</span><span class="tm">${esc(timeOf(m.at))}</span></div>` +
       `<div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`
     );
   }

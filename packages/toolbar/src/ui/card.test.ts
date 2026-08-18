@@ -95,6 +95,29 @@ describe("renderCard thread patching", () => {
   });
 });
 
+describe("renderCard agent identity", () => {
+  test("an agent message with an origin names its agent; without stays generic", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const threads = new Map([
+      [
+        pin.id,
+        [
+          {
+            ...makeMsg("msg_named11111", pin.id, "agent", "on it"),
+            origin: "claude:lark-mac-agent",
+          },
+          makeMsg("msg_anon222222", pin.id, "agent", "done"),
+        ],
+      ],
+    ]);
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id, threads }), spyActions());
+    const whos = [...shadow.querySelectorAll(".pb-msg .who")].map((n) => n.textContent);
+    expect(whos).toContain("Claude · lark-mac-agent");
+    expect(whos).toContain("Agent");
+  });
+});
+
 describe("renderCard verify footer", () => {
   test("renders exactly when the pin is resolved and unverified", () => {
     const shadow = shadowIn();

@@ -8,7 +8,7 @@
 // the pin layer sits at the document origin; the reticle is position: fixed.
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
-import { captureTarget } from "./capture.ts";
+import { type BrowserTarget, captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
@@ -27,6 +27,7 @@ import { type Aim, createAim, needsDragAim, startPoint } from "./ui/aim.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
+import { renderMultiMarks } from "./ui/multimarks.ts";
 import { renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
 import { createReticle, type Reticle } from "./ui/reticle.ts";
@@ -86,6 +87,8 @@ export class PinboxToolbarElement extends BaseElement {
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
   #hover: Element | null = null;
+  /** Shift+click accumulation while placing — extra loci for ONE pending pin. */
+  #extraTargets: BrowserTarget[] = [];
 
   /** Card → element: send/verify/resolve forward to the transport seam; close dismisses. */
   readonly #cardActions: CardActions = {
@@ -507,6 +510,7 @@ export class PinboxToolbarElement extends BaseElement {
   /** esc / click-away: leave placing, discard the draft (client-only), deactivate. */
   #dismiss(): void {
     this.#setHelp(false);
+    this.#clearExtraTargets();
     this.store.update({ mode: "idle", activePinId: null });
     if (this.store.get().draft) this.store.discardDraft();
   }
@@ -581,11 +585,32 @@ export class PinboxToolbarElement extends BaseElement {
     e.preventDefault();
     e.stopPropagation();
     const el = this.#hover ?? document.body;
+    const capture = captureTarget(el, { at: { x: e.pageX, y: e.pageY } });
+    // The committing click is the anchor; shift+clicked extras ride along as
+    // target.targets (dogfood #29 — one pin about several elements).
+    if (this.#extraTargets.length > 0) capture.target.targets = this.#extraTargets;
+    this.#clearExtraTargets();
     this.store.place({
-      target: captureTarget(el, { at: { x: e.pageX, y: e.pageY } }),
+      target: capture,
       placedAt: { x: e.pageX, y: e.pageY },
     });
     this.#reticle?.release();
+  }
+
+  /** Shift+click while placing: capture WITHOUT committing; a numbered dashed
+   * outline is the receipt. Plain click still commits (with these attached). */
+  #accumulateTarget(e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = this.#hover ?? document.body;
+    this.#extraTargets = [...this.#extraTargets, captureTarget(el).target];
+    if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, this.#extraTargets);
+  }
+
+  #clearExtraTargets(): void {
+    if (this.#extraTargets.length === 0) return;
+    this.#extraTargets = [];
+    if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, []);
   }
 
   // Capture-phase so placement wins over the page's own click handlers; events
@@ -596,8 +621,11 @@ export class PinboxToolbarElement extends BaseElement {
     if (state.mode === "placing") {
       // While drag-aiming, a tap is how you scroll and how you follow links — placing on it would
       // pin something every time you touched the page, and always before you could see what.
-      // Placement there is the explicit confirm instead.
-      if (!needsDragAim(window)) this.#placeDraft(e);
+      // Placement there is the explicit confirm instead. (Shift is a keyboard key,
+      // so multi-capture is a pointer-path affordance only.)
+      if (needsDragAim(window)) return;
+      if (e.shiftKey) this.#accumulateTarget(e);
+      else this.#placeDraft(e);
       return;
     }
     // Anything open closes when you click away from it — the card, and the inbox with it. An inbox

@@ -107,7 +107,7 @@ const ContextSchema = z.object({
 // became nice-to-have. Present-but-wrong is still rejected: a `rect` that is present
 // must be a complete Rect, a `source` that is present must have `file` and `via`.
 // Readers therefore branch on presence (`pin.target?.rect`), never on a sentinel.
-const TargetSchema = z.object({
+const TargetBaseSchema = z.object({
   url: z.string().optional(),
   selector: z.string().optional(),
   tag: z.string().optional(),
@@ -118,6 +118,14 @@ const TargetSchema = z.object({
   anchor: z.string().optional(),
   source: SourceSchema.optional(),
   context: ContextSchema.optional(),
+});
+
+// Additive at v1 (same widening rule as above): shift+click captures several
+// elements into ONE pin. The pin's own fields stay the anchor — the marker,
+// needle and spot all keep reading them — and `targets` carries the extra loci
+// (one level deep; extras cannot themselves nest).
+const TargetSchema = TargetBaseSchema.extend({
+  targets: z.array(TargetBaseSchema).optional(),
 });
 
 const EnvSchema = z.object({

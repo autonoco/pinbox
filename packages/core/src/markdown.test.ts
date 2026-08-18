@@ -239,3 +239,22 @@ describe("pinsToMarkdown: terminal pins (no browser context)", () => {
     }
   });
 });
+
+describe("multi-target pins", () => {
+  test("compact headline carries every extra locus — briefs must show the pattern", () => {
+    const pin: Pin = {
+      ...pinCta,
+      target: {
+        ...pinCta.target,
+        targets: [{ selector: "main > button.cta:nth-of-type(2)" }, { tag: "button" }],
+      },
+    };
+    expect(pinsToMarkdown([pin], "compact")).toBe(
+      "- [open] main > button.cta (+main > button.cta:nth-of-type(2), button) — button is cut off (pin_ab12cd34ef)",
+    );
+    // single-target pins keep the exact old headline
+    expect(pinsToMarkdown([pinCta], "compact")).toBe(
+      "- [open] main > button.cta — button is cut off (pin_ab12cd34ef)",
+    );
+  });
+});

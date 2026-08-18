@@ -118,6 +118,21 @@ describe("renderCard agent identity", () => {
   });
 });
 
+describe("renderCard multi-target loci", () => {
+  test("a multi-target pin lists every locus, anchor first; single-target shows none", () => {
+    const shadow = shadowIn();
+    const base = makePin("pin_aaaaaaaaaa");
+    const multi = makePin("pin_aaaaaaaaaa", {
+      target: { ...base.target, targets: [{ selector: "#row-2" }, { selector: "#row-3" }] },
+    });
+    renderCard(shadow, stateWith({ pins: [multi], activePinId: multi.id }), spyActions());
+    const loci = shadow.querySelector(".pb-loci");
+    expect(loci?.textContent).toBe("3 targets: #hero · #row-2 · #row-3");
+    renderCard(shadow, stateWith({ pins: [base], activePinId: base.id }), spyActions());
+    expect(shadow.querySelector(".pb-loci")).toBeNull();
+  });
+});
+
 describe("renderCard verify footer", () => {
   test("renders exactly when the pin is resolved and unverified", () => {
     const shadow = shadowIn();

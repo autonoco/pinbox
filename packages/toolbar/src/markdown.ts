@@ -39,6 +39,11 @@ function block(pin: Pin, thread: ThreadMessage[]): string {
     // Each locus line is present only when the fact is — a terminal pin has a
     // source anchor and no selector; a pin created with no anchor at all has none.
     ...(selector === undefined ? [] : [`- selector: \`${line(selector)}\``]),
+    // Multi-target pins: every extra locus, so an agent sees the pattern, not one instance.
+    ...(pin.target?.targets ?? [])
+      .map((t) => t.selector ?? t.anchor ?? t.tag)
+      .filter((locus): locus is string => locus !== undefined)
+      .map((locus) => `- also: \`${line(locus)}\``),
     ...(source === undefined
       ? []
       : [

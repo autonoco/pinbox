@@ -299,6 +299,7 @@ var Pinbox = (function(exports) {
 			`## Pin ${pin.n === void 0 ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
+			...(pin.target?.targets ?? []).map((t) => t.selector ?? t.anchor ?? t.tag).filter((locus) => locus !== void 0).map((locus) => `- also: \`${line(locus)}\``),
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
 			...url === void 0 ? [] : [`- url: ${line(url)}`],
 			"",
@@ -1674,6 +1675,25 @@ var Pinbox = (function(exports) {
 		};
 	}
 	//#endregion
+	//#region src/ui/multimarks.ts
+	const MARK_CLASS = "pb-multi-mark";
+	/** Replace the mark set to mirror `targets`; entries with no rect draw nothing. */
+	function renderMultiMarks(layer, targets) {
+		for (const node of [...layer.querySelectorAll(`.${MARK_CLASS}`)]) node.remove();
+		targets.forEach((target, i) => {
+			const rect = target.rect;
+			if (rect === void 0) return;
+			const mark = layer.ownerDocument.createElement("div");
+			mark.className = MARK_CLASS;
+			mark.style.left = `${rect.x}px`;
+			mark.style.top = `${rect.y}px`;
+			mark.style.width = `${rect.width}px`;
+			mark.style.height = `${rect.height}px`;
+			mark.innerHTML = `<span>${i + 1}</span>`;
+			layer.appendChild(mark);
+		});
+	}
+	//#endregion
 	//#region src/ui/bar.ts
 	const PIN_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"1.5\" width=\"10\" height=\"6.5\" rx=\"1\"/><path d=\"M8 8v6.5\"/></svg>";
 	const INBOX_ICON = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M1.8 8.5h3.4l1 2h3.6l1-2h3.4\"/><path d=\"M2.6 3.2h10.8l1.2 5.3v4a1 1 0 01-1 1H2.4a1 1 0 01-1-1v-4z\"/></svg>";
@@ -2024,7 +2044,7 @@ var Pinbox = (function(exports) {
 		}
 	}
 	function buildSkeleton(card, ctx, isDraft, hasThread) {
-		card.innerHTML = "<div class=\"in\"><div class=\"pb-hd\" data-ref=\"hd\"></div><div data-ref=\"link\"></div><div class=\"pb-thread\" data-ref=\"thread\"></div><div data-ref=\"verify\"></div><div class=\"pb-composer\"><textarea rows=\"2\"></textarea><div class=\"row\" data-ref=\"row\"></div></div></div>";
+		card.innerHTML = "<div class=\"in\"><div class=\"pb-hd\" data-ref=\"hd\"></div><div data-ref=\"link\"></div><div data-ref=\"loci\"></div><div class=\"pb-thread\" data-ref=\"thread\"></div><div data-ref=\"verify\"></div><div class=\"pb-composer\"><textarea rows=\"2\"></textarea><div class=\"row\" data-ref=\"row\"></div></div></div>";
 		const ta = card.querySelector("textarea");
 		ta.placeholder = hasThread ? "Ask a question or request a change…" : "What should change here?";
 		ta.addEventListener("keydown", (e) => {
@@ -2042,6 +2062,18 @@ var Pinbox = (function(exports) {
 	}
 	function hdHtml(n, targetLabel, status, resolvable, copyable) {
 		return `<div class="meta"><span class="num">${pinNumber(n)}</span><span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div><div style="display:flex;gap:2px">` + (copyable ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>` : "") + (resolvable ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>` : "") + `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON$1}</button></div>`;
+	}
+	/** One name per locus: selector first, else anchor, else tag. */
+	function locusName(t) {
+		return t.selector ?? t.anchor ?? t.tag?.toUpperCase();
+	}
+	/** The extra loci of a multi-target pin — the anchor leads, extras follow. */
+	function lociHtml(pin) {
+		const target = pin?.target;
+		const extras = target?.targets;
+		if (target === void 0 || extras === void 0 || extras.length === 0) return "";
+		const names = [target, ...extras].map((t) => esc(locusName(t) ?? "?"));
+		return `<div class="pb-loci">${names.length} targets: ${names.join(" · ")}</div>`;
 	}
 	/** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
 	function linkHtml(pin) {
@@ -2166,6 +2198,7 @@ var Pinbox = (function(exports) {
 		const resolvable = view.pin?.status === "open" && !queued;
 		setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
 		setPart(card, ctx, "link", linkHtml(view.pin));
+		setPart(card, ctx, "loci", lociHtml(view.pin));
 		setPart(card, ctx, "verify", verifyHtml(view.status));
 		const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
 		setPart(card, ctx, "row", rowHtml(messages.length > 0));
@@ -2638,6 +2671,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-fan.on .pb-fan-item { opacity: 1; transform: none; }
 .pb-fan-item:hover { color: var(--pb-amber); border-color: var(--pb-amber); }
 .pb-fan-item.lit { color: var(--pb-amber); border-color: var(--pb-amber); }
+.pb-multi-mark { position: absolute; border: 1.5px dashed var(--pb-amber); border-radius: 4px; pointer-events: none; z-index: 15; }
+.pb-multi-mark span { position: absolute; top: -9px; left: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pb-amber); color: var(--pb-amber-ink); font-family: var(--pb-font-mono); font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+.pb-loci { padding: 6px 14px 0; font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--pb-fg3); overflow-wrap: anywhere; }
 .pb-fan-item .badge { pointer-events: none; }
 .pb-fan-item .fl { position: absolute; top: 50%; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 2px; box-shadow: var(--pb-shadow); font-family: var(--pb-font-mono); font-size: 9px; letter-spacing: .14em; color: var(--pb-fg1); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms linear, transform 200ms var(--pb-ease); }
 .pb-fan.labels-right .fl { left: calc(100% + 10px); transform: translateY(-50%) translateX(-6px); }
@@ -2708,6 +2744,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#pageStyle = null;
 		#unsubscribe = null;
 		#hover = null;
+		/** Shift+click accumulation while placing — extra loci for ONE pending pin. */
+		#extraTargets = [];
 		/** Card → element: send/verify/resolve forward to the transport seam; close dismisses. */
 		#cardActions = {
 			send: (pinId, text) => this.actions.send?.(pinId, text),
@@ -3062,6 +3100,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** esc / click-away: leave placing, discard the draft (client-only), deactivate. */
 		#dismiss() {
 			this.#setHelp(false);
+			this.#clearExtraTargets();
 			this.store.update({
 				mode: "idle",
 				activePinId: null
@@ -3127,12 +3166,14 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		#placeDraft(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			const el = this.#hover ?? document.body;
+			const capture = captureTarget(this.#hover ?? document.body, { at: {
+				x: e.pageX,
+				y: e.pageY
+			} });
+			if (this.#extraTargets.length > 0) capture.target.targets = this.#extraTargets;
+			this.#clearExtraTargets();
 			this.store.place({
-				target: captureTarget(el, { at: {
-					x: e.pageX,
-					y: e.pageY
-				} }),
+				target: capture,
 				placedAt: {
 					x: e.pageX,
 					y: e.pageY
@@ -3140,11 +3181,27 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			});
 			this.#reticle?.release();
 		}
+		/** Shift+click while placing: capture WITHOUT committing; a numbered dashed
+		* outline is the receipt. Plain click still commits (with these attached). */
+		#accumulateTarget(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			const el = this.#hover ?? document.body;
+			this.#extraTargets = [...this.#extraTargets, captureTarget(el).target];
+			if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, this.#extraTargets);
+		}
+		#clearExtraTargets() {
+			if (this.#extraTargets.length === 0) return;
+			this.#extraTargets = [];
+			if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, []);
+		}
 		#onClickCapture = (e) => {
 			if (e.composedPath().includes(this)) return;
 			const state = this.store.get();
 			if (state.mode === "placing") {
-				if (!needsDragAim(window)) this.#placeDraft(e);
+				if (needsDragAim(window)) return;
+				if (e.shiftKey) this.#accumulateTarget(e);
+				else this.#placeDraft(e);
 				return;
 			}
 			if (state.inboxOpen) this.store.update({ inboxOpen: false });

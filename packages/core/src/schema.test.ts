@@ -144,3 +144,28 @@ describe("PinSchema", () => {
     expect(JSON.stringify(js)).toContain("attachments");
   });
 });
+
+test("multi-target pins: target.targets holds extra loci, one level deep", () => {
+  const pin = PinSchema.parse({
+    id: "pin_abcdefghij",
+    schemaVersion: 1,
+    status: "open",
+    createdAt: "2026-08-17T00:00:00.000Z",
+    text: "three identical rows",
+    kind: "note",
+    author: { userId: "u1" },
+    target: {
+      selector: "#row-1",
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      targets: [{ selector: "#row-2" }, { selector: "#row-3", tag: "tr" }],
+    },
+  });
+  expect(pin.target?.targets?.map((t) => t.selector)).toEqual(["#row-2", "#row-3"]);
+  // extras cannot nest: an inner `targets` is unknown to the base schema and is stripped
+  const stripped = PinSchema.parse({
+    ...pin,
+    target: { ...pin.target, targets: [{ selector: "#a", targets: [{ selector: "#b" }] }] },
+  });
+  const inner = stripped.target?.targets?.[0] as Record<string, unknown> | undefined;
+  expect(inner?.["targets"]).toBeUndefined();
+});

@@ -27,11 +27,22 @@ function pinToMarkdown(pin: Pin, level: DetailLevel): string[] {
   return lines;
 }
 
-/** `- [open] <where> — <text> (<id>)`, minus the locus when the pin names no place. */
+/** `- [open] <where> — <text> (<id>)`, minus the locus when the pin names no place.
+ * A multi-target pin's headline carries every extra locus inline — the compact dial
+ * is what briefs inject, and the pattern ("three identical rows") IS the feedback. */
 function headline(pin: Pin): string {
   const where = pinLocus(pin);
-  const head = where === undefined ? "" : `${where} — `;
+  const extras = extraLoci(pin);
+  const plus = extras.length === 0 ? "" : ` (+${extras.join(", ")})`;
+  const head = where === undefined ? "" : `${where}${plus} — `;
   return `- [${pin.status}] ${head}${pin.text} (${pin.id})`;
+}
+
+/** The extra loci of a multi-target pin, named like pinLocus names the anchor. */
+function extraLoci(pin: Pin): string[] {
+  return (pin.target?.targets ?? [])
+    .map((t) => t.selector ?? t.anchor ?? t.tag)
+    .filter((locus): locus is string => locus !== undefined);
 }
 
 /** The indented context lines, each present only when the fact behind it exists. */

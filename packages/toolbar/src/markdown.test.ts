@@ -91,3 +91,18 @@ describe("pinToMarkdown", () => {
     expect(md.endsWith("\n")).toBe(true);
   });
 });
+
+describe("multi-target pins", () => {
+  test("every extra locus gets an also-line so agents see the pattern", () => {
+    const pin = makePin("pin_aaaaaaaaaa", {
+      target: {
+        ...makePin("pin_aaaaaaaaaa").target,
+        targets: [{ selector: "#row-2" }, { anchor: "Row three" }],
+      },
+    });
+    const md = pinsToMarkdown([pin], new Map());
+    expect(md).toContain("- selector: `#hero`");
+    expect(md).toContain("- also: `#row-2`");
+    expect(md).toContain("- also: `Row three`");
+  });
+});

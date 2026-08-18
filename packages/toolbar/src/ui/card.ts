@@ -261,6 +261,7 @@ function buildSkeleton(
     '<div class="in">' +
     '<div class="pb-hd" data-ref="hd"></div>' +
     '<div data-ref="link"></div>' +
+    '<div data-ref="loci"></div>' +
     '<div class="pb-thread" data-ref="thread"></div>' +
     '<div data-ref="verify"></div>' +
     '<div class="pb-composer"><textarea rows="2"></textarea><div class="row" data-ref="row"></div></div>' +
@@ -308,6 +309,20 @@ function hdHtml(
       : "") +
     `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON}</button></div>`
   );
+}
+
+/** One name per locus: selector first, else anchor, else tag. */
+function locusName(t: NonNullable<Pin["target"]>): string | undefined {
+  return t.selector ?? t.anchor ?? t.tag?.toUpperCase();
+}
+
+/** The extra loci of a multi-target pin — the anchor leads, extras follow. */
+function lociHtml(pin: Pin | null): string {
+  const target = pin?.target;
+  const extras = target?.targets;
+  if (target === undefined || extras === undefined || extras.length === 0) return "";
+  const names = [target, ...extras].map((t) => esc(locusName(t) ?? "?"));
+  return `<div class="pb-loci">${names.length} targets: ${names.join(" · ")}</div>`;
 }
 
 /** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
@@ -476,6 +491,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   // A draft has nothing committed to copy; every real pin does.
   setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
+  setPart(card, ctx, "loci", lociHtml(view.pin));
   setPart(card, ctx, "verify", verifyHtml(view.status));
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
   setPart(card, ctx, "row", rowHtml(messages.length > 0));

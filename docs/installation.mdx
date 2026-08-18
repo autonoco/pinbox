@@ -7,14 +7,6 @@ The pinbox CLI is a single compiled binary with the Bun runtime embedded in it.
 Once it is on your `PATH` there is nothing else to install — no Node, no Bun, no
 service, no account.
 
-<Warning>
-  **Nothing is published yet.** There is no npm package and no GitHub Release
-  for pinbox today. Building from source is the only route that works right now.
-  The other two routes below are the shipped installers — they are described here
-  so you know what to expect, and they start working the moment the first release
-  is tagged.
-</Warning>
-
 ## Supported platforms
 
 | OS | Architectures |
@@ -24,35 +16,6 @@ service, no account.
 
 Windows is not supported. On Linux or macOS with a different architecture, build
 from source.
-
-## Build from source
-
-Works today. You need [Bun](https://bun.sh) 1.3 or newer — but only to build; the
-binary that comes out does not need it.
-
-```sh
-git clone https://github.com/autonoco/pinbox.git
-cd pinbox
-bun install
-bun run build
-```
-
-That produces `packages/cli/dist/pinbox`. Put it somewhere on your `PATH`:
-
-```sh
-export PATH="$PWD/packages/cli/dist:$PATH"
-```
-
-Or copy it out, so the checkout is not load-bearing:
-
-```sh
-cp packages/cli/dist/pinbox ~/.local/bin/pinbox
-```
-
-```console
-$ pinbox --version
-0.0.0
-```
 
 ## Install script
 
@@ -67,16 +30,21 @@ curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.s
 It needs `curl` or `wget`, plus `shasum` or `sha256sum` — if it cannot verify the
 checksum it refuses to install rather than install something unverified.
 
+```console
+$ pinbox --version
+0.14.0
+```
+
 Two environment variables control it:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PINBOX_INSTALL_DIR` | `$HOME/.local/bin` | Where the binary is written |
-| `PINBOX_VERSION` | `latest` | A release tag, e.g. `v1.2.0` |
+| `PINBOX_VERSION` | `latest` | A release tag, e.g. `v0.14.0` |
 
 ```sh
-PINBOX_INSTALL_DIR=/usr/local/bin PINBOX_VERSION=v1.2.0 \
-  curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh |
+  env PINBOX_INSTALL_DIR=/usr/local/bin PINBOX_VERSION=v0.14.0 sh
 ```
 
 If the install directory is not already on your `PATH`, the script says so and
@@ -120,10 +88,38 @@ what npm's `bin` machinery assumes. It only locates and executes the real
 binary — so this route needs *some* JavaScript runtime present, which is the one
 thing the install script above does not.
 
+## Build from source
+
+For hacking on pinbox itself, or platforms with no prebuilt binary. You need
+[Bun](https://bun.sh) 1.3 or newer — but only to build; the binary that comes
+out does not need it.
+
+```sh
+git clone https://github.com/autonoco/pinbox.git
+cd pinbox
+bun install
+bun run build
+```
+
+That produces `packages/cli/dist/pinbox`. Put it somewhere on your `PATH`:
+
+```sh
+export PATH="$PWD/packages/cli/dist:$PATH"
+```
+
+Or copy it out, so the checkout is not load-bearing:
+
+```sh
+cp packages/cli/dist/pinbox ~/.local/bin/pinbox
+```
+
+A source build reports the version of the checkout you built, not the latest
+release tag.
+
 ## Libraries
 
-These are separate npm packages, and are also unpublished today. Install them
-into your app, not globally.
+These are separate npm packages, versioned and released together with the CLI.
+Install them into your app, not globally.
 
 | Package | What it is |
 | --- | --- |

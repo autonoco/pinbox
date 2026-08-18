@@ -43,8 +43,8 @@ Two environment variables control it:
 | `PINBOX_VERSION` | `latest` | A release tag, e.g. `v0.14.0` |
 
 ```sh
-PINBOX_INSTALL_DIR=/usr/local/bin PINBOX_VERSION=v0.14.0 \
-  curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh |
+  env PINBOX_INSTALL_DIR=/usr/local/bin PINBOX_VERSION=v0.14.0 sh
 ```
 
 If the install directory is not already on your `PATH`, the script says so and

@@ -12,8 +12,10 @@ Drop a pin on a live app, and the coding agent already working on it picks the p
 ## Install
 
 One line, no runtime needed — the installer pulls a prebuilt binary from
-[GitHub Releases](https://github.com/autonoco/pinbox/releases) and verifies its
-SHA-256 checksum before putting it on your `PATH`:
+[GitHub Releases](https://github.com/autonoco/pinbox/releases), verifies its
+SHA-256 checksum, and installs it to `~/.local/bin`. If that directory is not on
+your `PATH`, the script prints the `export` line to add — apply it before running
+`pinbox`:
 
 ```sh
 curl -fsSL https://github.com/autonoco/pinbox/releases/latest/download/install.sh | sh

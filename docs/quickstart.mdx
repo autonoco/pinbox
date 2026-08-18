@@ -44,12 +44,17 @@ export PATH="$PWD/packages/cli/dist:$PATH"
   platforms, and checksum verification.
 </Note>
 
-Check that the command resolves:
+The install script writes to `~/.local/bin` by default; if that directory is not
+on your `PATH`, it prints the `export` line to add. Apply it, then check that the
+command resolves:
 
 ```console
 $ pinbox --version
 0.14.0
 ```
+
+That is the output for a released install (script or npm). A source build
+reports the version of the checkout you built instead.
 
 </Step>
 

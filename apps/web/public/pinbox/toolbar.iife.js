@@ -296,7 +296,7 @@ var Pinbox = (function(exports) {
 	function block(pin, thread) {
 		const { selector, url, source } = pin.target ?? {};
 		return [
-			`## Pin ${pin.id} — ${pin.status.toUpperCase()}`,
+			`## Pin ${pin.n === void 0 ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
@@ -1744,6 +1744,144 @@ var Pinbox = (function(exports) {
 		return String(n).padStart(2, "0");
 	}
 	//#endregion
+	//#region src/ui/pins.ts
+	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
+	const chipMemo = /* @__PURE__ */ new WeakMap();
+	/** What the hub will number the next pin: max known `n`, else the pin count. */
+	function nextOrdinal(pins) {
+		return Math.max(pins.length, ...pins.map((p) => p.n ?? 0)) + 1;
+	}
+	/**
+	* Does the pin's captured URL still describe the view on screen? Path + search
+	* only — hashes are anchors, not views. An absent or unparseable URL never
+	* gates: old pins (and CLI pins) keep rendering exactly as before.
+	*/
+	function sameView(win, url) {
+		if (url === void 0) return true;
+		try {
+			const target = new URL(url, win.location.href);
+			return target.pathname === win.location.pathname && target.search === win.location.search;
+		} catch {
+			return true;
+		}
+	}
+	/**
+	* Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
+	* views after SPA tab switches, because placement trusted the stored rect
+	* forever). Re-resolve the captured selector on every render:
+	*  - it resolves with layout → snap to the LIVE rect (also fixes drift);
+	*  - it resolves without layout (test DOMs, display:none) → stored rect;
+	*  - it does not resolve → no marker; the drawer stays the see-everything list.
+	* A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
+	*/
+	function anchorRect(layer, pin) {
+		const stored = pin.target?.rect;
+		if (stored === void 0) return null;
+		const doc = layer.ownerDocument;
+		const win = doc.defaultView;
+		if (win === null) return stored;
+		if (!sameView(win, pin.target?.url)) return null;
+		const selector = pin.target?.selector;
+		if (selector === void 0) return stored;
+		let el;
+		try {
+			el = doc.querySelector(selector);
+		} catch {
+			return stored;
+		}
+		if (el === null) return null;
+		const r = el.getBoundingClientRect();
+		if (r.width <= 0 && r.height <= 0) return stored;
+		return {
+			x: r.left + win.scrollX,
+			y: r.top + win.scrollY,
+			width: r.width,
+			height: r.height
+		};
+	}
+	/**
+	* Where the needle lands: the point inside the element that was actually clicked, when the pin
+	* recorded one, else the centre of its box.
+	*
+	* `spot` is a fraction of the element, so the pin still tracks the element when it moves or
+	* resizes — it just stops sliding to the middle of a wide block the moment you commit it.
+	*/
+	function pinPoint(r, spot) {
+		const fx = spot?.x ?? .5;
+		const fy = spot?.y ?? .5;
+		return {
+			x: r.x + r.width * fx,
+			y: r.y + r.height * fy
+		};
+	}
+	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
+	* plus the queued badge while the pin waits in the outbox for the reconnect flush. */
+	function chipInner(n, pin, queued = false) {
+		const link = pin?.links?.[0];
+		const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
+		const qd = queued ? "<span class=\"qd\">QUEUED</span>" : "";
+		return `<span>${pinNumber(n)}</span>${badge}${qd}`;
+	}
+	function ensureNode(layer, key, fresh) {
+		let node = layer.querySelector(`[data-pin="${key}"]`);
+		if (!node) {
+			node = layer.ownerDocument.createElement("div");
+			node.className = "pb-pin";
+			node.setAttribute("data-pin", key);
+			node.innerHTML = `${fresh ? "<div class=\"ring\"></div>" : ""}<div class="dot"></div><div class="needle"></div><button type="button" class="pb-chipBtn" data-open="${esc(key)}"></button>`;
+			layer.appendChild(node);
+		}
+		return node;
+	}
+	function patchNode(node, at, hot, inner) {
+		node.style.left = `${at.x}px`;
+		node.style.top = `${at.y}px`;
+		node.style.zIndex = hot ? "40" : "20";
+		node.classList.toggle("hot", hot);
+		const chip = node.querySelector(".pb-chipBtn");
+		if (chip && chipMemo.get(chip) !== inner) {
+			chip.innerHTML = inner;
+			chipMemo.set(chip, inner);
+		}
+	}
+	/**
+	* Render the pin layer for a state snapshot. Visible pins are open pins, the
+	* active pin regardless of status, and the client-only draft (key "draft").
+	*/
+	function renderPins(layer, state) {
+		layer.hidden = state.pinsHidden;
+		if (state.pinsHidden) return;
+		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
+		const placed = [];
+		visible.forEach((pin, i) => {
+			const rect = anchorRect(layer, pin);
+			if (rect === null) return;
+			const spot = pin.target?.spot;
+			const n = pin.n ?? i + 1;
+			placed.push(spot === void 0 ? {
+				pin,
+				n,
+				rect
+			} : {
+				pin,
+				n,
+				rect,
+				spot
+			});
+		});
+		const keys = new Set(placed.map((entry) => entry.pin.id));
+		if (state.draft) keys.add("draft");
+		for (const node of [...layer.children]) if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
+		for (const { pin, n, rect, spot } of placed) {
+			const node = ensureNode(layer, pin.id, false);
+			const hot = pin.id === state.activePinId;
+			const queued = state.queuedIds.has(pin.id);
+			node.classList.toggle("queued", queued);
+			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
+		}
+		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(nextOrdinal(state.pins), null));
+	}
+	//#endregion
 	//#region src/ui/card.ts
 	const STATUS_LABEL = {
 		open: "OPEN",
@@ -1943,10 +2081,11 @@ var Pinbox = (function(exports) {
 		if (!state.activePinId) return null;
 		return state.pins.find((p) => p.id === state.activePinId) ?? null;
 	}
-	/** Ordinal among visible pins (resolved pins hide unless active); drafts number last. */
+	/** The pin's hub-born number; visible-index only for pre-`n` pins, drafts next up. */
 	function ordinalOf(state, pin) {
-		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-		return pin ? visible.indexOf(pin) + 1 : visible.length + 1;
+		if (pin === null) return nextOrdinal(state.pins);
+		if (pin.n !== void 0) return pin.n;
+		return state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId).indexOf(pin) + 1;
 	}
 	function anchorOf(pin, draft) {
 		const r = pin?.target?.rect;
@@ -2090,7 +2229,7 @@ var Pinbox = (function(exports) {
 				doneTab.classList.toggle("on", tab === "resolved");
 			}
 			const list = tab === "open" ? open : resolved;
-			const html = list.length ? list.map((p) => itemHtml(p, state.pins.indexOf(p) + 1, p.id === state.activePinId, state.threads.get(p.id) ?? [], state.queuedIds.has(p.id))).join("") : "<div class=\"pb-empty\">Nothing here yet.</div>";
+			const html = list.length ? list.map((p) => itemHtml(p, p.n ?? state.pins.indexOf(p) + 1, p.id === state.activePinId, state.threads.get(p.id) ?? [], state.queuedIds.has(p.id))).join("") : "<div class=\"pb-empty\">Nothing here yet.</div>";
 			if (itemsMemo !== html) {
 				items.innerHTML = html;
 				itemsMemo = html;
@@ -2121,139 +2260,6 @@ var Pinbox = (function(exports) {
 				if (state.inboxOpen) render(state);
 			}
 		};
-	}
-	//#endregion
-	//#region src/ui/pins.ts
-	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
-	const chipMemo = /* @__PURE__ */ new WeakMap();
-	/**
-	* Does the pin's captured URL still describe the view on screen? Path + search
-	* only — hashes are anchors, not views. An absent or unparseable URL never
-	* gates: old pins (and CLI pins) keep rendering exactly as before.
-	*/
-	function sameView(win, url) {
-		if (url === void 0) return true;
-		try {
-			const target = new URL(url, win.location.href);
-			return target.pathname === win.location.pathname && target.search === win.location.search;
-		} catch {
-			return true;
-		}
-	}
-	/**
-	* Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
-	* views after SPA tab switches, because placement trusted the stored rect
-	* forever). Re-resolve the captured selector on every render:
-	*  - it resolves with layout → snap to the LIVE rect (also fixes drift);
-	*  - it resolves without layout (test DOMs, display:none) → stored rect;
-	*  - it does not resolve → no marker; the drawer stays the see-everything list.
-	* A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
-	*/
-	function anchorRect(layer, pin) {
-		const stored = pin.target?.rect;
-		if (stored === void 0) return null;
-		const doc = layer.ownerDocument;
-		const win = doc.defaultView;
-		if (win === null) return stored;
-		if (!sameView(win, pin.target?.url)) return null;
-		const selector = pin.target?.selector;
-		if (selector === void 0) return stored;
-		let el;
-		try {
-			el = doc.querySelector(selector);
-		} catch {
-			return stored;
-		}
-		if (el === null) return null;
-		const r = el.getBoundingClientRect();
-		if (r.width <= 0 && r.height <= 0) return stored;
-		return {
-			x: r.left + win.scrollX,
-			y: r.top + win.scrollY,
-			width: r.width,
-			height: r.height
-		};
-	}
-	/**
-	* Where the needle lands: the point inside the element that was actually clicked, when the pin
-	* recorded one, else the centre of its box.
-	*
-	* `spot` is a fraction of the element, so the pin still tracks the element when it moves or
-	* resizes — it just stops sliding to the middle of a wide block the moment you commit it.
-	*/
-	function pinPoint(r, spot) {
-		const fx = spot?.x ?? .5;
-		const fy = spot?.y ?? .5;
-		return {
-			x: r.x + r.width * fx,
-			y: r.y + r.height * fy
-		};
-	}
-	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
-	* plus the queued badge while the pin waits in the outbox for the reconnect flush. */
-	function chipInner(n, pin, queued = false) {
-		const link = pin?.links?.[0];
-		const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
-		const qd = queued ? "<span class=\"qd\">QUEUED</span>" : "";
-		return `<span>${pinNumber(n)}</span>${badge}${qd}`;
-	}
-	function ensureNode(layer, key, fresh) {
-		let node = layer.querySelector(`[data-pin="${key}"]`);
-		if (!node) {
-			node = layer.ownerDocument.createElement("div");
-			node.className = "pb-pin";
-			node.setAttribute("data-pin", key);
-			node.innerHTML = `${fresh ? "<div class=\"ring\"></div>" : ""}<div class="dot"></div><div class="needle"></div><button type="button" class="pb-chipBtn" data-open="${esc(key)}"></button>`;
-			layer.appendChild(node);
-		}
-		return node;
-	}
-	function patchNode(node, at, hot, inner) {
-		node.style.left = `${at.x}px`;
-		node.style.top = `${at.y}px`;
-		node.style.zIndex = hot ? "40" : "20";
-		node.classList.toggle("hot", hot);
-		const chip = node.querySelector(".pb-chipBtn");
-		if (chip && chipMemo.get(chip) !== inner) {
-			chip.innerHTML = inner;
-			chipMemo.set(chip, inner);
-		}
-	}
-	/**
-	* Render the pin layer for a state snapshot. Visible pins are open pins, the
-	* active pin regardless of status, and the client-only draft (key "draft").
-	*/
-	function renderPins(layer, state) {
-		layer.hidden = state.pinsHidden;
-		if (state.pinsHidden) return;
-		const visible = state.pins.filter((p) => p.status !== "resolved" || p.id === state.activePinId);
-		const placed = [];
-		visible.forEach((pin, i) => {
-			const rect = anchorRect(layer, pin);
-			if (rect === null) return;
-			const spot = pin.target?.spot;
-			placed.push(spot === void 0 ? {
-				pin,
-				n: i + 1,
-				rect
-			} : {
-				pin,
-				n: i + 1,
-				rect,
-				spot
-			});
-		});
-		const keys = new Set(placed.map((entry) => entry.pin.id));
-		if (state.draft) keys.add("draft");
-		for (const node of [...layer.children]) if (!keys.has(node.getAttribute("data-pin") ?? "")) node.remove();
-		for (const { pin, n, rect, spot } of placed) {
-			const node = ensureNode(layer, pin.id, false);
-			const hot = pin.id === state.activePinId;
-			const queued = state.queuedIds.has(pin.id);
-			node.classList.toggle("queued", queued);
-			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
-		}
-		if (state.draft) patchNode(ensureNode(layer, "draft", true), state.draft.placedAt, true, chipInner(visible.length + 1, null));
 	}
 	//#endregion
 	//#region src/ui/puck.ts

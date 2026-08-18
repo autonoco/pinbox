@@ -115,6 +115,22 @@ describe("renderCard verify footer", () => {
     expect(shadow.querySelector('[data-action="verify-accept"]')).toBeNull();
   });
 
+  test("a verified-resolved pin offers Unresolve on the same reopen action", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const pin = makePin("pin_aaaaaaaaaa", {
+      status: "resolved",
+      resolution: RESOLUTION,
+      verification: VERIFICATION,
+    });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    expect(shadow.querySelector('[data-action="verify-accept"]')).toBeNull();
+    const unresolve = shadow.querySelector('[data-action="verify-reopen"]') as HTMLElement;
+    expect(unresolve.textContent).toBe("Unresolve");
+    unresolve.click();
+    expect(actions.verify).toHaveBeenCalledWith(pin.id, "reopened");
+  });
+
   test("absent for an open pin", () => {
     const shadow = shadowIn();
     const pin = makePin("pin_aaaaaaaaaa");

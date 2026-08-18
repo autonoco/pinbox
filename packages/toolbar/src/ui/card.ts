@@ -310,12 +310,23 @@ function linkHtml(pin: Pin | null): string {
 }
 
 function verifyHtml(status: UiStatus | null): string {
-  if (status !== "verify") return "";
-  return (
-    '<div class="pb-verify">' +
-    '<button type="button" class="pb-bt-ok" data-action="verify-accept">Looks good</button>' +
-    '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Reopen</button></div>'
-  );
+  if (status === "verify") {
+    return (
+      '<div class="pb-verify">' +
+      '<button type="button" class="pb-bt-ok" data-action="verify-accept">Looks good</button>' +
+      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Reopen</button></div>'
+    );
+  }
+  // A verified-resolved pin was previously a dead end (dogfood: "how would I
+  // unresolve a resolved comment?"). Same wire call as Reopen — the hub flips
+  // any resolved pin back to open — so the card offers it whenever resolved.
+  if (status === "resolved") {
+    return (
+      '<div class="pb-verify">' +
+      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Unresolve</button></div>'
+    );
+  }
+  return "";
 }
 
 function rowHtml(hasThread: boolean): string {

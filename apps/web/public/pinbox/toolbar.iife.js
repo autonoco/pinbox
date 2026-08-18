@@ -2043,8 +2043,9 @@ var Pinbox = (function(exports) {
 		return `<div class="pb-linkbar"><span class="ch">${esc(link.connector)}</span><span class="mt">${esc(link.ref)}</span><span class="sp"></span><a class="pb-open" href="${esc(safeUrl(link.url))}" target="_blank" rel="noreferrer">OPEN</a></div>`;
 	}
 	function verifyHtml(status) {
-		if (status !== "verify") return "";
-		return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ok\" data-action=\"verify-accept\">Looks good</button><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Reopen</button></div>";
+		if (status === "verify") return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ok\" data-action=\"verify-accept\">Looks good</button><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Reopen</button></div>";
+		if (status === "resolved") return "<div class=\"pb-verify\"><button type=\"button\" class=\"pb-bt-ghost\" data-action=\"verify-reopen\">Unresolve</button></div>";
+		return "";
 	}
 	function rowHtml(hasThread) {
 		return `<div class="pb-kbd">⌘ ↵</div><button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : "Comment"}</button>`;

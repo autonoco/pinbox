@@ -30,6 +30,7 @@ const STATUS_TEXT: Record<UiStatus, string> = {
   replied: "REPLIED",
   resolved: "RESOLVED",
   verify: "VERIFY",
+  note: "NOTE",
 };
 
 const STATUS_DOT: Record<UiStatus, string> = {
@@ -38,6 +39,7 @@ const STATUS_DOT: Record<UiStatus, string> = {
   replied: "var(--pb-info)",
   resolved: "var(--pb-ok)",
   verify: "var(--pb-amber)",
+  note: "var(--pb-fg3)",
 };
 
 export interface DrawerHandlers {
@@ -131,10 +133,11 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
     `<div class="dh"><span>INBOX</span><button type="button" class="pb-ico" data-ref="close" title="Close">${X_ICON}</button></div>` +
     '<div class="pb-tabs">' +
     '<button type="button" class="pb-tab on" data-tab="open">OPEN · 0</button>' +
+    '<button type="button" class="pb-tab" data-tab="notes">NOTES · 0</button>' +
     '<button type="button" class="pb-tab" data-tab="resolved">RESOLVED · 0</button></div>' +
     '<div class="pb-items" data-ref="items"></div>';
 
-  let tab: "open" | "resolved" = "open";
+  let tab: "open" | "notes" | "resolved" = "open";
   let last: ToolbarState | null = null;
   let itemsMemo = "";
   /** Group key awaiting its confirming click, if any. */
@@ -147,7 +150,7 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
   root.querySelector('[data-ref="close"]')?.addEventListener("click", on.onClose);
   for (const btn of tabButtons) {
     btn.addEventListener("click", () => {
-      tab = btn.getAttribute("data-tab") as "open" | "resolved";
+      tab = btn.getAttribute("data-tab") as "open" | "notes" | "resolved";
       if (last) render(last);
     });
   }
@@ -210,22 +213,21 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
   }
 
   function render(state: ToolbarState): void {
-    const open = state.pins.filter((p) => p.status === "open");
+    // OPEN is work; NOTES are open comment pins (remarks, nobody owes a reply); RESOLVED is both.
+    const open = state.pins.filter((p) => p.status === "open" && p.kind !== "comment");
+    const notes = state.pins.filter((p) => p.status === "open" && p.kind === "comment");
     const resolved = state.pins.filter((p) => p.status === "resolved");
-    const [openTab, doneTab] = tabButtons;
-    if (openTab) {
-      openTab.textContent = `OPEN · ${open.length}`;
-      openTab.classList.toggle("on", tab === "open");
+    const counts = { open, notes, resolved };
+    for (const btn of tabButtons) {
+      const key = btn.getAttribute("data-tab") as keyof typeof counts;
+      btn.textContent = `${key.toUpperCase()} · ${counts[key].length}`;
+      btn.classList.toggle("on", tab === key);
     }
-    if (doneTab) {
-      doneTab.textContent = `RESOLVED · ${resolved.length}`;
-      doneTab.classList.toggle("on", tab === "resolved");
-    }
-    const list = tab === "open" ? open : resolved;
+    const list = counts[tab];
     const html = list.length
       ? tab === "open"
         ? openHtml(state, open)
-        : resolved.map(rowOf(state)).join("")
+        : list.map(rowOf(state)).join("")
       : '<div class="pb-empty">Nothing here yet.</div>';
     if (itemsMemo !== html) {
       items.innerHTML = html;

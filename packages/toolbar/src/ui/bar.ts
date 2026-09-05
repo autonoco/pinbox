@@ -6,7 +6,7 @@
 // and marks the PIN button hot. Buttons come from the shared action table
 // (ui/actions.ts) so the bar and the fan can never drift apart again. Keyed DOM
 // from day one — patch, never rebuild.
-import type { ToolbarState } from "../state.ts";
+import { openTaskCount, type ToolbarState } from "../state.ts";
 import {
   ACTIONS,
   type ActionDef,
@@ -90,7 +90,7 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
       if (label.textContent !== text) label.textContent = text;
       pinBtn.classList.toggle("hot", state.mode === "placing");
       inboxBtn.classList.toggle("lit", state.inboxOpen);
-      const open = String(state.pins.filter((p) => p.status !== "resolved").length);
+      const open = String(openTaskCount(state.pins));
       if (count.textContent !== open) count.textContent = open;
       if (hideShown !== state.pinsHidden) {
         hideShown = state.pinsHidden;

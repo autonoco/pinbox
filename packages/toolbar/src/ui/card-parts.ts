@@ -12,7 +12,10 @@ export const STATUS_LABEL: Record<UiStatus, string> = {
   replied: "REPLIED",
   resolved: "RESOLVED",
   verify: "VERIFY",
+  note: "NOTE",
 };
+
+export type DraftKind = "note" | "comment";
 
 const CHECK_ICON =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
@@ -102,9 +105,21 @@ export function verifyHtml(status: UiStatus | null): string {
   return "";
 }
 
-export function rowHtml(hasThread: boolean): string {
+/**
+ * The composer row. A draft chooses what it is before it exists: "Ask agent" (the default —
+ * a `note` pin an agent picks up) or "Note" (a `comment` pin, a remark for people that never
+ * wakes an agent). A control on the draft, not a global toggle: a mode you set once and forget
+ * makes the next pin silently the wrong kind.
+ */
+export function rowHtml(hasThread: boolean, isDraft: boolean, kind: DraftKind): string {
+  const seg = isDraft
+    ? '<div class="pb-seg" role="radiogroup" aria-label="Pin kind">' +
+      `<button type="button" role="radio" aria-checked="${kind === "note"}" class="${kind === "note" ? "on" : ""}" data-kind="note" title="An agent picks this up">Ask agent</button>` +
+      `<button type="button" role="radio" aria-checked="${kind === "comment"}" class="${kind === "comment" ? "on" : ""}" data-kind="comment" title="A remark for people; no agent acts on it">Note</button></div>`
+    : "";
+  const label = hasThread ? "Reply" : kind === "comment" ? "Leave note" : "Comment";
   return (
-    '<div class="pb-kbd">⌘ ↵</div>' +
-    `<button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : "Comment"}</button>`
+    `${seg}<div class="pb-kbd">⌘ ↵</div>` +
+    `<button type="button" class="pb-bt-solid" data-action="send">${label}</button>`
   );
 }

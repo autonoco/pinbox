@@ -130,18 +130,21 @@ export class DeliveryRouter {
   /**
    * Deliverable events are pin.created and thread.message with role human|mirror
    * (rule 3: agent-authored events are never delivered back). Everything else —
-   * pin.resolved, and later event types — is skipped-by-design.
+   * pin.resolved, and later event types — is skipped-by-design. So is anything on
+   * a `comment` pin (rule 4): a remark for people is context, not a task, and a
+   * human replying to a human note must not wake an agent either.
    */
   private route(event: StoredEvent): RoutingTarget {
     if (event.type === "pin.created") {
       const pin = PinSchema.parse(event.payload);
+      if (pin.kind === "comment") return { kind: "skip" }; // rule 4
       return this.bindTarget(pin);
     }
     if (event.type === "thread.message") {
       const message = ThreadMessageSchema.parse(event.payload);
       if (message.role === "agent") return { kind: "skip" }; // rule 3
       const pin = this.store.getPin(message.pinId);
-      if (pin === null) return { kind: "skip" };
+      if (pin === null || pin.kind === "comment") return { kind: "skip" }; // rule 4
       return this.bindTarget(pin);
     }
     return { kind: "skip" };

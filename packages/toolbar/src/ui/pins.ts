@@ -78,7 +78,10 @@ function chipInner(n: number, pin: Pin | null, queued = false): string {
   const link = pin?.links?.[0];
   const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
   const qd = queued ? '<span class="qd">QUEUED</span>' : "";
-  return `<span>${pinNumber(n)}</span>${badge}${qd}`;
+  // A comment pin reads apart on the page: an N glyph and, via .note, a muted chip.
+  const nt =
+    pin?.kind === "comment" ? '<span class="nt" title="Note — no agent acts on this">N</span>' : "";
+  return `<span>${pinNumber(n)}</span>${nt}${badge}${qd}`;
 }
 
 function ensureNode(layer: HTMLElement, key: string, fresh: boolean): HTMLElement {
@@ -144,6 +147,7 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
     const hot = pin.id === state.activePinId;
     const queued = state.queuedIds.has(pin.id);
     node.classList.toggle("queued", queued);
+    node.classList.toggle("note", pin.kind === "comment");
     patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
   }
   if (state.draft) {

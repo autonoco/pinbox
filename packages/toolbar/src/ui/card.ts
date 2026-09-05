@@ -12,6 +12,7 @@ import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
 import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
 import { patchThread, patchTyping } from "./card-messages.ts";
 import {
+  type DraftKind,
   hdHtml,
   linkHtml,
   lociHtml,
@@ -24,8 +25,8 @@ import { esc } from "./html.ts";
 import { anchorRect, nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
-  /** draft ⇒ createPin; else thread reply. */
-  send(pinId: string | "draft", text: string): void;
+  /** draft ⇒ createPin (as `kind`); else thread reply. */
+  send(pinId: string | "draft", text: string, kind: DraftKind): void;
   verify(pinId: string, outcome: "accepted" | "reopened"): void;
   resolve(pinId: string): void;
   /** Copy THIS pin's markdown block (the bar's C copies every open pin). */
@@ -36,6 +37,8 @@ interface CardCtx {
   pid: string | null;
   parts: Record<string, string>;
   actions: CardActions;
+  /** What the open draft will become. Reset to "note" per draft — never a sticky mode. */
+  draftKind: DraftKind;
 }
 
 const ctxByCard = new WeakMap<Element, CardCtx>();
@@ -53,7 +56,12 @@ function ensureShell(root: ShadowRoot): HTMLElement {
     root.appendChild(card);
   }
   if (!ctxByCard.has(card)) {
-    const ctx: CardCtx = { pid: null, parts: {}, actions: null as unknown as CardActions };
+    const ctx: CardCtx = {
+      pid: null,
+      parts: {},
+      actions: null as unknown as CardActions,
+      draftKind: "note",
+    };
     ctxByCard.set(card, ctx);
     card.addEventListener("click", (e) => onCardClick(card as HTMLElement, ctx, e));
   }
@@ -64,34 +72,54 @@ function submit(card: HTMLElement, ctx: CardCtx): void {
   const ta = card.querySelector("textarea");
   const text = ta?.value.trim();
   if (!ta || !text || !ctx.pid) return;
-  ctx.actions.send(ctx.pid === "draft" ? "draft" : ctx.pid, text);
+  ctx.actions.send(ctx.pid === "draft" ? "draft" : ctx.pid, text, ctx.draftKind);
   ta.value = "";
 }
 
+/** The draft's kind control: pick, redraw the row, keep typing. */
+function onKindPick(card: HTMLElement, ctx: CardCtx, kind: DraftKind): void {
+  ctx.draftKind = kind;
+  setPart(card, ctx, "row", rowHtml(false, true, kind));
+  card.querySelector("textarea")?.focus();
+}
+
+/** A moment of green on the copy button is the whole receipt — there is no toast layer,
+ * and the header part-memo never resets a class toggle. */
+function flashCopied(card: HTMLElement, from: Element): void {
+  const btn = from.closest?.('[data-action="copy"]');
+  if (!btn) return;
+  btn.classList.add("ok");
+  card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+}
+
+/** Actions that need a committed pin (a draft has no id to act on). */
+const PIN_ACTIONS: Record<
+  string,
+  (card: HTMLElement, ctx: CardCtx, pid: string, from: Element) => void
+> = {
+  resolve: (_card, ctx, pid) => ctx.actions.resolve(pid),
+  copy: (card, ctx, pid, from) => {
+    ctx.actions.copy(pid);
+    flashCopied(card, from);
+  },
+  "verify-accept": (_card, ctx, pid) => ctx.actions.verify(pid, "accepted"),
+  // reopen flips the pin open and focuses the composer (the sticky-session rule makes the
+  // follow-up reply route to the same session; here it is a thread POST).
+  "verify-reopen": (card, ctx, pid) => {
+    ctx.actions.verify(pid, "reopened");
+    card.querySelector("textarea")?.focus();
+  },
+};
+
 function onCardClick(card: HTMLElement, ctx: CardCtx, e: Event): void {
-  const action = (e.target as Element).closest?.("[data-action]")?.getAttribute("data-action");
+  const from = e.target as Element;
+  const kind = from.closest?.("[data-kind]")?.getAttribute("data-kind");
+  if (kind === "note" || kind === "comment") return onKindPick(card, ctx, kind);
+  const action = from.closest?.("[data-action]")?.getAttribute("data-action");
   if (!action || !ctx.pid) return;
-  if (action === "send") submit(card, ctx);
-  else if (action === "close") ctx.actions.close();
-  else if (ctx.pid !== "draft") {
-    if (action === "resolve") ctx.actions.resolve(ctx.pid);
-    else if (action === "copy") {
-      ctx.actions.copy(ctx.pid);
-      // A moment of green on the button is the whole receipt — there is no
-      // toast layer, and the header part-memo never resets a class toggle.
-      const btn = (e.target as Element).closest?.('[data-action="copy"]');
-      if (btn) {
-        btn.classList.add("ok");
-        card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
-      }
-    } else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
-    else if (action === "verify-reopen") {
-      // reopen flips the pin open and focuses the composer (the sticky-session rule
-      // makes the follow-up reply route to the same session; here it is a thread POST).
-      ctx.actions.verify(ctx.pid, "reopened");
-      card.querySelector("textarea")?.focus();
-    }
-  }
+  if (action === "send") return submit(card, ctx);
+  if (action === "close") return ctx.actions.close();
+  if (ctx.pid !== "draft") PIN_ACTIONS[action]?.(card, ctx, ctx.pid, from);
 }
 
 function buildSkeleton(
@@ -266,6 +294,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   if (ctx.pid !== view.pid) {
     ctx.pid = view.pid;
     ctx.parts = {};
+    ctx.draftKind = "note";
     // A committed pin always has at least its own message, so the thread area always exists.
     buildSkeleton(card, ctx, view.pid === "draft", view.pin !== null || view.thread.length > 0);
   }
@@ -280,7 +309,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   setPart(card, ctx, "loci", lociHtml(view.pin));
   setPart(card, ctx, "verify", resolutionHtml(view.pin) + verifyHtml(view.status));
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
-  setPart(card, ctx, "row", rowHtml(messages.length > 0));
+  setPart(card, ctx, "row", rowHtml(messages.length > 0, view.pid === "draft", ctx.draftKind));
   const threadEl = card.querySelector<HTMLElement>('[data-ref="thread"]');
   if (threadEl) {
     patchThread(threadEl, messages);

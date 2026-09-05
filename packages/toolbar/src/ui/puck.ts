@@ -7,7 +7,7 @@
 // while it is puck-shaped. Tapping the puck fans a vertical quick-menu out of
 // it (icon pill with slide-out labels + key chips); EXPAND is how the bar
 // comes back. Keyed DOM like ui/bar.ts — patch, never rebuild.
-import type { ToolbarState } from "../state.ts";
+import { openTaskCount, type ToolbarState } from "../state.ts";
 import {
   ACTIONS,
   type ActionDef,
@@ -94,7 +94,7 @@ export function createMinimizeUi(doc: Document): MinimizeUi {
     surface,
     carrier,
     update(state) {
-      const open = String(state.pins.filter((p) => p.status !== "resolved").length);
+      const open = String(openTaskCount(state.pins));
       for (const badge of badges) {
         if (badge.textContent !== open) badge.textContent = open;
         badge.hidden = open === "0";

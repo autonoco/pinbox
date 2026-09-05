@@ -210,7 +210,10 @@ describe("renderCard placement", () => {
     } as Partial<BrowserPin>);
     renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
     const card = shadow.querySelector(".pb-card") as HTMLElement;
-    const win = shadow.ownerDocument.defaultView as unknown as { innerWidth: number; innerHeight: number };
+    const win = shadow.ownerDocument.defaultView as unknown as {
+      innerWidth: number;
+      innerHeight: number;
+    };
     const top = Number.parseFloat(card.style.top);
     expect(top).toBeLessThan(win.innerHeight);
     expect(Number.parseFloat(card.style.left)).toBeLessThan(win.innerWidth);
@@ -266,7 +269,7 @@ describe("renderCard actions", () => {
     const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
     ta.value = "tighter please";
     send.click();
-    expect(actions.send).toHaveBeenCalledWith(pin.id, "tighter please");
+    expect(actions.send).toHaveBeenCalledWith(pin.id, "tighter please", "note");
     expect(ta.value).toBe("");
   });
 });
@@ -290,6 +293,38 @@ describe("renderCard queued pin", () => {
   });
 });
 
+describe("renderCard draft kind", () => {
+  test("Ask agent is the default; Note flips the label and sends kind comment; resets per draft", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const draft = { target: { target: makePin("x").target } as never, placedAt: { x: 1, y: 2 } };
+    renderCard(shadow, stateWith({ draft }), actions);
+    const send = () => shadow.querySelector('[data-action="send"]') as HTMLElement;
+    expect(send().textContent).toBe("Comment");
+    (shadow.querySelector('[data-kind="comment"]') as HTMLElement).click();
+    expect(send().textContent).toBe("Leave note");
+    const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
+    ta.value = "for the designers";
+    send().click();
+    expect(actions.send).toHaveBeenCalledWith("draft", "for the designers", "comment");
+    // A committed pin replaces the draft; the next draft starts as Ask agent again.
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    expect(shadow.querySelector(".pb-seg")).toBeNull();
+    renderCard(shadow, stateWith({ draft }), actions);
+    expect(send().textContent).toBe("Comment");
+    expect(shadow.querySelector('[data-kind="note"]')?.classList.contains("on")).toBe(true);
+  });
+
+  test("a comment pin never shows the THINKING row and is labelled NOTE", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa", { kind: "comment" });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
+    expect((shadow.querySelector(".pb-hd .st") as HTMLElement).textContent).toBe("NOTE");
+  });
+});
+
 describe("renderCard draft card", () => {
   test('shows Comment and sends send("draft", …)', () => {
     const shadow = shadowIn();
@@ -302,7 +337,7 @@ describe("renderCard draft card", () => {
     const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
     ta.value = "What should change here?";
     send.click();
-    expect(actions.send).toHaveBeenCalledWith("draft", "What should change here?");
+    expect(actions.send).toHaveBeenCalledWith("draft", "What should change here?", "note");
     // empty text never sends
     send.click();
     expect(actions.send).toHaveBeenCalledTimes(1);

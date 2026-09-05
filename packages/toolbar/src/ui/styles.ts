@@ -105,6 +105,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-chipBtn .lk { display: flex; align-items: center; gap: 5px; padding-left: 6px; margin-left: 1px; border-left: 1px solid var(--pb-line-2); font-size: 9.5px; letter-spacing: .02em; opacity: .85; }
 .pb-pin.hot .pb-chipBtn .lk { border-left-color: color-mix(in srgb, var(--pb-amber-ink) 28%, transparent); }
 .pb-pin.queued .pb-chipBtn { border-style: dashed; }
+/* comment pins: muted, an N glyph; hot state stays amber so the active one is unmistakable */
+.pb-pin.note .dot { background: var(--pb-fg3); }
+.pb-pin.note .needle { background: linear-gradient(to top, var(--pb-fg3), color-mix(in srgb, var(--pb-fg3) 35%, transparent)); }
+.pb-pin.note:not(.hot) .pb-chipBtn { color: var(--pb-fg2); border-color: var(--pb-line); }
+.pb-chipBtn .nt { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 2px; background: var(--pb-fg3); color: var(--pb-canvas); font-size: 8.5px; letter-spacing: 0; }
+.pb-pin.hot .pb-chipBtn .nt { background: var(--pb-amber-ink); color: var(--pb-amber); }
 .pb-chipBtn .qd { padding-left: 6px; margin-left: 1px; border-left: 1px solid var(--pb-line-2); font-size: 9px; letter-spacing: .12em; color: var(--pb-amber); }
 .pb-pin.hot .pb-chipBtn .qd { color: var(--pb-amber-ink); border-left-color: color-mix(in srgb, var(--pb-amber-ink) 28%, transparent); }
 
@@ -160,6 +166,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-change .applied .hh { color: var(--pb-fg4); }
 .pb-resnote { padding: 8px 12px; font-size: 11.5px; line-height: 1.45; color: var(--pb-fg2); border-top: 1px solid var(--pb-line); }
 .pb-resnote .hh { font-family: var(--pb-font-mono); font-size: 10px; color: var(--pb-fg3); }
+.pb-seg { display: flex; margin-right: auto; border: 1px solid var(--pb-line-2); border-radius: 2px; overflow: hidden; }
+.pb-seg button { height: 24px; padding: 0 9px; font-size: 10.5px; color: var(--pb-fg3); transition: background 120ms linear, color 120ms linear; }
+.pb-seg button + button { border-left: 1px solid var(--pb-line-2); }
+.pb-seg button:hover { color: var(--pb-fg1); }
+.pb-seg button.on { background: var(--pb-hover); color: var(--pb-fg1); }
 .pb-verify { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--pb-surface); border-top: 1px solid var(--pb-line); }
 .pb-bt-solid { height: 26px; padding: 0 13px; border-radius: 2px; background: var(--pb-invert-bg); color: var(--pb-invert-fg); font-size: 11.5px; }
 .pb-bt-solid:hover { opacity: .9; }

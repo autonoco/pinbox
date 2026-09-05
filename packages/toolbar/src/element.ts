@@ -26,6 +26,7 @@ import { HubTransport } from "./transport.ts";
 import type { ActionId } from "./ui/actions.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
+import type { DraftKind } from "./ui/card-parts.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
 import { anchorRect, renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
@@ -44,7 +45,7 @@ export class PinboxToolbarElement extends BaseElement {
   readonly store: Store = createStore();
   /** Card → transport seam (wired by #startTransport once a config exists). */
   readonly actions: {
-    send?: (pinId: string | "draft", text: string) => void;
+    send?: (pinId: string | "draft", text: string, kind: DraftKind) => void;
     verify?: (pinId: string, outcome: "accepted" | "reopened") => void;
     resolve?: (pinId: string, note?: string) => void;
   } = {};
@@ -78,7 +79,7 @@ export class PinboxToolbarElement extends BaseElement {
 
   /** Card → element: send/verify/resolve forward to the transport seam; close dismisses. */
   readonly #cardActions: CardActions = {
-    send: (pinId, text) => this.actions.send?.(pinId, text),
+    send: (pinId, text, kind) => this.actions.send?.(pinId, text, kind),
     verify: (pinId, outcome) => this.actions.verify?.(pinId, outcome),
     resolve: (pinId) => this.actions.resolve?.(pinId),
     copy: (pinId) => this.#copyPin(pinId),
@@ -309,7 +310,7 @@ export class PinboxToolbarElement extends BaseElement {
     if (queued.length > 0) {
       this.store.update({ queuedIds: new Set(queued.map((p) => p.id)) });
     }
-    this.actions.send = (pinId, text) => void this.#send(transport, pinId, text);
+    this.actions.send = (pinId, text, kind) => void this.#send(transport, pinId, text, kind);
     this.actions.resolve = (pinId, note) =>
       void transport
         .resolve(pinId, note)
@@ -330,14 +331,19 @@ export class PinboxToolbarElement extends BaseElement {
   }
 
   /** draft ⇒ compose PinInput (+ best-effort screenshot) and createPin; else thread reply. */
-  async #send(transport: HubTransport, pinId: string | "draft", text: string): Promise<void> {
+  async #send(
+    transport: HubTransport,
+    pinId: string | "draft",
+    text: string,
+    kind: DraftKind,
+  ): Promise<void> {
     try {
       if (pinId === "draft") {
         const draft = this.store.get().draft;
         if (draft === null) return;
         const input: PinInput = {
           text,
-          kind: "note",
+          kind,
           target: draft.target.target,
           env: draft.target.env,
           author: { userId: transport.consumerId },

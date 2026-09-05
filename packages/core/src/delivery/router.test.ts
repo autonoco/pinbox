@@ -191,6 +191,28 @@ describe("rule 3 — agent-authored events are skipped, ledger stays complete", 
   });
 });
 
+describe("rule 4 — comment pins are context, not tasks", () => {
+  test("a comment pin and a human reply on it write skipped rows; no adapter, no binding", async () => {
+    const store = openStore(":memory:");
+    const adapter = fakeAdapter("hooks");
+    const router = new DeliveryRouter({ store, adapters: [adapter] });
+    const session = store.sessions.register({ agent: "claude", key: "s1" });
+    const pin = store.createPin({ ...structuredClone(input), kind: "comment" }, {});
+    await router.dispatch(lastEvent(store));
+    store.addThreadMessage(pin.id, "human", "for whoever picks this up next");
+    await router.dispatch(lastEvent(store));
+    expect(adapter.calls).toEqual([]);
+    expect(store.getPin(pin.id)?.agentSession).toBeUndefined();
+    expect(store.deliveries.pendingForSession(session.id)).toEqual([]);
+    expect(store.deliveries.lastEventSeq()).toBe(lastEvent(store).seq); // cursor still complete
+    // The same input as a note IS delivered — the kind is the only difference.
+    store.createPin(structuredClone(input), {});
+    await router.dispatch(lastEvent(store));
+    expect(adapter.calls.length).toBe(1);
+    store.close();
+  });
+});
+
 describe("adapter preference order", () => {
   test("first matching adapter wins; later adapters never see the event", async () => {
     const store = openStore(":memory:");

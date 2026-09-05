@@ -114,6 +114,16 @@ describe("createStore", () => {
   });
 });
 
+describe("deriveUiStatus — comment pins", () => {
+  test("an open comment pin is a note, never waiting or replied; resolved still verifies", () => {
+    const pin = { ...makePin(), kind: "comment" as const };
+    expect(deriveUiStatus(pin, [])).toBe("note");
+    expect(deriveUiStatus(pin, [makeMessage("human")])).toBe("note");
+    expect(deriveUiStatus(pin, [makeMessage("agent")])).toBe("note");
+    expect(deriveUiStatus({ ...pin, status: "resolved" }, [])).toBe("verify");
+  });
+});
+
 describe("deriveUiStatus", () => {
   test("resolved without verification is 'verify'", () => {
     const pin = makePin({

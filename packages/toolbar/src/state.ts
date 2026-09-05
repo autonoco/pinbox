@@ -6,7 +6,7 @@
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
 import type { CaptureResult } from "./capture.ts";
 
-export type UiStatus = "open" | "waiting" | "replied" | "resolved" | "verify";
+export type UiStatus = "open" | "waiting" | "replied" | "resolved" | "verify" | "note";
 
 export interface Draft {
   target: CaptureResult;
@@ -141,13 +141,20 @@ export function applyHubEvent(
  * Wire-status → UI-status mapping:
  * resolved + no verification ⇒ "verify" (accept/reopen prompt);
  * resolved + verification ⇒ "resolved";
+ * open comment pin ⇒ "note" (nobody owes a reply — never "waiting");
  * open + empty thread or last message human ⇒ "waiting";
  * open + last message agent|mirror ⇒ "replied".
  * The prototype's WORKING/APPLIED chips need an event vocabulary the hub does not emit — excluded here.
  */
 export function deriveUiStatus(pin: Pin, thread: ThreadMessage[]): UiStatus {
   if (pin.status === "resolved") return pin.verification ? "resolved" : "verify";
+  if (pin.kind === "comment") return "note";
   const last = thread[thread.length - 1];
   if (!last || last.role === "human") return "waiting";
   return "replied";
+}
+
+/** Open pins that ask something of someone — comment pins are remarks, so the badges skip them. */
+export function openTaskCount(pins: Pin[]): number {
+  return pins.filter((p) => p.status !== "resolved" && p.kind !== "comment").length;
 }

@@ -10,16 +10,24 @@
 // scroll containers and on sticky anchors alike (dogfood: "pins drift").
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
+import { captureKey, loadCaptureMode, saveCaptureMode } from "./capture-mode.ts";
 import type { PinboxConfig } from "./index.ts";
 import { shortcutFor } from "./keys.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { createPlacement, type Placement } from "./placement.ts";
-import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
+import {
+  type CapturedImage,
+  captureElement,
+  releaseCapture,
+  uploadAttachment,
+} from "./screenshot.ts";
+import { captureElementDom } from "./screenshot-dom.ts";
 import {
   agentIsLive,
   appendThreadMessage,
   applyHubEvent,
+  type CaptureMode,
   createStore,
   type Store,
   type ToolbarState,
@@ -36,6 +44,9 @@ import { anchorRect, renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
 import { createShortcutsModal, type ShortcutsModal } from "./ui/shortcuts.ts";
 import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
+
+/** How long a pin commit waits for its picture before shipping without one. */
+const CAPTURE_TIMEOUT_MS = 4000;
 
 // SSR guard: framework wrappers import this module on the server, where
 // HTMLElement does not exist. The class is only *used* in a browser.
@@ -119,6 +130,41 @@ export class PinboxToolbarElement extends BaseElement {
       this.#built = true;
       this.#build();
     }
+    this.#applyPageDefaults();
+    // `#build` runs once; the placement, minimize and bar-drag controllers' listeners and timers
+    // do not survive a disconnect, so they are (re)connected here rather than there.
+    if (this.shadowRoot) this.#placement?.connect(this.shadowRoot);
+    if (this.#min === null) this.#mountMinimize();
+    if (this.#barDrag === null) this.#mountBarDrag();
+    this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
+    this.#listen();
+    this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
+    this.#render(this.store.get());
+    this.#startClock();
+    this.store.update({ captureMode: this.#loadCaptureMode() });
+    this.#queueStart();
+  }
+
+  /** Persisted per endpoint beside the puck dock; PinboxConfig.capture is the first-run default. */
+  #loadCaptureMode(): CaptureMode {
+    const key = captureKey(`pinbox:${this.config?.endpoint ?? ""}`);
+    return loadCaptureMode(globalThis.localStorage, key, this.config?.capture ?? "dom");
+  }
+  #toggleCapture(): true {
+    const next: CaptureMode = this.store.get().captureMode === "tab" ? "dom" : "tab";
+    this.store.update({ captureMode: next });
+    // Leaving tab mode ends the share (and Chrome's "sharing this tab" indicator) at once.
+    if (next === "dom") releaseCapture();
+    saveCaptureMode(
+      globalThis.localStorage,
+      captureKey(`pinbox:${this.config?.endpoint ?? ""}`),
+      next,
+    );
+    return true;
+  }
+
+  /** Theme from the OS when the host set none; the page-level CSS (placing cursor) into <head>. */
+  #applyPageDefaults(): void {
     if (!this.hasAttribute("data-pb")) {
       const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       this.setAttribute("data-pb", dark ? "dark" : "light");
@@ -127,20 +173,21 @@ export class PinboxToolbarElement extends BaseElement {
     style.textContent = PAGE_CSS;
     document.head.appendChild(style);
     this.#pageStyle = style;
-    // `#build` runs once; the placement and minimize controllers' listeners and timers do not
-    // survive a disconnect, so both are (re)connected here rather than there.
-    if (this.shadowRoot) this.#placement?.connect(this.shadowRoot);
-    if (this.#min === null) this.#mountMinimize();
-    if (this.#barDrag === null && this.#bar !== null) {
-      this.#barDrag = createBarDrag({
-        win: window,
-        bar: this.#bar.root,
-        grip: this.#bar.grip,
-        storage: globalThis.localStorage ?? null,
-        storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
-      });
-    }
-    this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
+  }
+
+  #mountBarDrag(): void {
+    if (this.#bar === null) return;
+    this.#barDrag = createBarDrag({
+      win: window,
+      bar: this.#bar.root,
+      grip: this.#bar.grip,
+      storage: globalThis.localStorage ?? null,
+      storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
+    });
+  }
+
+  /** The page-level listeners of one connected lifetime; disconnectedCallback removes them. */
+  #listen(): void {
     document.addEventListener("click", this.#onClickCapture, true);
     // Capture phase on window: we see the key before the host's own hotkey handlers can swallow
     // it, and stop it only when an action actually ran (keys.ts has the rules).
@@ -154,10 +201,6 @@ export class PinboxToolbarElement extends BaseElement {
       this.#resizeObserver = new RO(this.#onLayoutChange);
       this.#resizeObserver.observe(document.body);
     }
-    this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
-    this.#render(this.store.get());
-    this.#startClock();
-    this.#queueStart();
   }
 
   /** Age is state (state.ts `clock`), so a tick is a render and stale pins flip without a hub event. */
@@ -409,16 +452,26 @@ export class PinboxToolbarElement extends BaseElement {
     }
   }
 
-  /** Best-effort element screenshot: draft submit → captureElement → uploadAttachment. */
+  /**
+   * Best-effort element screenshot: draft submit → capture → uploadAttachment. The capture is
+   * bounded — a slow rasterize or a prompt left hanging must not hold the pin hostage, so past
+   * CAPTURE_TIMEOUT_MS the pin ships without pixels (structured capture still carries it).
+   */
   async #screenshot(selector: string): Promise<Attachment | null> {
     const cfg = this.config;
     if (cfg === null) return null;
-    // Opted out: never call getDisplayMedia, so the tab-share prompt never appears.
+    // Opted out: never capture, so no snapshot work and no tab-share prompt.
     if (cfg.screenshots === false) return null;
     try {
       const el = document.querySelector(selector);
       if (el === null) return null;
-      const img = await captureElement(el);
+      // "tab" only when the visitor chose it: getDisplayMedia is the one path that prompts.
+      const capture =
+        this.store.get().captureMode === "tab" ? captureElement(el) : captureElementDom(el);
+      const timeout = new Promise<null>((resolve) =>
+        window.setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS),
+      );
+      const img: CapturedImage | null = await Promise.race([capture, timeout]);
       if (img === null) return null;
       return await uploadAttachment(cfg.endpoint, this.#token, img);
     } catch {
@@ -581,6 +634,7 @@ export class PinboxToolbarElement extends BaseElement {
     theme: () => this.#toggleTheme(),
     copy: () => this.#copyOpenPins(),
     hide: () => this.#togglePinsHidden(),
+    capture: () => this.#toggleCapture(),
     help: () => this.#toggleHelp(),
     resolve: () => {
       const active = this.store.get().activePinId;

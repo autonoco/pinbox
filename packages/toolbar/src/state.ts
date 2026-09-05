@@ -55,7 +55,15 @@ export interface ToolbarState {
    * of STALE_AFTER_MS — there is no point telling you an agent is thinking when none is there.
    */
   agentLive: boolean | null;
+  /**
+   * How new pins get their picture. "dom" (default): a no-permission element snapshot
+   * (screenshot-dom.ts). "tab": real pixels via tab capture — Chrome asks once per page load.
+   * Persisted per endpoint; the bar's camera button flips it.
+   */
+  captureMode: "dom" | "tab";
 }
+
+export type CaptureMode = ToolbarState["captureMode"];
 
 export interface Store {
   get(): ToolbarState;
@@ -84,6 +92,7 @@ export function initialState(): ToolbarState {
     pinsHidden: false,
     clock: 0,
     agentLive: null,
+    captureMode: "dom",
   };
 }
 

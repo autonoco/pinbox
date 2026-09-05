@@ -12,6 +12,7 @@ export type ActionId =
   | "copy"
   | "theme"
   | "hide"
+  | "capture"
   | "help"
   | "minimize"
   | "resolve"
@@ -49,6 +50,8 @@ export const EYE_GLYPH =
 export const EYE_OFF_GLYPH =
   '<path d="M2.3 2.3l11.4 11.4"/><path d="M4.9 4.9C2.7 6.2 1.6 8 1.6 8s2.4 4.2 6.4 4.2c1.2 0 2.3-.3 3.1-.8M6.7 4c.4-.1.9-.2 1.3-.2 4 0 6.4 4.2 6.4 4.2s-.8 1.4-2.2 2.5"/>';
 const MIN_GLYPH = '<path d="M6.5 2.5v4h-4"/><path d="M9.5 13.5v-4h4"/>';
+const CAMERA_GLYPH =
+  '<path d="M2 5.5h2.6l1.2-1.8h4.4L11.4 5.5H14v7.5H2z"/><circle cx="8" cy="9" r="2.3"/>';
 export const EXPAND_GLYPH = '<path d="M9.5 6.5v-4h4"/><path d="M6.5 9.5v4h-4"/>';
 
 /** Frame a glyph as an inline SVG at `size` px. */
@@ -73,6 +76,14 @@ export const ACTIONS: readonly ActionDef[] = [
     bar: {},
     // The fan item is stateful (puck.ts flips it to "Show pins"); this is its rest label.
     fan: { label: "Hide pins" },
+  },
+  // Bar-only: a per-session preference, not a quick action. Lit while tab capture is on.
+  {
+    id: "capture",
+    label: "Tab capture for screenshots (Chrome asks once)",
+    key: "s",
+    glyph: CAMERA_GLYPH,
+    bar: {},
   },
   // Discoverability for the bar; the fan shows key chips inline, so it is bar-only.
   { id: "help", label: "Shortcuts", key: "?", bar: {}, help: false },

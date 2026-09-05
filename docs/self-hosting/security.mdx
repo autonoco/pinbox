@@ -154,9 +154,10 @@ Stated plainly, because a security page that only lists wins is not useful.
   account against itself.
 - **Anyone with your machine.** No encryption at rest. `.pinbox/pinbox.db` holds pin text,
   threads, and metadata in plain SQLite; `.pinbox/media/` holds attachments as files.
-- **What screenshots capture.** The toolbar captures what is on screen. If that includes a
-  customer record or a token in a debug panel, the screenshot includes it, and the
-  screenshot goes wherever the pin goes.
+- **What screenshots capture.** By default the toolbar snapshots the pinned element's DOM
+  (text and styles, no external images). With tab capture on, it captures the visible
+  pixels of the element instead. Either way, if the element holds a customer record or a
+  token in a debug panel, the screenshot includes it, and it goes wherever the pin goes.
 - **What you mirror out.** Linking a pin to an external tracker copies pin text and thread
   replies to that tracker, under whatever visibility that project has. Pinbox does not
   redact.

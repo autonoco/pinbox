@@ -82,6 +82,7 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
   const pinBtn = ref("pin");
   const inboxBtn = ref("inbox");
   const hideBtn = ref("hide");
+  const captureBtn = ref("capture");
   const count = ref("count");
   for (const a of [...wide, ...squares]) {
     // detail 0 = keyboard/AT-synthesized click — focus should follow the surface that remains.
@@ -100,6 +101,11 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
       inboxBtn.classList.toggle("lit", state.inboxOpen);
       const open = String(openTaskCount(state.pins));
       if (count.textContent !== open) count.textContent = open;
+      captureBtn.classList.toggle("lit", state.captureMode === "tab");
+      captureBtn.title =
+        state.captureMode === "tab"
+          ? "Tab capture on — real pixels, Chrome asks once per page load (S)"
+          : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)";
       if (hideShown !== state.pinsHidden) {
         hideShown = state.pinsHidden;
         hideBtn.innerHTML = icon(state.pinsHidden ? EYE_GLYPH : EYE_OFF_GLYPH, 14);

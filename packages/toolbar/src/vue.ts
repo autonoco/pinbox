@@ -26,7 +26,9 @@ export const PinboxToolbar = {
     const el = document.createElement(PinboxToolbarElement.tagName) as PinboxToolbarElement;
     el.configure(this.config);
     this._pbEl = el;
-    this.$el.appendChild(el);
+    // On body, not under $el: the overlay is viewport-fixed, and a transformed or scrolling
+    // ancestor in the app tree would become its containing block (pins drift with it).
+    document.body.appendChild(el);
   },
   unmounted(this: WrapperInstance): void {
     this._pbEl?.remove();

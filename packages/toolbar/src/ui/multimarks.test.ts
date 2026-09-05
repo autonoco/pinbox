@@ -29,6 +29,14 @@ test("marks mirror the target set: numbered, positioned, replaced on re-render",
   expect(layer.querySelectorAll(".pb-multi-mark").length).toBe(0);
 });
 
+test("marks shift by the scroll offset: captured rects are document-space, the layer is not", () => {
+  const layer = layerIn();
+  renderMultiMarks(layer, [{ rect: { x: 110, y: 220, width: 10, height: 10 } }], { x: 10, y: 20 });
+  const mark = layer.querySelector(".pb-multi-mark") as HTMLElement;
+  expect(mark.style.left).toBe("100px");
+  expect(mark.style.top).toBe("200px");
+});
+
 test("a target with no rect draws nothing but keeps later numbering honest", () => {
   const layer = layerIn();
   renderMultiMarks(layer, [{}, { rect: { x: 1, y: 2, width: 3, height: 4 } }]);

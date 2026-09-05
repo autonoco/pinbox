@@ -199,6 +199,83 @@ describe("anchor gating (dogfood #26: pins lingered over unrelated SPA views)", 
   });
 });
 
+describe("viewport space (dogfood v4: pins drifted on scroll)", () => {
+  /** happy-dom windows do not scroll; fake the offset the way a scrolled page reports it. */
+  function scrollTo(layer: HTMLElement, x: number, y: number): void {
+    const win = layer.ownerDocument.defaultView as unknown as Window;
+    Object.defineProperty(win, "scrollX", { value: x, configurable: true });
+    Object.defineProperty(win, "scrollY", { value: y, configurable: true });
+  }
+
+  test("a stored rect (no live layout) is drawn minus the scroll offset", () => {
+    const layer = layerIn();
+    renderPins(layer, stateWith({ pins: [makePin("pin_aaaaaaaaaa")] }));
+    const node = layer.querySelector('[data-pin="pin_aaaaaaaaaa"]') as HTMLElement;
+    expect(node.style.left).toBe("125px");
+    expect(node.style.top).toBe("210px");
+    scrollTo(layer, 0, 150);
+    renderPins(layer, stateWith({ pins: [makePin("pin_aaaaaaaaaa")] }));
+    expect(node.style.top).toBe("60px"); // 210 − 150: the layer is fixed, the page moved
+  });
+
+  test("a sticky or fixed anchor keeps its client rect while the page scrolls — so does its pin", () => {
+    const layer = layerIn();
+    const hero = layer.ownerDocument.querySelector("#hero") as HTMLElement;
+    hero.getBoundingClientRect = () =>
+      ({
+        x: 300,
+        y: 40,
+        left: 300,
+        top: 40,
+        right: 340,
+        bottom: 60,
+        width: 40,
+        height: 20,
+      }) as DOMRect;
+    renderPins(layer, stateWith({ pins: [makePin("pin_stickyxxxx")] }));
+    const node = layer.querySelector('[data-pin="pin_stickyxxxx"]') as HTMLElement;
+    expect(node.style.top).toBe("50px");
+    scrollTo(layer, 0, 900);
+    renderPins(layer, stateWith({ pins: [makePin("pin_stickyxxxx")] }));
+    // Document-space would have put it at 950 (off the sticky header); viewport-space does not.
+    expect(node.style.top).toBe("50px");
+  });
+
+  test("an anchor inside an inner scroll container follows its live rect, not window scroll", () => {
+    const layer = layerIn();
+    const hero = layer.ownerDocument.querySelector("#hero") as HTMLElement;
+    let top = 500;
+    hero.getBoundingClientRect = () =>
+      ({
+        x: 300,
+        y: top,
+        left: 300,
+        top,
+        right: 340,
+        bottom: top + 20,
+        width: 40,
+        height: 20,
+      }) as DOMRect;
+    renderPins(layer, stateWith({ pins: [makePin("pin_innerscrol")] }));
+    const node = layer.querySelector('[data-pin="pin_innerscrol"]') as HTMLElement;
+    expect(node.style.top).toBe("510px");
+    top = 200; // the container scrolled; window.scrollY is still 0
+    renderPins(layer, stateWith({ pins: [makePin("pin_innerscrol")] }));
+    expect(node.style.top).toBe("210px");
+  });
+
+  test("the draft marker converts its document-space placement too", () => {
+    const layer = layerIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 340, y: 160 } };
+    scrollTo(layer, 40, 100);
+    renderPins(layer, stateWith({ pins: [pin], draft }));
+    const node = layer.querySelector('[data-pin="draft"]') as HTMLElement;
+    expect(node.style.left).toBe("300px");
+    expect(node.style.top).toBe("60px");
+  });
+});
+
 test("chips read the hub-born number, not the visible index", () => {
   const layer = layerIn();
   // Out-of-order arrival: the pin numbered 7 renders first in the array.

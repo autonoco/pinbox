@@ -4,8 +4,10 @@
 // toolbar/v2-command-bar.html lines 521–545, 701–712): armed command bar →
 // reticle over labeled outlines → click places a client-only draft. Transactional
 // drafts: nothing reaches the hub until the first comment submits (Task 6/8);
-// esc / click-away discards. Overlay coordinates are page-space (pageX/pageY),
-// the pin layer sits at the document origin; the reticle is position: fixed.
+// esc / click-away discards. Captured coordinates are document-space (the
+// schema's contract); every on-screen layer is viewport-space and re-laid out
+// on each scroll/resize frame, so pins stay on their elements inside inner
+// scroll containers and on sticky anchors alike (dogfood: "pins drift").
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
 import type { PinboxConfig } from "./index.ts";
@@ -80,6 +82,9 @@ export class PinboxToolbarElement extends BaseElement {
   #helpOpen = false;
   /** The 30 s wall-clock tick that ages pending pins into WAITING / NO RESPONSE. 0 when idle. */
   #clockTimer = 0;
+  /** Pending viewport re-layout frame, 0 when none is queued. */
+  #layoutFrame = 0;
+  #resizeObserver: ResizeObserver | null = null;
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -140,6 +145,15 @@ export class PinboxToolbarElement extends BaseElement {
     // Capture phase on window: we see the key before the host's own hotkey handlers can swallow
     // it, and stop it only when an action actually ran (keys.ts has the rules).
     window.addEventListener("keydown", this.#onKeyDown, true);
+    // Capture-phase scroll sees inner scroll containers, not just the window; the overlay is
+    // viewport-space, so anything that moves an anchor on screen needs a re-layout.
+    document.addEventListener("scroll", this.#onLayoutChange, { capture: true, passive: true });
+    window.addEventListener("resize", this.#onLayoutChange);
+    const RO = globalThis.ResizeObserver;
+    if (typeof RO === "function") {
+      this.#resizeObserver = new RO(this.#onLayoutChange);
+      this.#resizeObserver.observe(document.body);
+    }
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
     this.#render(this.store.get());
     this.#startClock();
@@ -184,6 +198,12 @@ export class PinboxToolbarElement extends BaseElement {
     this.#transport = null;
     document.removeEventListener("click", this.#onClickCapture, true);
     window.removeEventListener("keydown", this.#onKeyDown, true);
+    document.removeEventListener("scroll", this.#onLayoutChange, { capture: true });
+    window.removeEventListener("resize", this.#onLayoutChange);
+    this.#resizeObserver?.disconnect();
+    this.#resizeObserver = null;
+    if (this.#layoutFrame !== 0) cancelAnimationFrame(this.#layoutFrame);
+    this.#layoutFrame = 0;
     this.#placement?.disconnect();
     this.#min?.destroy();
     this.#min = null;
@@ -425,12 +445,12 @@ export class PinboxToolbarElement extends BaseElement {
     const pin = this.store.get().pins.find((p) => p.id === pinId);
     this.#ensureThread(pinId);
     this.store.update({ activePinId: pinId });
-    // Scroll to where the anchor is NOW. A terminal `pinbox pin` has no rect, and a pin whose
-    // element is not on this view has no honest place either — activating still opens the card
-    // (docked mid-viewport, card.ts); scrolling to a stale y would be worse.
+    // Scroll to where the anchor is NOW (a viewport rect). A terminal `pinbox pin` has no rect,
+    // and a pin whose element is not on this view has no honest place either — activating still
+    // opens the card (docked mid-viewport, card.ts); scrolling to a stale y would be worse.
     const rect = pin === undefined ? null : anchorRect(document, pin);
     if (rect) {
-      const y = rect.y + rect.height / 2;
+      const y = window.scrollY + rect.y + rect.height / 2;
       window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: "smooth" });
     }
   }
@@ -586,6 +606,22 @@ export class PinboxToolbarElement extends BaseElement {
     // Handled: the host never sees it. Unhandled keys fall through untouched above.
     e.preventDefault();
     e.stopPropagation();
+  };
+
+  /**
+   * The viewport moved under the overlay (scroll, resize, layout shift): re-place what is
+   * anchored to the page — pins, the card, multi-target marks — once per frame. Not a store
+   * update: nothing about the pins changed, only where their anchors are on screen.
+   */
+  #onLayoutChange = (): void => {
+    if (this.#layoutFrame !== 0) return;
+    this.#layoutFrame = requestAnimationFrame(() => {
+      this.#layoutFrame = 0;
+      const state = this.store.get();
+      if (this.#pinsLayer) renderPins(this.#pinsLayer, state);
+      if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
+      this.#placement?.render(state.mode === "placing");
+    });
   };
 
   #render(state: ToolbarState): void {

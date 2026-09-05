@@ -30,12 +30,19 @@ function sameView(win: Window, url: string | undefined): boolean {
   }
 }
 
+/** A stored (document-space) rect or point, in today's viewport. */
+export function toViewport<T extends { x: number; y: number }>(win: Window, p: T): T {
+  return { ...p, x: p.x - win.scrollX, y: p.y - win.scrollY };
+}
+
 /**
- * Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
- * views after SPA tab switches, because placement trusted the stored rect
- * forever). Re-resolve the captured selector on every render:
- *  - it resolves with layout → snap to the LIVE rect (also fixes drift);
- *  - it resolves without layout (test DOMs, display:none) → stored rect;
+ * Where the pin's anchor is NOW, in VIEWPORT space (dogfood #26: markers lingered over
+ * unrelated views after SPA tab switches, because placement trusted the stored rect forever;
+ * dogfood v4: pins drifted on scroll, because the layer was document-space and only
+ * re-rendered on DOM mutation). Re-resolve the captured selector on every render:
+ *  - it resolves with layout → the LIVE client rect, which is right inside inner scroll
+ *    containers and on sticky/fixed anchors alike;
+ *  - it resolves without layout (test DOMs, display:none) → stored rect minus scroll;
  *  - it does not resolve → no marker; the drawer stays the see-everything list.
  * A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
  */
@@ -46,17 +53,17 @@ export function anchorRect(doc: Document, pin: Pin): Rect | null {
   if (win === null) return stored;
   if (!sameView(win, pin.target?.url)) return null;
   const selector = pin.target?.selector;
-  if (selector === undefined) return stored;
+  if (selector === undefined) return toViewport(win, stored);
   let el: Element | null;
   try {
     el = doc.querySelector(selector);
   } catch {
-    return stored; // a selector we cannot evaluate must not hide the pin forever
+    return toViewport(win, stored); // a selector we cannot evaluate must not hide the pin forever
   }
   if (el === null) return null;
   const r = el.getBoundingClientRect();
-  if (r.width <= 0 && r.height <= 0) return stored;
-  return { x: r.left + win.scrollX, y: r.top + win.scrollY, width: r.width, height: r.height };
+  if (r.width <= 0 && r.height <= 0) return toViewport(win, stored);
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
 }
 
 /**
@@ -158,6 +165,8 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   }
   if (state.draft) {
     const node = ensureNode(layer, "draft", true);
-    patchNode(node, state.draft.placedAt, true, chipInner(nextOrdinal(state.pins), null));
+    const win = layer.ownerDocument.defaultView;
+    const at = win === null ? state.draft.placedAt : toViewport(win, state.draft.placedAt);
+    patchNode(node, at, true, chipInner(nextOrdinal(state.pins), null));
   }
 }

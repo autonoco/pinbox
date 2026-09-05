@@ -23,7 +23,7 @@ import {
   verifyHtml,
 } from "./card-parts.ts";
 import { esc } from "./html.ts";
-import { anchorRect, nextOrdinal } from "./pins.ts";
+import { anchorRect, nextOrdinal, toViewport } from "./pins.ts";
 
 export interface CardActions {
   /** draft ⇒ createPin (as `kind`); else thread reply. */
@@ -166,9 +166,9 @@ function buildSkeleton(
 }
 
 /**
- * Viewport-aware placement, ported verbatim (prototype lines 660–668): measure
- * the rendered card, flip left when it would overflow right, clamp between
- * scrollY + margin and the command-bar clearance — never off-screen.
+ * Viewport-aware placement, ported from the prototype (lines 660–668) into viewport space:
+ * measure the rendered card, flip left when it would overflow right, clamp between the margin
+ * and the command-bar clearance — never off-screen.
  */
 function position(card: HTMLElement, at: { x: number; y: number }): void {
   const win = card.ownerDocument.defaultView;
@@ -177,11 +177,11 @@ function position(card: HTMLElement, at: { x: number; y: number }): void {
   const m = 12;
   const barClear = 84;
   let left = at.x + 22;
-  if (left + W > win.scrollX + win.innerWidth - m) left = at.x - W - 22;
-  left = Math.max(win.scrollX + m, left);
+  if (left + W > win.innerWidth - m) left = at.x - W - 22;
+  left = Math.max(m, left);
   const h = card.querySelector<HTMLElement>(".in")?.offsetHeight ?? 0;
-  const minTop = win.scrollY + m;
-  const maxTop = win.scrollY + win.innerHeight - h - barClear;
+  const minTop = m;
+  const maxTop = win.innerHeight - h - barClear;
   card.style.left = `${left}px`;
   card.style.top = `${Math.max(minTop, Math.min(at.y - 60, maxTop))}px`;
 }
@@ -220,27 +220,27 @@ function ordinalOf(state: ToolbarState, pin: Pin | null): number {
 }
 
 /**
- * Where the card tethers. The LIVE anchor when the pin's element is on this view; otherwise
- * (other URL, selector gone, a terminal `pinbox pin`) the middle of the viewport — dogfood: the
- * stored rect of a pin whose view had moved on put the card off-screen, so a pin listed in the
- * drawer could be opened but never seen, let alone resolved.
+ * Where the card tethers, in viewport space. The LIVE anchor when the pin's element is on this
+ * view; otherwise (other URL, selector gone, a terminal `pinbox pin`) the middle of the viewport
+ * — dogfood: the stored rect of a pin whose view had moved on put the card off-screen, so a pin
+ * listed in the drawer could be opened but never seen, let alone resolved.
  */
 function anchorOf(
   root: ShadowRoot,
   pin: Pin | null,
   draft: ToolbarState["draft"],
 ): { x: number; y: number } {
-  if (pin === null) return draft?.placedAt ?? { x: 0, y: 0 };
   const doc = root.ownerDocument;
+  const win = doc.defaultView;
+  if (pin === null) {
+    const at = draft?.placedAt ?? { x: 0, y: 0 };
+    return win === null ? at : toViewport(win, at);
+  }
   const live = anchorRect(doc, pin);
   if (live !== null) return { x: live.x + live.width / 2, y: live.y + live.height / 2 };
-  const win = doc.defaultView;
   if (win === null) return { x: 0, y: 0 };
   // position() offsets by (+22, −60) and clamps; this lands the card centred.
-  return {
-    x: win.scrollX + win.innerWidth / 2 - CARD_W / 2 - 22,
-    y: win.scrollY + win.innerHeight / 3 + 60,
-  };
+  return { x: win.innerWidth / 2 - CARD_W / 2 - 22, y: win.innerHeight / 3 + 60 };
 }
 
 /**

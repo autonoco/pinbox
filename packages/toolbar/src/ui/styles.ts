@@ -58,8 +58,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 @keyframes pb-pulse { 0%,100% { opacity:.3 } 50% { opacity:1 } }
 @keyframes pb-resolve { to { opacity:0; transform:translateY(-10px) } }
 
-/* overlay layer at the document origin */
-.pb-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 0; }
+/* overlay layer in VIEWPORT space: fixed, re-laid out on every scroll/resize frame (element.ts).
+   Document-space it drifted — inner scroll containers, sticky anchors and any transformed
+   ancestor of the host all broke the "page scrolls on window from the origin" assumption. */
+.pb-overlay { position: fixed; inset: 0; pointer-events: none; }
 
 .pb-outline { position: absolute; z-index: 30; pointer-events: none; border: 1px solid var(--pb-amber); border-radius: 2px; background: var(--pb-amber-soft); opacity: 0;
   transition: left 220ms var(--pb-ease), top 220ms var(--pb-ease), width 220ms var(--pb-ease), height 220ms var(--pb-ease), opacity 150ms linear; }
@@ -93,7 +95,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-aim .bar .cancel { flex: none; padding: 0 18px; border: 1px solid var(--pb-line-2); background: transparent; color: var(--pb-fg2); }
 .pb-aim .bar .ok { flex: none; padding: 0 20px; border: none; background: var(--pb-amber); color: var(--pb-amber-ink); }
 
-.pb-pin { position: absolute; }
+.pb-pin { position: absolute; pointer-events: auto; }
 .pb-pin.resolving { animation: pb-resolve 380ms var(--pb-ease) forwards; }
 .pb-pin .ring { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border: 1px solid var(--pb-amber); border-radius: 999px; animation: pb-ring 900ms var(--pb-ease) forwards; pointer-events: none; }
 .pb-pin .dot { position: absolute; left: -3px; top: -3px; width: 7px; height: 7px; border-radius: 999px; background: var(--pb-amber); box-shadow: 0 0 0 2px var(--pb-canvas); }
@@ -117,7 +119,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-pin.hot .pb-chipBtn .qd { color: var(--pb-amber-ink); border-left-color: color-mix(in srgb, var(--pb-amber-ink) 28%, transparent); }
 
 /* thread card (ui/card.ts) — prototype lines 121–190 */
-.pb-card { position: absolute; z-index: 80; width: 344px; }
+.pb-card { position: absolute; z-index: 80; width: 344px; pointer-events: auto; }
 .pb-card .in { animation: pb-in 260ms var(--pb-ease) both; background: var(--pb-elev); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); overflow: hidden; }
 .pb-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--pb-line); background: var(--pb-surface); }
 .pb-hd .meta { display: flex; align-items: center; gap: 9px; font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: .18em; color: var(--pb-fg3); }

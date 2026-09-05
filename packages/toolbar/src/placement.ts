@@ -4,8 +4,9 @@
 // multi-target accumulation and the dashed marks that receipt it. Split out of
 // element.ts (file-size rule) as one unit because these pieces share state —
 // the hovered element, the pending extra targets, the per-frame viewport probe
-// — and nothing else in the element reads any of it. Overlay coordinates are
-// page-space (pageX/pageY); the reticle and aim layers are position: fixed.
+// — and nothing else in the element reads any of it. Captured coordinates are
+// document-space (pageX/pageY, the schema's contract); every layer on screen is
+// viewport-space, so marks re-draw per render against the current scroll.
 import { type BrowserTarget, captureTarget } from "./capture.ts";
 import type { Store } from "./state.ts";
 import { hitTest, targetLabel } from "./targeting/dom.ts";
@@ -25,7 +26,7 @@ export interface PlacementDeps {
 }
 
 export interface Placement {
-  /** The hover outline; lives in the page-space overlay. */
+  /** The hover outline; lives in the viewport-space overlay. */
   readonly outline: HTMLElement;
   /** The fixed crosshair; lives at the shadow root. */
   readonly crosshair: HTMLElement;
@@ -63,7 +64,7 @@ export function createPlacement(deps: PlacementDeps): Placement {
     const el = hitTest(doc, clientX, clientY, (hit) => hit === host);
     hover = el;
     if (el) {
-      reticle.snap(el.getBoundingClientRect(), targetLabel(el), { x: win.scrollX, y: win.scrollY });
+      reticle.snap(el.getBoundingClientRect(), targetLabel(el));
     } else {
       reticle.release();
     }
@@ -103,10 +104,14 @@ export function createPlacement(deps: PlacementDeps): Placement {
     reticle.release();
   }
 
+  function drawMarks(): void {
+    renderMultiMarks(pinsLayer, extraTargets, { x: win.scrollX, y: win.scrollY });
+  }
+
   function clearExtraTargets(): void {
     if (extraTargets.length === 0) return;
     extraTargets = [];
-    renderMultiMarks(pinsLayer, []);
+    drawMarks();
   }
 
   /** Placement click: capture the hovered target (or body) into a client-only draft. */
@@ -128,7 +133,7 @@ export function createPlacement(deps: PlacementDeps): Placement {
     e.preventDefault();
     e.stopPropagation();
     extraTargets = [...extraTargets, captureTarget(hover ?? doc.body).target];
-    renderMultiMarks(pinsLayer, extraTargets);
+    drawMarks();
   }
 
   /**
@@ -185,6 +190,8 @@ export function createPlacement(deps: PlacementDeps): Placement {
       // dies with it; orphaned dashed outlines are lies.
       if (!on) clearExtraTargets();
       if (!on) reticle.release();
+      // Marks are viewport-space over document-space rects: redraw against today's scroll.
+      if (on && extraTargets.length > 0) drawMarks();
       syncAim(on);
     },
     handleClick(e) {

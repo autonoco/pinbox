@@ -43,10 +43,10 @@ describe("createMinimizeUi", () => {
     expect(u.puck.classList.contains("degraded")).toBe(false);
   });
 
-  test("fan ships all five actions and mirrors the badge", () => {
+  test("fan ships every table action that asked for one and mirrors the badge", () => {
     const u = ui();
     const acts = [...u.fan.querySelectorAll("[data-act]")].map((el) => el.getAttribute("data-act"));
-    expect(acts).toEqual(["pin", "inbox", "theme", "hide", "expand"]);
+    expect(acts).toEqual(["pin", "inbox", "copy", "theme", "hide", "expand"]);
     u.update(stateWith({ pins: [pin("a", "open")] }));
     const fanBadge = u.fan.querySelector('[data-ref="count"]') as HTMLElement;
     expect(fanBadge.textContent).toBe("1");

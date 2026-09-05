@@ -32,6 +32,12 @@ export interface PinboxConfig {
    * visitor's own choice, persisted per endpoint, wins over this on reload.
    */
   minimized?: boolean;
+  /**
+   * Keyboard shortcuts. Default "all". "escape-only" keeps Esc (dismiss) and hands every
+   * letter back to the host; "off" never reads the keyboard. For hosts whose own hotkeys
+   * collide. A subtree can also opt out with `data-pinbox-ignore-keys`.
+   */
+  shortcuts?: "all" | "escape-only" | "off";
 }
 
 /** Register <pinbox-toolbar>; no-op outside a browser or when already defined. */

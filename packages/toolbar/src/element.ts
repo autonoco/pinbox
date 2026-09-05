@@ -10,6 +10,7 @@ import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
 import { type BrowserTarget, captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
+import { shortcutFor } from "./keys.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
@@ -23,6 +24,7 @@ import {
 } from "./state.ts";
 import { hitTest, targetLabel } from "./targeting/dom.ts";
 import { HubTransport } from "./transport.ts";
+import type { ActionId } from "./ui/actions.ts";
 import { type Aim, createAim, needsDragAim, startPoint } from "./ui/aim.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
@@ -37,13 +39,6 @@ import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
 // SSR guard: framework wrappers import this module on the server, where
 // HTMLElement does not exist. The class is only *used* in a browser.
 const BaseElement = (globalThis.HTMLElement ?? (class {} as unknown)) as typeof HTMLElement;
-
-/** Keystrokes are ignored while a text control has focus (prototype line 702–703). */
-function isTextEntry(target: EventTarget | undefined): boolean {
-  const el = target as HTMLElement | undefined;
-  const tag = el?.tagName ?? "";
-  return tag === "TEXTAREA" || tag === "INPUT" || el?.isContentEditable === true;
-}
 
 export class PinboxToolbarElement extends BaseElement {
   static readonly tagName = "pinbox-toolbar";
@@ -138,7 +133,9 @@ export class PinboxToolbarElement extends BaseElement {
     window.addEventListener("scroll", this.#onViewportChange, { passive: true });
     window.addEventListener("resize", this.#onViewportChange);
     document.addEventListener("click", this.#onClickCapture, true);
-    document.addEventListener("keydown", this.#onKeyDown);
+    // Capture phase on window: we see the key before the host's own hotkey handlers can swallow
+    // it, and stop it only when an action actually ran (keys.ts has the rules).
+    window.addEventListener("keydown", this.#onKeyDown, true);
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
     this.#render(this.store.get());
     this.#queueStart();
@@ -177,7 +174,7 @@ export class PinboxToolbarElement extends BaseElement {
     window.removeEventListener("scroll", this.#onViewportChange);
     window.removeEventListener("resize", this.#onViewportChange);
     document.removeEventListener("click", this.#onClickCapture, true);
-    document.removeEventListener("keydown", this.#onKeyDown);
+    window.removeEventListener("keydown", this.#onKeyDown, true);
     if (this.#viewportFrame !== 0) cancelAnimationFrame(this.#viewportFrame);
     this.#viewportFrame = 0;
     this.#aim?.destroy();
@@ -239,12 +236,7 @@ export class PinboxToolbarElement extends BaseElement {
     shadow.appendChild(overlay);
     shadow.appendChild(this.#reticle.crosshair);
     this.#bar = createBar(document, {
-      onPin: () => this.#togglePlacing(),
-      onInbox: () => this.store.update({ inboxOpen: !this.store.get().inboxOpen }),
-      onTheme: () => this.#toggleTheme(),
-      onHelp: () => this.#toggleHelp(),
-      onCopy: () => this.#copyOpenPins(),
-      onMinimize: (keyboard) => this.minimize(keyboard),
+      onAction: (id, keyboard) => this.#runAction(id, keyboard),
     });
     shadow.appendChild(this.#bar.root);
     this.#minUi = createMinimizeUi(document);
@@ -279,12 +271,7 @@ export class PinboxToolbarElement extends BaseElement {
       onSettled: (minimized, keyboard) => this.#onMinimizeSettled(minimized, keyboard),
       // Fan actions run WITHOUT restoring — placing, the drawer, and the theme
       // all work independently of the bar; that is the point of the fan.
-      onFanAction: (action) => {
-        if (action === "pin") this.#togglePlacing();
-        else if (action === "inbox") this.#toggleInbox();
-        else if (action === "hide") this.#togglePinsHidden();
-        else this.#toggleTheme();
-      },
+      onFanAction: (action) => this.#runAction(action, false),
     });
     this.#min.applyInitial();
   }
@@ -445,13 +432,14 @@ export class PinboxToolbarElement extends BaseElement {
   }
 
   /** The markdown offline fallback: copy every open pin's block to the clipboard. */
-  #copyOpenPins(): void {
+  #copyOpenPins(): true {
     const state = this.store.get();
     try {
       void navigator.clipboard.writeText(pinsToMarkdown(state.pins, state.threads));
     } catch {
       // clipboard unavailable (insecure context) — the affordance degrades silently
     }
+    return true;
   }
 
   /** The card's copy: exactly the pin you are looking at, thread included. */
@@ -466,8 +454,9 @@ export class PinboxToolbarElement extends BaseElement {
     }
   }
 
-  #togglePinsHidden(): void {
+  #togglePinsHidden(): true {
     this.store.update({ pinsHidden: !this.store.get().pinsHidden });
+    return true;
   }
 
   #setHelp(open: boolean): void {
@@ -475,8 +464,9 @@ export class PinboxToolbarElement extends BaseElement {
     this.#modal?.set(open);
   }
 
-  #toggleHelp(): void {
+  #toggleHelp(): true {
     this.#setHelp(!this.#helpOpen);
+    return true;
   }
 
   /** Chip click toggles the pin active (prototype data-open delegation, line 675). */
@@ -488,7 +478,7 @@ export class PinboxToolbarElement extends BaseElement {
     this.store.update({ activePinId: active === id ? null : id });
   }
 
-  #togglePlacing(): void {
+  #togglePlacing(): true {
     const placing = this.store.get().mode === "placing";
     // Arming unhides: accumulation marks and the fresh marker both render into
     // the pin layer, and an invisible receipt reads as a dead click.
@@ -497,20 +487,18 @@ export class PinboxToolbarElement extends BaseElement {
         ? { mode: "idle", activePinId: null }
         : { mode: "placing", activePinId: null, pinsHidden: false },
     );
+    return true;
   }
 
-  #toggleInbox(): void {
+  #toggleInbox(): true {
     this.store.update({ inboxOpen: !this.store.get().inboxOpen });
+    return true;
   }
 
-  #resolveActive(): void {
-    const active = this.store.get().activePinId;
-    if (active) this.actions.resolve?.(active);
-  }
-
-  #toggleTheme(): void {
+  #toggleTheme(): true {
     const next = this.getAttribute("data-pb") === "dark" ? "light" : "dark";
     this.setAttribute("data-pb", next);
+    return true;
   }
 
   /** esc / click-away: leave placing, discard the draft (client-only), deactivate. */
@@ -640,26 +628,52 @@ export class PinboxToolbarElement extends BaseElement {
     if (state.activePinId || state.draft) this.#dismiss();
   };
 
-  /** Prototype keyboard map (v2-command-bar.html lines 701–712) + M (v3 minimize). */
-  #shortcuts: Record<string, () => void> = {
-    // The fan closes first; every other surface works minimized or not.
+  /**
+   * One handler per action, for every surface: bar buttons, fan items and keys all name an
+   * action from the table (ui/actions.ts). A handler returns false when nothing was there to act
+   * on, so the key path can let the host have the keystroke (an Esc with nothing open is the
+   * page's Esc; R with no active pin is the page's R).
+   */
+  readonly #handlers: Record<ActionId, (keyboard: boolean) => boolean> = {
     escape: () => {
-      if (this.#min?.closeFan() === true) return;
+      // The fan closes first; every other surface works minimized or not.
+      if (this.#min?.closeFan() === true) return true;
+      const s = this.store.get();
+      const open =
+        s.mode === "placing" || s.activePinId !== null || s.draft !== null || this.#helpOpen;
       this.#dismiss();
+      return open;
     },
-    p: () => this.#togglePlacing(),
-    i: () => this.#toggleInbox(),
-    d: () => this.#toggleTheme(),
-    r: () => this.#resolveActive(),
-    c: () => this.#copyOpenPins(),
-    h: () => this.#togglePinsHidden(),
-    m: () => (this.#min?.minimized() === true ? this.restore(true) : this.minimize(true)),
-    "?": () => this.#toggleHelp(),
+    pin: () => this.#togglePlacing(),
+    inbox: () => this.#toggleInbox(),
+    theme: () => this.#toggleTheme(),
+    copy: () => this.#copyOpenPins(),
+    hide: () => this.#togglePinsHidden(),
+    help: () => this.#toggleHelp(),
+    resolve: () => {
+      const active = this.store.get().activePinId;
+      if (active === null) return false;
+      this.actions.resolve?.(active);
+      return true;
+    },
+    minimize: (keyboard) => {
+      if (this.#min?.minimized() === true) this.restore(keyboard);
+      else this.minimize(keyboard);
+      return true;
+    },
   };
 
+  #runAction(id: ActionId, keyboard: boolean): boolean {
+    return this.#handlers[id](keyboard);
+  }
+
   #onKeyDown = (e: KeyboardEvent): void => {
-    if (isTextEntry(e.composedPath()[0])) return;
-    this.#shortcuts[e.key === "?" ? "?" : e.key.toLowerCase()]?.();
+    const id = shortcutFor(e, this.config?.shortcuts ?? "all");
+    if (id === null) return;
+    if (!this.#runAction(id, true)) return;
+    // Handled: the host never sees it. Unhandled keys fall through untouched above.
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   /**

@@ -251,6 +251,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-modal .mh { padding: 18px 20px 14px; border-bottom: 1px solid var(--pb-line); font-family: var(--pb-font-mono); font-size: 10px; letter-spacing: .24em; }
 .pb-modal .mr { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--pb-line); }
 .pb-modal .mw { font-size: 13px; letter-spacing: -.005em; color: var(--pb-fg2); }
+.pb-modal .mf { padding: 0 20px 16px; font-size: 10.5px; color: var(--pb-fg2); }
 .pb-modal .mk { display: flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; padding: 0 7px; border: 1px solid var(--pb-line-2); border-radius: 2px; background: var(--pb-sunken); font-family: var(--pb-font-mono); font-size: 10.5px; }
 
 [hidden] { display: none !important; }

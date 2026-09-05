@@ -8,11 +8,11 @@
 // the pin layer sits at the document origin; the reticle is position: fixed.
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
-import { type BrowserTarget, captureTarget } from "./capture.ts";
 import type { PinboxConfig } from "./index.ts";
 import { shortcutFor } from "./keys.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
+import { createPlacement, type Placement } from "./placement.ts";
 import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
 import {
   appendThreadMessage,
@@ -22,17 +22,13 @@ import {
   type ToolbarState,
   upsertPin,
 } from "./state.ts";
-import { hitTest, targetLabel } from "./targeting/dom.ts";
 import { HubTransport } from "./transport.ts";
 import type { ActionId } from "./ui/actions.ts";
-import { type Aim, createAim, needsDragAim, startPoint } from "./ui/aim.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
-import { renderMultiMarks } from "./ui/multimarks.ts";
 import { renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
-import { createReticle, type Reticle } from "./ui/reticle.ts";
 import { createShortcutsModal, type ShortcutsModal } from "./ui/shortcuts.ts";
 import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
 
@@ -67,12 +63,10 @@ export class PinboxToolbarElement extends BaseElement {
   #token = "";
   #built = false;
   #bar: Bar | null = null;
-  #reticle: Reticle | null = null;
   #pinsLayer: HTMLElement | null = null;
   #drawer: Drawer | null = null;
-  #aim: Aim | null = null;
-  /** Pending viewport-refresh frame, 0 when none is queued. */
-  #viewportFrame = 0;
+  /** Reticle, drag-aim and multi-target capture — see placement.ts. */
+  #placement: Placement | null = null;
   #modal: ShortcutsModal | null = null;
   #minUi: MinimizeUi | null = null;
   #min: MinimizeController | null = null;
@@ -81,9 +75,6 @@ export class PinboxToolbarElement extends BaseElement {
   #helpOpen = false;
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
-  #hover: Element | null = null;
-  /** Shift+click accumulation while placing — extra loci for ONE pending pin. */
-  #extraTargets: BrowserTarget[] = [];
 
   /** Card → element: send/verify/resolve forward to the transport seam; close dismisses. */
   readonly #cardActions: CardActions = {
@@ -123,15 +114,11 @@ export class PinboxToolbarElement extends BaseElement {
     style.textContent = PAGE_CSS;
     document.head.appendChild(style);
     this.#pageStyle = style;
-    // `#build` runs once; the aim and minimize controllers' listeners and timers do not survive
-    // a disconnect, so both are rebuilt here rather than there.
-    if (this.#aim === null) this.#mountAim();
+    // `#build` runs once; the placement and minimize controllers' listeners and timers do not
+    // survive a disconnect, so both are (re)connected here rather than there.
+    if (this.shadowRoot) this.#placement?.connect(this.shadowRoot);
     if (this.#min === null) this.#mountMinimize();
     this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
-    document.addEventListener("mousemove", this.#onMouseMove);
-    // The reticle is viewport-fixed; the page is not. Both of these change what sits under it.
-    window.addEventListener("scroll", this.#onViewportChange, { passive: true });
-    window.addEventListener("resize", this.#onViewportChange);
     document.addEventListener("click", this.#onClickCapture, true);
     // Capture phase on window: we see the key before the host's own hotkey handlers can swallow
     // it, and stop it only when an action actually ran (keys.ts has the rules).
@@ -170,15 +157,9 @@ export class PinboxToolbarElement extends BaseElement {
     this.#lifetime += 1;
     this.#transport?.close();
     this.#transport = null;
-    document.removeEventListener("mousemove", this.#onMouseMove);
-    window.removeEventListener("scroll", this.#onViewportChange);
-    window.removeEventListener("resize", this.#onViewportChange);
     document.removeEventListener("click", this.#onClickCapture, true);
     window.removeEventListener("keydown", this.#onKeyDown, true);
-    if (this.#viewportFrame !== 0) cancelAnimationFrame(this.#viewportFrame);
-    this.#viewportFrame = 0;
-    this.#aim?.destroy();
-    this.#aim = null;
+    this.#placement?.disconnect();
     this.#min?.destroy();
     this.#min = null;
     releaseCapture(); // drop the shared tab-capture stream (and its indicator)
@@ -189,26 +170,6 @@ export class PinboxToolbarElement extends BaseElement {
     this.#pageStyle?.remove();
     this.#pageStyle = null;
     document.body.classList.remove(PAGE_PLACING_CLASS);
-  }
-
-  /**
-   * Create the aim controller and put its layer in the shadow root.
-   *
-   * Separate from `#build` because the two have different lifetimes: `#build` runs once, but
-   * `disconnectedCallback` tears this controller's window listeners down. A re-parented element
-   * would otherwise come back with no controller and its markup still in place — a grip that
-   * renders and does nothing, with no error to explain it.
-   */
-  #mountAim(): void {
-    const shadow = this.shadowRoot;
-    if (!shadow) return;
-    shadow.querySelector(".pb-aim")?.remove();
-    this.#aim = createAim(document, {
-      onAim: (x, y) => this.#probe(x, y),
-      onConfirm: () => this.#confirmAim(),
-      onCancel: () => this.#dismiss(),
-    });
-    shadow.appendChild(this.#aim.root);
   }
 
   #build(): void {
@@ -226,15 +187,21 @@ export class PinboxToolbarElement extends BaseElement {
     overlay.className = "pb-overlay";
     this.#pinsLayer = document.createElement("div");
     overlay.appendChild(this.#pinsLayer);
-    this.#reticle = createReticle(document);
-    overlay.appendChild(this.#reticle.outline);
+    this.#placement = createPlacement({
+      win: window,
+      host: this,
+      store: this.store,
+      pinsLayer: this.#pinsLayer,
+      onCancel: () => this.#dismiss(),
+    });
+    overlay.appendChild(this.#placement.outline);
     // Card slot — renderCard (ui/card.ts) populates and positions it.
     const card = document.createElement("div");
     card.className = "pb-card";
     card.hidden = true;
     overlay.appendChild(card);
     shadow.appendChild(overlay);
-    shadow.appendChild(this.#reticle.crosshair);
+    shadow.appendChild(this.#placement.crosshair);
     this.#bar = createBar(document, {
       onAction: (id, keyboard) => this.#runAction(id, keyboard),
     });
@@ -248,7 +215,6 @@ export class PinboxToolbarElement extends BaseElement {
       onClose: () => this.store.update({ inboxOpen: false }),
     });
     shadow.appendChild(this.#drawer.root);
-    this.#mountAim();
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
     shadow.appendChild(this.#modal.root);
     this.#pinsLayer.addEventListener("click", (e) => this.#onChipClick(e));
@@ -504,107 +470,8 @@ export class PinboxToolbarElement extends BaseElement {
   /** esc / click-away: leave placing, discard the draft (client-only), deactivate. */
   #dismiss(): void {
     this.#setHelp(false);
-    this.#clearExtraTargets();
     this.store.update({ mode: "idle", activePinId: null });
     if (this.store.get().draft) this.store.discardDraft();
-  }
-
-  /**
-   * Work out what sits under a viewport point and highlight it.
-   *
-   * Shared by both ways of aiming — following a mouse, and dragging the reticle — so the two can
-   * never disagree about what is under the crosshair.
-   */
-  #probe(clientX: number, clientY: number): void {
-    const el = hitTest(document, clientX, clientY, (hit) => hit === this);
-    this.#hover = el;
-    if (el) {
-      this.#reticle?.snap(el.getBoundingClientRect(), targetLabel(el), {
-        x: window.scrollX,
-        y: window.scrollY,
-      });
-    } else {
-      this.#reticle?.release();
-    }
-    this.#aim?.setLabel(el ? targetLabel(el) : "NOTHING UNDER THE PIN");
-  }
-
-  /**
-   * Keep the drag-aim reticle honest while the viewport moves under it.
-   *
-   * Scrolling changes what is beneath a fixed reticle, and resizing (a phone rotating, a window
-   * dragged narrow) can both strand it off-screen and flip which way of aiming applies.
-   */
-  #onViewportChange = (): void => {
-    if (this.store.get().mode !== "placing" || this.#viewportFrame !== 0) return;
-    // One probe per frame, not per event. `#probe` hit-tests, reads a rect and then writes inline
-    // styles — read-then-write, so once per event it thrashes layout, and momentum scrolling on a
-    // phone dispatches faster than frames. A frame is all the reticle can show anyway, and this is
-    // the primary touch path: you scroll to bring the target under the reticle.
-    this.#viewportFrame = requestAnimationFrame(() => {
-      this.#viewportFrame = 0;
-      if (this.store.get().mode !== "placing") return;
-      this.#syncAim(true);
-      const aim = this.#aim;
-      if (aim?.root.classList.contains("on") === true) this.#probe(aim.point.x, aim.point.y);
-    });
-  };
-
-  #onMouseMove = (e: MouseEvent): void => {
-    if (this.store.get().mode !== "placing" || !this.#reticle) return;
-    this.#reticle.move(e);
-    this.#probe(e.clientX, e.clientY);
-  };
-
-  /** Commit the pin the drag-aim reticle is sitting on. */
-  #confirmAim(): void {
-    const aim = this.#aim;
-    if (!aim) return;
-    // Re-probe first. The reticle is fixed to the viewport, so anything that moves the page under
-    // it — a scroll, a late image, a reflow — leaves the last drag's target stale, and confirming
-    // would pin an element that is no longer there.
-    this.#probe(aim.point.x, aim.point.y);
-    const el = this.#hover ?? document.body;
-    this.store.place({
-      target: captureTarget(el, {
-        at: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
-      }),
-      placedAt: { x: aim.point.x + window.scrollX, y: aim.point.y + window.scrollY },
-    });
-    this.#reticle?.release();
-  }
-
-  /** Placement click: capture the hovered target (or body) into a client-only draft. */
-  #placeDraft(e: MouseEvent): void {
-    e.preventDefault();
-    e.stopPropagation();
-    const el = this.#hover ?? document.body;
-    const capture = captureTarget(el, { at: { x: e.pageX, y: e.pageY } });
-    // The committing click is the anchor; shift+clicked extras ride along as
-    // target.targets (dogfood #29 — one pin about several elements).
-    if (this.#extraTargets.length > 0) capture.target.targets = this.#extraTargets;
-    this.#clearExtraTargets();
-    this.store.place({
-      target: capture,
-      placedAt: { x: e.pageX, y: e.pageY },
-    });
-    this.#reticle?.release();
-  }
-
-  /** Shift+click while placing: capture WITHOUT committing; a numbered dashed
-   * outline is the receipt. Plain click still commits (with these attached). */
-  #accumulateTarget(e: MouseEvent): void {
-    e.preventDefault();
-    e.stopPropagation();
-    const el = this.#hover ?? document.body;
-    this.#extraTargets = [...this.#extraTargets, captureTarget(el).target];
-    if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, this.#extraTargets);
-  }
-
-  #clearExtraTargets(): void {
-    if (this.#extraTargets.length === 0) return;
-    this.#extraTargets = [];
-    if (this.#pinsLayer) renderMultiMarks(this.#pinsLayer, []);
   }
 
   // Capture-phase so placement wins over the page's own click handlers; events
@@ -613,13 +480,7 @@ export class PinboxToolbarElement extends BaseElement {
     if (e.composedPath().includes(this)) return;
     const state = this.store.get();
     if (state.mode === "placing") {
-      // While drag-aiming, a tap is how you scroll and how you follow links — placing on it would
-      // pin something every time you touched the page, and always before you could see what.
-      // Placement there is the explicit confirm instead. (Shift is a keyboard key,
-      // so multi-capture is a pointer-path affordance only.)
-      if (needsDragAim(window)) return;
-      if (e.shiftKey) this.#accumulateTarget(e);
-      else this.#placeDraft(e);
+      this.#placement?.handleClick(e);
       return;
     }
     // Anything open closes when you click away from it — the card, and the inbox with it. An inbox
@@ -676,39 +537,11 @@ export class PinboxToolbarElement extends BaseElement {
     e.stopPropagation();
   };
 
-  /**
-   * Bring the drag-aim reticle up with placing mode, seeded mid-screen and already showing what it
-   * is over — so the first thing you see is a live target, not an empty crosshair waiting for a
-   * mouse that is never coming.
-   */
-  #syncAim(placing: boolean): void {
-    const aim = this.#aim;
-    if (!aim) return;
-    if (!placing || !needsDragAim(window)) {
-      aim.hide();
-      return;
-    }
-    if (aim.root.classList.contains("on")) {
-      // Already up: only re-seat it if the viewport shrank out from under it, which a rotation
-      // does. Otherwise leave it exactly where it was put.
-      if (aim.point.x <= window.innerWidth && aim.point.y <= window.innerHeight) return;
-      aim.show(Math.min(aim.point.x, window.innerWidth), Math.min(aim.point.y, window.innerHeight));
-      return;
-    }
-    const { x, y } = startPoint(window);
-    aim.show(x, y);
-    this.#probe(x, y);
-  }
-
   #render(state: ToolbarState): void {
     const placing = state.mode === "placing";
     this.toggleAttribute("data-placing", placing);
     document.body.classList.toggle(PAGE_PLACING_CLASS, placing);
-    // However placing ended — Esc, P, a commit, a card opening — the pending
-    // multi-target set dies with it; orphaned dashed outlines are lies.
-    if (!placing) this.#clearExtraTargets();
-    if (!placing) this.#reticle?.release();
-    this.#syncAim(placing);
+    this.#placement?.render(placing);
     if (this.#pinsLayer) renderPins(this.#pinsLayer, state);
     if (this.shadowRoot) renderCard(this.shadowRoot, state, this.#cardActions);
     this.#drawer?.update(state);

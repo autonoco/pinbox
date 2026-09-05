@@ -1,5 +1,21 @@
 # Toolbar v4: dogfood fixes
 
+> **Status (2026-09-05): delivered on branch `toolbar-v4-dogfood`, one commit per item.**
+> Deviations from the plan below, all deliberate:
+> - Item 1: the clock lives in toolbar state (`clock`, 30 s tick; 0 = unknown, never stale)
+>   instead of a `now` argument, so tests control it without `setSystemTime` and a tick is a
+>   render. Agent liveness comes from `GET /sessions` on every reconcile, as planned.
+> - Item 4: the commit path stays synchronous but bounded (4 s race), rather than attaching the
+>   screenshot afterwards as a thread message — a follow-up message would re-deliver the pin to
+>   the agent. The DOM snapshot default removes the prompt from that path anyway.
+> - Item 6: no Playwright e2e — the e2e package has none. Unit tests cover a scrolled stored rect,
+>   a sticky anchor across scroll, an inner scroll container and the draft marker; verify on the
+>   demo page before release.
+> - Item 9: no `N` key for the draft kind (the composer owns the keyboard while you type) and no
+>   `Send to agent` conversion route yet; re-pin instead.
+> - Preparatory splits landed first: `placement.ts` out of `element.ts`, `card-messages.ts` +
+>   `card-parts.ts` out of `card.ts`, `motion/drag.ts` out of `minimize.ts`.
+
 Eight reviewer reports plus one product ask (item 9) from the 2026-09 dogfood round, each traced to a cause in the shipped
 code, with the fix, the files it touches, and how it is verified. Ordered by ship order, not by
 report order: the first four are one-file fixes that unblock the reviewer today; the last four

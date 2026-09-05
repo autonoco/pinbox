@@ -39,10 +39,9 @@ function sameView(win: Window, url: string | undefined): boolean {
  *  - it does not resolve → no marker; the drawer stays the see-everything list.
  * A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
  */
-function anchorRect(layer: HTMLElement, pin: Pin): Rect | null {
+export function anchorRect(doc: Document, pin: Pin): Rect | null {
   const stored = pin.target?.rect;
   if (stored === undefined) return null;
-  const doc = layer.ownerDocument;
   const win = doc.defaultView;
   if (win === null) return stored;
   if (!sameView(win, pin.target?.url)) return null;
@@ -129,7 +128,7 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   // keep their ordinal — the drawer lists them.
   const placed: { pin: Pin; n: number; rect: Rect; spot?: { x: number; y: number } }[] = [];
   visible.forEach((pin, i) => {
-    const rect = anchorRect(layer, pin);
+    const rect = anchorRect(layer.ownerDocument, pin);
     if (rect === null) return;
     const spot = pin.target?.spot;
     const n = pin.n ?? i + 1; // hub-born issue number; index only for pre-`n` pins

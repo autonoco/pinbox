@@ -177,6 +177,46 @@ describe("renderCard verify footer", () => {
   });
 });
 
+describe("renderCard resolution note", () => {
+  test("a resolved pin shows who resolved it, the note and a short commit", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa", {
+      status: "resolved",
+      resolution: { ...RESOLUTION, note: "flex-shrink on the CTA", commit: "abcdef1234567" },
+      verification: VERIFICATION,
+    });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    const note = shadow.querySelector(".pb-resnote") as HTMLElement;
+    expect(note.textContent).toContain("Resolved by agent");
+    expect(note.textContent).toContain("flex-shrink on the CTA");
+    expect(note.textContent).toContain("abcdef1");
+    expect(note.textContent).not.toContain("abcdef1234567");
+  });
+
+  test("an open pin has no resolution note", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    expect(shadow.querySelector(".pb-resnote")).toBeNull();
+  });
+});
+
+describe("renderCard placement", () => {
+  test("a pin whose anchor is not on this view docks mid-viewport, not at its stale rect", () => {
+    const shadow = shadowIn();
+    // makePin's URL is another view for this window (about:blank), so the anchor gate fails.
+    const pin = makePin("pin_aaaaaaaaaa", {
+      target: { ...makePin("x").target, rect: { x: 5000, y: 9000, width: 50, height: 20 } },
+    } as Partial<BrowserPin>);
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    const card = shadow.querySelector(".pb-card") as HTMLElement;
+    const win = shadow.ownerDocument.defaultView as unknown as { innerWidth: number; innerHeight: number };
+    const top = Number.parseFloat(card.style.top);
+    expect(top).toBeLessThan(win.innerHeight);
+    expect(Number.parseFloat(card.style.left)).toBeLessThan(win.innerWidth);
+  });
+});
+
 describe("renderCard actions", () => {
   test("resolve and close fire with the active pin id", () => {
     const shadow = shadowIn();

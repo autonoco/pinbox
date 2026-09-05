@@ -27,7 +27,7 @@ import type { ActionId } from "./ui/actions.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
-import { renderPins } from "./ui/pins.ts";
+import { anchorRect, renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
 import { createShortcutsModal, type ShortcutsModal } from "./ui/shortcuts.ts";
 import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
@@ -46,7 +46,7 @@ export class PinboxToolbarElement extends BaseElement {
   readonly actions: {
     send?: (pinId: string | "draft", text: string) => void;
     verify?: (pinId: string, outcome: "accepted" | "reopened") => void;
-    resolve?: (pinId: string) => void;
+    resolve?: (pinId: string, note?: string) => void;
   } = {};
 
   #config: PinboxConfig | null = null;
@@ -213,6 +213,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#drawer = createDrawer(document, {
       onActivate: (pinId) => this.#activateFromInbox(pinId),
       onClose: () => this.store.update({ inboxOpen: false }),
+      onResolve: (pinId, note) => this.actions.resolve?.(pinId, note),
+      onUnresolve: (pinId) => this.actions.verify?.(pinId, "reopened"),
     });
     shadow.appendChild(this.#drawer.root);
     this.#modal = createShortcutsModal(document, () => this.#setHelp(false));
@@ -308,9 +310,9 @@ export class PinboxToolbarElement extends BaseElement {
       this.store.update({ queuedIds: new Set(queued.map((p) => p.id)) });
     }
     this.actions.send = (pinId, text) => void this.#send(transport, pinId, text);
-    this.actions.resolve = (pinId) =>
+    this.actions.resolve = (pinId, note) =>
       void transport
-        .resolve(pinId)
+        .resolve(pinId, note)
         .then((pin) => upsertPin(this.store, pin))
         .catch(() => {});
     this.actions.verify = (pinId, outcome) =>
@@ -388,9 +390,10 @@ export class PinboxToolbarElement extends BaseElement {
     const pin = this.store.get().pins.find((p) => p.id === pinId);
     this.#ensureThread(pinId);
     this.store.update({ activePinId: pinId });
-    // A terminal `pinbox pin` has no captured rect, so there is nowhere to scroll —
-    // activating it still opens its card. Scrolling to a made-up y would be worse.
-    const rect = pin?.target?.rect;
+    // Scroll to where the anchor is NOW. A terminal `pinbox pin` has no rect, and a pin whose
+    // element is not on this view has no honest place either — activating still opens the card
+    // (docked mid-viewport, card.ts); scrolling to a stale y would be worse.
+    const rect = pin === undefined ? null : anchorRect(document, pin);
     if (rect) {
       const y = rect.y + rect.height / 2;
       window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: "smooth" });

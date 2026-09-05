@@ -105,16 +105,17 @@ Options:
 
 ### pinbox resolve
 
-Mark a pin resolved.
+Mark a pin resolved — one by id, or every open pin linked to a tracker item.
 
-Usage: `pinbox resolve [options] <id>`
+Usage: `pinbox resolve [options] [id]`
 
 Arguments:
 
-- `id` - pin id (pin_xxxxxxxxxx)
+- `id` - pin id (pin_xxxxxxxxxx); omit with --link
 
 Options:
 
+- `--link <connector#ref>` - resolve every open pin linked to this item, e.g. github#58
 - `--note <text>` - resolution note (e.g. what changed, or why it won't)
 - `--as <role>` - resolver: human or agent (default: "human")
 - `--json` - machine output

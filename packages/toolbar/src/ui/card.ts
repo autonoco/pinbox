@@ -11,9 +11,17 @@
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
 import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
 import { patchThread, patchTyping } from "./card-messages.ts";
-import { hdHtml, linkHtml, lociHtml, rowHtml, STATUS_LABEL, verifyHtml } from "./card-parts.ts";
+import {
+  hdHtml,
+  linkHtml,
+  lociHtml,
+  resolutionHtml,
+  rowHtml,
+  STATUS_LABEL,
+  verifyHtml,
+} from "./card-parts.ts";
 import { esc } from "./html.ts";
-import { nextOrdinal } from "./pins.ts";
+import { anchorRect, nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
   /** draft ⇒ createPin; else thread reply. */
@@ -31,6 +39,8 @@ interface CardCtx {
 }
 
 const ctxByCard = new WeakMap<Element, CardCtx>();
+/** .pb-card width (styles.ts). */
+const CARD_W = 344;
 
 /* ── shell, click delegation, placement ── */
 
@@ -131,7 +141,7 @@ function buildSkeleton(
 function position(card: HTMLElement, at: { x: number; y: number }): void {
   const win = card.ownerDocument.defaultView;
   if (!win) return;
-  const W = 344;
+  const W = CARD_W;
   const m = 12;
   const barClear = 84;
   let left = at.x + 22;
@@ -177,12 +187,28 @@ function ordinalOf(state: ToolbarState, pin: Pin | null): number {
   return visible.indexOf(pin) + 1;
 }
 
-function anchorOf(pin: Pin | null, draft: ToolbarState["draft"]): { x: number; y: number } {
-  // No pin, or a terminal `pinbox pin` with no captured rect: the card is not
-  // tethered to anything on the page, so it falls back to the draft placement.
-  const r = pin?.target?.rect;
-  if (!r) return draft?.placedAt ?? { x: 0, y: 0 };
-  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+/**
+ * Where the card tethers. The LIVE anchor when the pin's element is on this view; otherwise
+ * (other URL, selector gone, a terminal `pinbox pin`) the middle of the viewport — dogfood: the
+ * stored rect of a pin whose view had moved on put the card off-screen, so a pin listed in the
+ * drawer could be opened but never seen, let alone resolved.
+ */
+function anchorOf(
+  root: ShadowRoot,
+  pin: Pin | null,
+  draft: ToolbarState["draft"],
+): { x: number; y: number } {
+  if (pin === null) return draft?.placedAt ?? { x: 0, y: 0 };
+  const doc = root.ownerDocument;
+  const live = anchorRect(doc, pin);
+  if (live !== null) return { x: live.x + live.width / 2, y: live.y + live.height / 2 };
+  const win = doc.defaultView;
+  if (win === null) return { x: 0, y: 0 };
+  // position() offsets by (+22, −60) and clamps; this lands the card centred.
+  return {
+    x: win.scrollX + win.innerWidth / 2 - CARD_W / 2 - 22,
+    y: win.scrollY + win.innerHeight / 3 + 60,
+  };
 }
 
 /**
@@ -193,7 +219,7 @@ function labelOf(target: Pin["target"]): string {
   return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 }
 
-function viewOf(state: ToolbarState): CardView | null {
+function viewOf(root: ShadowRoot, state: ToolbarState): CardView | null {
   const pin = activePin(state);
   const pid = pin?.id ?? (state.draft ? "draft" : null);
   if (!pid) return null;
@@ -205,7 +231,7 @@ function viewOf(state: ToolbarState): CardView | null {
     n: ordinalOf(state, pin),
     status: pin ? deriveUiStatus(pin, thread) : null,
     label: labelOf(pin?.target ?? state.draft?.target.target),
-    at: anchorOf(pin, state.draft),
+    at: anchorOf(root, pin, state.draft),
   };
 }
 
@@ -231,7 +257,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   const card = ensureShell(root);
   const ctx = ctxByCard.get(card) as CardCtx;
   ctx.actions = actions;
-  const view = viewOf(state);
+  const view = viewOf(root, state);
   if (!view) {
     card.hidden = true;
     ctx.pid = null;
@@ -252,7 +278,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
   setPart(card, ctx, "loci", lociHtml(view.pin));
-  setPart(card, ctx, "verify", verifyHtml(view.status));
+  setPart(card, ctx, "verify", resolutionHtml(view.pin) + verifyHtml(view.status));
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
   setPart(card, ctx, "row", rowHtml(messages.length > 0));
   const threadEl = card.querySelector<HTMLElement>('[data-ref="thread"]');

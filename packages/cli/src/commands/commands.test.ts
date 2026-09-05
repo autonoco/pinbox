@@ -311,4 +311,45 @@ describe("flag validation", () => {
       restoreSpies(spies);
     }
   });
+
+  // Ordered last: these create pins of their own, and the counts above are exact.
+  test("resolve --link resolves every open pin carrying that link, with a shipped note", async () => {
+    const a = await hub.createPin(validInput);
+    const b = await hub.createPin(validInput);
+    const loose = await hub.createPin(validInput);
+    store.addLink(a.id, { connector: "github", ref: "58", url: "https://github.com/x/y/pull/58" });
+    store.addLink(b.id, { connector: "github", ref: "58", url: "https://github.com/x/y/pull/58" });
+    const body = (await capture(() =>
+      runResolve(undefined, { as: "agent", link: "github#58", json: true }),
+    )) as { ok: boolean; data: Pin[] };
+    expect(body.ok).toBe(true);
+    expect(body.data.map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
+    expect(body.data.every((p) => p.resolution?.note === "shipped in github#58")).toBe(true);
+    expect((await hub.get(loose.id)).status).toBe("open");
+    // Idempotent for the caller: nothing left linked, nothing resolved, no conflict.
+    const again = (await capture(() =>
+      runResolve(undefined, { as: "agent", link: "github#58", json: true }),
+    )) as { data: Pin[] };
+    expect(again.data).toEqual([]);
+    await hub.resolve(loose.id, "human");
+  });
+
+  test("resolve with neither id nor --link is E_INVALID_INPUT; a malformed --link too", async () => {
+    for (const opts of [
+      { as: "human", json: true },
+      { as: "human", link: "github", json: true },
+    ]) {
+      const spies = installSpies();
+      try {
+        await expect(runResolve(undefined, opts)).rejects.toThrow(ExitSignal);
+        const body = JSON.parse(String(spies.out.mock.calls[0]?.[0])) as {
+          error: { code: string };
+        };
+        expect(body.error.code).toBe("E_INVALID_INPUT");
+        expect(spies.exit).toHaveBeenCalledWith(2);
+      } finally {
+        restoreSpies(spies);
+      }
+    }
+  });
 });

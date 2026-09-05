@@ -67,6 +67,21 @@ export function linkHtml(pin: Pin | null): string {
   );
 }
 
+/**
+ * Who resolved the pin and what they said. The schema has carried `resolution.note` and
+ * `.commit` since v1 (agents write them); the card never showed either, so a resolved pin
+ * read as bare "RESOLVED" with the why one CLI call away.
+ */
+export function resolutionHtml(pin: Pin | null): string {
+  const r = pin?.resolution;
+  if (pin === null || r === undefined || pin.status !== "resolved") return "";
+  const who = r.by === "agent" ? "agent" : "you";
+  const note = r.note === undefined ? "" : ` · ${esc(r.note)}`;
+  const commit =
+    r.commit === undefined ? "" : ` <span class="hh">${esc(r.commit.slice(0, 7))}</span>`;
+  return `<div class="pb-resnote">Resolved by ${who}${note}${commit}</div>`;
+}
+
 export function verifyHtml(status: UiStatus | null): string {
   if (status === "verify") {
     return (

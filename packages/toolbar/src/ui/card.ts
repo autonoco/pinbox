@@ -118,11 +118,20 @@ const PIN_ACTIONS: Record<
 function onCardClick(card: HTMLElement, ctx: CardCtx, e: Event): void {
   const from = e.target as Element;
   const kind = from.closest?.("[data-kind]")?.getAttribute("data-kind");
-  if (kind === "note" || kind === "comment") return onKindPick(card, ctx, kind);
+  if (kind === "note" || kind === "comment") {
+    onKindPick(card, ctx, kind);
+    return;
+  }
   const action = from.closest?.("[data-action]")?.getAttribute("data-action");
   if (!action || !ctx.pid) return;
-  if (action === "send") return submit(card, ctx);
-  if (action === "close") return ctx.actions.close();
+  if (action === "send") {
+    submit(card, ctx);
+    return;
+  }
+  if (action === "close") {
+    ctx.actions.close();
+    return;
+  }
   if (ctx.pid !== "draft") PIN_ACTIONS[action]?.(card, ctx, ctx.pid, from);
 }
 

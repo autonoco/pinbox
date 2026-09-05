@@ -16,7 +16,7 @@ export * from "./index.ts";
  * (its transport starts in connectedCallback) and removes it when the node is destroyed.
  * Config forwards once; re-create the node to change endpoints.
  */
-export const pinbox: Action<HTMLElement, PinboxConfig> = (node, config) => {
+export const pinbox: Action<HTMLElement, PinboxConfig> = (_node, config) => {
   defineToolbarElement();
   const el = document.createElement(PinboxToolbarElement.tagName) as PinboxToolbarElement;
   el.configure(config);

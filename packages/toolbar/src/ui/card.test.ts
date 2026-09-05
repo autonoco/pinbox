@@ -222,9 +222,9 @@ describe("renderCard placement", () => {
       innerWidth: number;
       innerHeight: number;
     };
-    const top = Number.parseFloat(card.style.top);
-    expect(top).toBeLessThan(win.innerHeight);
-    expect(Number.parseFloat(card.style.left)).toBeLessThan(win.innerWidth);
+    // anchorOf's fallback point, after position()'s (+22, −60) offset
+    expect(Number.parseFloat(card.style.top)).toBeCloseTo(win.innerHeight / 3, 0);
+    expect(Number.parseFloat(card.style.left)).toBeCloseTo(win.innerWidth / 2 - 172, 0);
   });
 });
 

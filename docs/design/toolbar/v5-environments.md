@@ -37,6 +37,19 @@ Environment {
 }
 ```
 
+**`--json` contract.** Fixed before PR 2, since the skill scripts against it. `pinbox env add`
+and `pinbox env rm` return one `Environment`; `pinbox env ls` returns `Environment[]`;
+`pinbox preview` returns `{ url, previewPort, tunnel: "quick" | "named" | null }`. Every
+`Environment` on the wire also carries `url: string | null` (`null` until a tunnel or the
+local router exists; PR 2 emits `http://127.0.0.1:<port>`). `pinbox summary --json` gains
+`environments: { ready: number, starting: number, failed: number }`. All fields above are
+required unless marked `?` or `| null`; new fields are additive and never repurposed. Every
+command uses the CLI's existing envelope, `{ ok: true, data }` or
+`{ ok: false, error: { code, message, hint? } }`, with existing codes only: `E_INVALID_INPUT`
+(unknown ref, cap reached with no evictable env), `E_NOT_FOUND` (`rm`/`logs` on an unknown id
+or branch), `E_CONNECTOR` (`cloudflared` missing) and `E_HUB_UNREACHABLE` (daemon not
+running). No new `ErrorCode` is introduced.
+
 Worktrees, never `git checkout`: the agent's working tree is untouched, several branches run
 side by side, and switching is a proxy decision, not a filesystem one. `.pinbox/worktrees/` is
 gitignored by `pinbox init`.
@@ -68,9 +81,16 @@ gitignored by `pinbox init`.
    and is the answer for everything else). `Bun.spawn` under the daemon, stdout/stderr to
    `.pinbox/logs/<env>.log`.
 4. Probe `http://127.0.0.1:<port>/` until it answers → `ready`; a non-zero exit before that →
-   `failed` with the last 20 log lines in `lastError`.
+   `failed`. `lastError` is a bounded, redacted diagnostic (last 20 lines, 2 KB cap, values of
+   `*_TOKEN`/`*_SECRET`/`*_KEY`-shaped assignments and bearer strings replaced with `[redacted]`)
+   because the environment list is viewer-readable (§2); the full log stays local in
+   `.pinbox/logs/<env>.log`, reachable only through `pinbox env logs`.
 5. Print the environment (`--json`: the record plus `url`, §2). Idempotent: an existing env for
-   the branch is reused and re-probed, not duplicated.
+   the branch is reused, not duplicated. Reuse is not a bare re-probe: resolve the branch's
+   current ref, `git -C <worktree> checkout --detach <ref>` (fetching first when remote-only),
+   re-run step 2 if the lockfile changed, restart the dev server when the tree moved (HMR does
+   not survive a dependency change), then probe. `commit` is written only after that probe
+   answers, so a `ready` record never names a commit the server is not serving.
 
 Budget: one env is one dev server. Default cap 4; `pinbox env add` past the cap evicts the
 oldest `stopped`/`failed` one or fails with a hint to `rm`.
@@ -98,7 +118,15 @@ recorded in `.pinbox/server.json` as `previewPort`:
 - **HTML responses** get one tag before `</head>`: `<meta name="pinbox-env" content="<id>">`
   plus the toolbar bootstrap snippet pointed at `/__pinbox/hub`, so the toolbar is present even
   when the app's dev plugin is not installed on that branch. The dev plugin, when present,
-  detects the meta and skips its own injection.
+  detects the meta and skips its own injection. Injection is the one place the proxy is not
+  transparent, so it is gated: only `Content-Type: text/html` responses are transformed;
+  everything else streams through untouched. The upstream request is sent with
+  `Accept-Encoding: identity` so dev-server HTML arrives uncompressed (an upstream that
+  compresses anyway is decoded with `DecompressionStream` for gzip/deflate and passed through
+  unmodified for anything else, Brotli included). The transformed response drops
+  `Content-Length` and `ETag` (chunked, no entity validator) and the `</head>` scan keeps a
+  7-byte carry between chunks so a tag split across a stream boundary is still found; if no
+  `</head>` appears the snippet goes before `</body>`, else at the end.
 
 The hub's `Bun.serve({ fetch })` handler is unchanged; the router is a second handler in the
 same process.
@@ -122,8 +150,13 @@ token can create, resolve and delete anything. Two rules:
 1. **The router never forwards the project bearer token to remote clients.** The bootstrap it
    injects carries a **viewer token**: a JWT the router mints (HS256, secret generated per hub,
    `aud: "pinbox-viewer"`, 12 h expiry) and the hub verifies through the `verify` hook it already
-   has for cloud auth. Viewer identity can create pins, reply, resolve, verify. It cannot hit
-   `/sessions/*`, `/environments` writes, or `/attachments` deletes.
+   has for cloud auth. Viewer identity can create pins, reply, resolve, verify, and **read**
+   `GET /sessions`: the toolbar's `HubTransport.#refreshSessions()` feeds `agentLive` from it,
+   which is what decides whether a pending pin says WAITING FOR AGENT or NO RESPONSE (v4 item
+   1), so a viewer denied the collection would see the wrong stage. It cannot register,
+   heartbeat or delete sessions (`POST/PATCH/DELETE /sessions/*`), write `/environments`, or
+   delete `/attachments`. The authorization matrix gets a route-table test per method, and the
+   stale-pin reconciliation test runs once under a viewer token.
 2. **Quick tunnels are unlisted, not private.** Documented as such. For a stable hostname the
    docs show Cloudflare Access in front of the named tunnel, which is the actual auth layer.
 

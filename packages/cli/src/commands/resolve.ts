@@ -30,7 +30,19 @@ export function registerResolve(program: Command): void {
 }
 
 export async function runResolve(id: string | undefined, opts: ResolveOptions): Promise<void> {
-  if (opts.link !== undefined) return runResolveLinked(opts.link, opts);
+  if (opts.link !== undefined) {
+    if (id !== undefined) {
+      fail(
+        new CliError(
+          "E_INVALID_INPUT",
+          "resolve accepts a pin id or --link, not both",
+          usageHint("resolve"),
+        ),
+        opts,
+      );
+    }
+    return runResolveLinked(opts.link, opts);
+  }
   if (id === undefined) {
     fail(
       new CliError("E_INVALID_INPUT", "resolve needs a pin id or --link", usageHint("resolve")),

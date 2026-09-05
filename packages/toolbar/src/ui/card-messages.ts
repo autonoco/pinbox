@@ -164,7 +164,11 @@ export function patchPending(
 export function patchThread(threadEl: HTMLElement, messages: ThreadMessage[]): void {
   let appended = false;
   for (const m of messages) {
-    let node = threadEl.querySelector<HTMLElement>(`[data-iid="${m.id}"]`);
+    // attribute compare, not a selector: an id with `"` or `]` would throw in querySelector
+    let node =
+      ([...threadEl.children].find((c) => c.getAttribute("data-iid") === m.id) as
+        | HTMLElement
+        | undefined) ?? null;
     const html = messageHtml(m);
     if (!node) {
       node = threadEl.ownerDocument.createElement("div");

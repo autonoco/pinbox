@@ -133,6 +133,8 @@ export class HubTransport {
   #timer: unknown = null;
   /** One flush at a time — reconnect and the live write path both drain the outbox. */
   #flushing = false;
+  /** Bumped per `GET /sessions`; only the newest request's snapshot reaches `onSessions`. */
+  #sessionsGen = 0;
 
   constructor(opts: TransportOptions) {
     this.#opts = opts;
@@ -414,11 +416,16 @@ export class HubTransport {
     return null;
   }
 
-  /** Best-effort: a hub without the route (or unreachable) simply leaves liveness unknown. */
+  /** Best-effort: a hub without the route (or unreachable) simply leaves liveness unknown.
+   * Reconnects can overlap; a slow older GET must not overwrite a newer snapshot, so only
+   * the latest request applies. */
   async #refreshSessions(): Promise<void> {
     if (this.#opts.onSessions === undefined) return;
+    this.#sessionsGen += 1;
+    const gen = this.#sessionsGen;
     try {
-      this.#opts.onSessions(await this.#rest.listSessions());
+      const sessions = await this.#rest.listSessions();
+      if (gen === this.#sessionsGen) this.#opts.onSessions(sessions);
     } catch {
       // liveness stays whatever it was; the next reconcile retries
     }

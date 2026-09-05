@@ -109,7 +109,7 @@ Resolve button.
   bulk path as 2c with note `"shipped in <ref>"`.
 - **Resolve note surfaced.** The card's RESOLVED state shows `resolution.note` and
   `resolution.commit` when present (schema already carries them; card ignores them).
-- **CLI parity, agent side.** `pinbox resolve --link github:#58` resolves every pin carrying that
+- **CLI parity, agent side.** `pinbox resolve --link github#58` resolves every pin carrying that
   link so the agent can clear a merged PR's pins without the reviewer. `cli/src/commands/resolve.ts`
   gains the flag; SKILL.md regenerates.
 

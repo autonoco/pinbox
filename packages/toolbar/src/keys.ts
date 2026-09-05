@@ -19,7 +19,8 @@ export type ShortcutsMode = "all" | "escape-only" | "off";
 export const IGNORE_KEYS_ATTR = "data-pinbox-ignore-keys";
 
 const TEXT_TAGS = new Set(["TEXTAREA", "INPUT", "SELECT"]);
-const TEXT_ROLES = new Set(["textbox", "combobox", "searchbox", "spinbutton"]);
+const TEXT_ROLES = ["textbox", "combobox", "searchbox", "spinbutton"];
+const TEXT_ROLE_SELECTOR = TEXT_ROLES.map((r) => `[role="${r}"]`).join(",");
 
 /**
  * Is the key going into a text control? `INPUT`/`TEXTAREA`/contentEditable, plus
@@ -31,8 +32,8 @@ export function isTextEntry(target: EventTarget | undefined | null): boolean {
   if (!el || typeof el.tagName !== "string") return false;
   if (TEXT_TAGS.has(el.tagName)) return true;
   if (el.isContentEditable === true) return true;
-  const role = el.getAttribute?.("role");
-  if (role !== null && role !== undefined && TEXT_ROLES.has(role)) return true;
+  // Ancestors too: the focused node inside a role="textbox" editor is rarely the role holder.
+  if (el.closest?.(TEXT_ROLE_SELECTOR) != null) return true;
   return el.closest?.(`[${IGNORE_KEYS_ATTR}]`) != null;
 }
 

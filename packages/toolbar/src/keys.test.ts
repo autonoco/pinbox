@@ -78,6 +78,8 @@ describe("isTextEntry", () => {
     const sel = doc.createElement("select");
     const box = doc.createElement("div");
     box.setAttribute("role", "textbox");
+    const boxChild = doc.createElement("span");
+    box.appendChild(boxChild);
     const editor = doc.createElement("div");
     editor.setAttribute(IGNORE_KEYS_ATTR, "");
     const inner = doc.createElement("span");
@@ -85,6 +87,7 @@ describe("isTextEntry", () => {
     doc.body.append(sel, box, editor);
     expect(isTextEntry(sel)).toBe(true);
     expect(isTextEntry(box)).toBe(true);
+    expect(isTextEntry(boxChild)).toBe(true); // nested in the role holder
     expect(isTextEntry(inner)).toBe(true);
     expect(isTextEntry(doc.createElement("div"))).toBe(false);
     expect(isTextEntry(null)).toBe(false);

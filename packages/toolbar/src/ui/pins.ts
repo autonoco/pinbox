@@ -47,12 +47,17 @@ export function toViewport<T extends { x: number; y: number }>(win: Window, p: T
  * A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
  */
 export function anchorRect(doc: Document, pin: Pin): Rect | null {
-  const stored = pin.target?.rect;
+  return targetRect(doc, pin.target);
+}
+
+/** The same resolution for any captured target — a pin's, or the draft's before it commits. */
+export function targetRect(doc: Document, target: Pin["target"]): Rect | null {
+  const stored = target?.rect;
   if (stored === undefined) return null;
   const win = doc.defaultView;
   if (win === null) return stored;
-  if (!sameView(win, pin.target?.url)) return null;
-  const selector = pin.target?.selector;
+  if (!sameView(win, target?.url)) return null;
+  const selector = target?.selector;
   if (selector === undefined) return toViewport(win, stored);
   let el: Element | null;
   try {
@@ -77,6 +82,25 @@ function pinPoint(r: Rect, spot?: { x: number; y: number }): { x: number; y: num
   const fx = spot?.x ?? 0.5;
   const fy = spot?.y ?? 0.5;
   return { x: r.x + r.width * fx, y: r.y + r.height * fy };
+}
+
+/**
+ * Where the draft marker sits: its captured element's LIVE rect at the clicked spot, exactly as a
+ * committed pin would (a draft on a sticky header must ride the header while you type); the raw
+ * placement point, scroll-adjusted, only when the element cannot be resolved.
+ */
+export function draftPoint(
+  doc: Document,
+  draft: NonNullable<ToolbarState["draft"]>,
+): {
+  x: number;
+  y: number;
+} {
+  const target = draft.target.target;
+  const live = targetRect(doc, target);
+  if (live !== null) return pinPoint(live, target.spot);
+  const win = doc.defaultView;
+  return win === null ? draft.placedAt : toViewport(win, draft.placedAt);
 }
 
 /** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
@@ -165,8 +189,11 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   }
   if (state.draft) {
     const node = ensureNode(layer, "draft", true);
-    const win = layer.ownerDocument.defaultView;
-    const at = win === null ? state.draft.placedAt : toViewport(win, state.draft.placedAt);
-    patchNode(node, at, true, chipInner(nextOrdinal(state.pins), null));
+    patchNode(
+      node,
+      draftPoint(layer.ownerDocument, state.draft),
+      true,
+      chipInner(nextOrdinal(state.pins), null),
+    );
   }
 }

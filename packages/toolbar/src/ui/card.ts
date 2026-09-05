@@ -23,7 +23,7 @@ import {
   verifyHtml,
 } from "./card-parts.ts";
 import { esc } from "./html.ts";
-import { anchorRect, nextOrdinal, toViewport } from "./pins.ts";
+import { anchorRect, draftPoint, nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
   /** draft ⇒ createPin (as `kind`); else thread reply. */
@@ -241,10 +241,7 @@ function anchorOf(
 ): { x: number; y: number } {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
-  if (pin === null) {
-    const at = draft?.placedAt ?? { x: 0, y: 0 };
-    return win === null ? at : toViewport(win, at);
-  }
+  if (pin === null) return draft === null ? { x: 0, y: 0 } : draftPoint(doc, draft);
   const live = anchorRect(doc, pin);
   if (live !== null) return { x: live.x + live.width / 2, y: live.y + live.height / 2 };
   if (win === null) return { x: 0, y: 0 };

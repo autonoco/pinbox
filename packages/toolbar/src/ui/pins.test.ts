@@ -264,10 +264,35 @@ describe("viewport space (dogfood v4: pins drifted on scroll)", () => {
     expect(node.style.top).toBe("210px");
   });
 
-  test("the draft marker converts its document-space placement too", () => {
+  test("a draft rides its element's live rect, like a committed pin would", () => {
+    const layer = layerIn();
+    const hero = layer.ownerDocument.querySelector("#hero") as HTMLElement;
+    hero.getBoundingClientRect = () =>
+      ({
+        x: 300,
+        y: 40,
+        left: 300,
+        top: 40,
+        right: 340,
+        bottom: 60,
+        width: 40,
+        height: 20,
+      }) as DOMRect;
+    const pin = makePin("pin_aaaaaaaaaa");
+    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 320, y: 50 } };
+    renderPins(layer, stateWith({ draft }));
+    const node = layer.querySelector('[data-pin="draft"]') as HTMLElement;
+    expect(node.style.top).toBe("50px");
+    scrollTo(layer, 0, 700); // a sticky header: the live rect does not move
+    renderPins(layer, stateWith({ draft }));
+    expect(node.style.top).toBe("50px"); // document-space placement would have said −650
+  });
+
+  test("the draft marker converts its document-space placement when the element is gone", () => {
     const layer = layerIn();
     const pin = makePin("pin_aaaaaaaaaa");
-    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 340, y: 160 } };
+    const gone = { ...pin.target, selector: "#gone" };
+    const draft = { target: { target: gone, env: pin.env }, placedAt: { x: 340, y: 160 } };
     scrollTo(layer, 40, 100);
     renderPins(layer, stateWith({ pins: [pin], draft }));
     const node = layer.querySelector('[data-pin="draft"]') as HTMLElement;

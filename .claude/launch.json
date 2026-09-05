@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site",
+      "runtimeExecutable": "bunx",
+      "runtimeArgs": [
+        "wrangler@latest",
+        "dev",
+        "--config",
+        "apps/web/wrangler.jsonc",
+        "--port",
+        "8787"
+      ],
+      "port": 8787
+    }
+  ]
+}

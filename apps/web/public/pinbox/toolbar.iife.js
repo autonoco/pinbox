@@ -2655,12 +2655,16 @@ var Pinbox = (function(exports) {
 	* A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
 	*/
 	function anchorRect(doc, pin) {
-		const stored = pin.target?.rect;
+		return targetRect(doc, pin.target);
+	}
+	/** The same resolution for any captured target — a pin's, or the draft's before it commits. */
+	function targetRect(doc, target) {
+		const stored = target?.rect;
 		if (stored === void 0) return null;
 		const win = doc.defaultView;
 		if (win === null) return stored;
-		if (!sameView(win, pin.target?.url)) return null;
-		const selector = pin.target?.selector;
+		if (!sameView(win, target?.url)) return null;
+		const selector = target?.selector;
 		if (selector === void 0) return toViewport(win, stored);
 		let el;
 		try {
@@ -2692,6 +2696,18 @@ var Pinbox = (function(exports) {
 			x: r.x + r.width * fx,
 			y: r.y + r.height * fy
 		};
+	}
+	/**
+	* Where the draft marker sits: its captured element's LIVE rect at the clicked spot, exactly as a
+	* committed pin would (a draft on a sticky header must ride the header while you type); the raw
+	* placement point, scroll-adjusted, only when the element cannot be resolved.
+	*/
+	function draftPoint(doc, draft) {
+		const target = draft.target.target;
+		const live = targetRect(doc, target);
+		if (live !== null) return pinPoint(live, target.spot);
+		const win = doc.defaultView;
+		return win === null ? draft.placedAt : toViewport(win, draft.placedAt);
 	}
 	/** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
 	* plus the queued badge while the pin waits in the outbox for the reconnect flush. */
@@ -2762,11 +2778,7 @@ var Pinbox = (function(exports) {
 			node.classList.toggle("stale", stale);
 			patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued, stale));
 		}
-		if (state.draft) {
-			const node = ensureNode(layer, "draft", true);
-			const win = layer.ownerDocument.defaultView;
-			patchNode(node, win === null ? state.draft.placedAt : toViewport(win, state.draft.placedAt), true, chipInner(nextOrdinal(state.pins), null));
-		}
+		if (state.draft) patchNode(ensureNode(layer, "draft", true), draftPoint(layer.ownerDocument, state.draft), true, chipInner(nextOrdinal(state.pins), null));
 	}
 	//#endregion
 	//#region src/ui/card.ts
@@ -2902,13 +2914,10 @@ var Pinbox = (function(exports) {
 	function anchorOf(root, pin, draft) {
 		const doc = root.ownerDocument;
 		const win = doc.defaultView;
-		if (pin === null) {
-			const at = draft?.placedAt ?? {
-				x: 0,
-				y: 0
-			};
-			return win === null ? at : toViewport(win, at);
-		}
+		if (pin === null) return draft === null ? {
+			x: 0,
+			y: 0
+		} : draftPoint(doc, draft);
 		const live = anchorRect(doc, pin);
 		if (live !== null) return {
 			x: live.x + live.width / 2,

@@ -27,8 +27,13 @@ export interface BarHandlers {
 
 export interface Bar {
   readonly root: HTMLElement;
+  /** The drag handle on the bar's left edge (ui/bar-drag.ts attaches to it). */
+  readonly grip: HTMLElement;
   update(state: ToolbarState): void;
 }
+
+const GRIP_ICON =
+  '<svg width="6" height="14" viewBox="0 0 6 14" fill="currentColor"><circle cx="1.5" cy="2" r="1.1"/><circle cx="4.5" cy="2" r="1.1"/><circle cx="1.5" cy="7" r="1.1"/><circle cx="4.5" cy="7" r="1.1"/><circle cx="1.5" cy="12" r="1.1"/><circle cx="4.5" cy="12" r="1.1"/></svg>';
 
 const CONNECTION_LABEL: Record<ToolbarState["connection"], string> = {
   connecting: "PINBOX",
@@ -63,6 +68,8 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
   const squares = ACTIONS.filter((a) => a.bar !== undefined && !wide.includes(a));
   root.innerHTML =
     '<div class="armed-ring"></div>' +
+    // The one non-button area: dragging from a button would race its click.
+    `<div class="grip" data-ref="grip" title="Drag to move · double-click to reset">${GRIP_ICON}</div>` +
     `<div class="ident">${IDENT_ICON}<span class="bl" data-ref="label">PINBOX</span></div>` +
     '<div class="div"></div>' +
     wide.map(buttonHtml).join("") +
@@ -85,6 +92,7 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
 
   return {
     root,
+    grip: ref("grip"),
     update(state) {
       const text = state.mode === "placing" ? "CLICK TO PIN" : CONNECTION_LABEL[state.connection];
       if (label.textContent !== text) label.textContent = text;

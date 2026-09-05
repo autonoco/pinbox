@@ -192,6 +192,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* command bar */
 .pb-bar { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; height: 46px; padding: 0 6px; gap: 3px; background: var(--pb-bar); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--pb-line-2); border-radius: 4px; box-shadow: var(--pb-shadow); }
+/* Dragged once: explicit left/top (inline) replace the bottom-centre default. */
+.pb-bar.free { bottom: auto; transform: none; }
+.pb-bar .grip { display: flex; align-items: center; justify-content: center; width: 14px; height: 32px; margin-left: 2px; color: var(--pb-fg4); cursor: grab; touch-action: none; border-radius: 2px; }
+.pb-bar .grip:hover { color: var(--pb-fg2); background: var(--pb-hover); }
+.pb-bar.dragging .grip { cursor: grabbing; }
 .pb-bar .armed-ring { position: absolute; inset: -1px; border: 1px solid var(--pb-amber); border-radius: 4px; box-shadow: 0 0 32px var(--pb-amber-soft); pointer-events: none; animation: pb-fade 200ms ease-out both; display: none; }
 :host([data-placing]) .pb-bar .armed-ring { display: block; }
 .pb-bar .ident { display: flex; align-items: center; gap: 9px; padding: 0 12px 0 10px; min-width: 150px; }

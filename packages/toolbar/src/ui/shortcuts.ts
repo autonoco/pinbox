@@ -12,6 +12,8 @@ const ROWS: [string, string][] = [
     keyLabelOf(a),
   ]),
   ["Send comment", "⌘ ↵"],
+  ["Move toolbar", "DRAG ⋮"],
+  ["Reset toolbar position", "2× GRIP"],
 ];
 
 export interface ShortcutsModal {

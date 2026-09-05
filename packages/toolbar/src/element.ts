@@ -26,6 +26,7 @@ import {
 import { HubTransport } from "./transport.ts";
 import type { ActionId } from "./ui/actions.ts";
 import { type Bar, createBar } from "./ui/bar.ts";
+import { type BarDrag, createBarDrag } from "./ui/bar-drag.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import type { DraftKind } from "./ui/card-parts.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
@@ -72,6 +73,8 @@ export class PinboxToolbarElement extends BaseElement {
   #modal: ShortcutsModal | null = null;
   #minUi: MinimizeUi | null = null;
   #min: MinimizeController | null = null;
+  /** The bar's grip drag; same lifetime as the minimize controller. */
+  #barDrag: BarDrag | null = null;
   /** SPA view watcher: DOM/history changes re-run the anchor-gated render. */
   #anchors: AnchorWatch | null = null;
   #helpOpen = false;
@@ -123,6 +126,15 @@ export class PinboxToolbarElement extends BaseElement {
     // survive a disconnect, so both are (re)connected here rather than there.
     if (this.shadowRoot) this.#placement?.connect(this.shadowRoot);
     if (this.#min === null) this.#mountMinimize();
+    if (this.#barDrag === null && this.#bar !== null) {
+      this.#barDrag = createBarDrag({
+        win: window,
+        bar: this.#bar.root,
+        grip: this.#bar.grip,
+        storage: globalThis.localStorage ?? null,
+        storagePrefix: `pinbox:${this.config?.endpoint ?? ""}`,
+      });
+    }
     this.#anchors = watchAnchors(window, () => this.#render(this.store.get()));
     document.addEventListener("click", this.#onClickCapture, true);
     // Capture phase on window: we see the key before the host's own hotkey handlers can swallow
@@ -175,6 +187,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#placement?.disconnect();
     this.#min?.destroy();
     this.#min = null;
+    this.#barDrag?.destroy();
+    this.#barDrag = null;
     releaseCapture(); // drop the shared tab-capture stream (and its indicator)
     this.#anchors?.destroy();
     this.#anchors = null;

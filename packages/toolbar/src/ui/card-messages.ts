@@ -115,30 +115,47 @@ function messageHtml(m: ThreadMessage): string {
 }
 
 /** The agent has the message and has not answered yet. Its own node, so patching never rebuilds. */
-const TYPING_HTML =
-  '<div class="pb-typing"><div class="pb-av agent">AI</div>' +
-  '<div class="dots"><i></i><i></i><i></i></div><div class="lbl">THINKING</div></div>';
+const PENDING_HTML: Record<"thinking" | "waiting", string> = {
+  thinking:
+    '<div class="pb-typing"><div class="pb-av agent">AI</div>' +
+    '<div class="dots"><i></i><i></i><i></i></div><div class="lbl">THINKING</div></div>',
+  // Past the first 90 s the dots would be a lie; a still row says the truth: it is queued.
+  waiting:
+    '<div class="pb-typing quiet"><div class="pb-av agent">AI</div>' +
+    '<div class="lbl">WAITING FOR AGENT</div></div>',
+};
 
 /**
- * Show or hide the "working on it" row.
+ * Show, restyle or hide the "working on it" row.
  *
  * Without it the card sits silent from the moment you comment until the answer lands, which reads
- * as nothing happening — the single most common report on the demo.
+ * as nothing happening — the single most common report on the demo. With it forever, a pin nobody
+ * answers "thinks" for two weeks (dogfood) — so the row has stages, and "stale"/"none" remove it
+ * (the stale footer takes over, card-parts.ts).
  */
-export function patchTyping(threadEl: HTMLElement, pending: boolean): void {
+export function patchPending(
+  threadEl: HTMLElement,
+  kind: "thinking" | "waiting" | "stale" | "none",
+): void {
   const existing = threadEl.querySelector<HTMLElement>('[data-iid="pb-typing"]');
-  if (!pending) {
+  if (kind === "none" || kind === "stale") {
     existing?.remove();
     return;
   }
+  const html = PENDING_HTML[kind];
   if (existing) {
+    if (nodeMemo.get(existing) !== html) {
+      existing.innerHTML = html;
+      nodeMemo.set(existing, html);
+    }
     threadEl.appendChild(existing); // stay last as messages arrive
     return;
   }
   const node = threadEl.ownerDocument.createElement("div");
   node.className = "pb-msg-w";
   node.setAttribute("data-iid", "pb-typing");
-  node.innerHTML = TYPING_HTML;
+  node.innerHTML = html;
+  nodeMemo.set(node, html);
   threadEl.appendChild(node);
   threadEl.scrollTop = threadEl.scrollHeight;
 }

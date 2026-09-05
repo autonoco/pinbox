@@ -105,6 +105,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-chipBtn .lk { display: flex; align-items: center; gap: 5px; padding-left: 6px; margin-left: 1px; border-left: 1px solid var(--pb-line-2); font-size: 9.5px; letter-spacing: .02em; opacity: .85; }
 .pb-pin.hot .pb-chipBtn .lk { border-left-color: color-mix(in srgb, var(--pb-amber-ink) 28%, transparent); }
 .pb-pin.queued .pb-chipBtn { border-style: dashed; }
+.pb-pin.stale:not(.hot) .pb-chipBtn { border-color: var(--pb-amber); }
+.pb-pin.stale:not(.hot) .pb-chipBtn .qd { color: var(--pb-amber); }
 /* comment pins: muted, an N glyph; hot state stays amber so the active one is unmistakable */
 .pb-pin.note .dot { background: var(--pb-fg3); }
 .pb-pin.note .needle { background: linear-gradient(to top, var(--pb-fg3), color-mix(in srgb, var(--pb-fg3) 35%, transparent)); }
@@ -164,6 +166,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .pb-change .ft { display: flex; align-items: center; gap: 8px; padding: 9px 10px; background: var(--pb-surface); border-top: 1px solid var(--pb-line); }
 .pb-change .applied { font-family: var(--pb-font-mono); font-size: 9.5px; letter-spacing: .16em; color: var(--pb-ok); display: flex; align-items: center; gap: 8px; }
 .pb-change .applied .hh { color: var(--pb-fg4); }
+.pb-stale { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--pb-amber) 8%, var(--pb-surface)); border-top: 1px solid var(--pb-line); font-size: 11.5px; color: var(--pb-fg2); }
+.pb-stale .msg { flex: 1; min-width: 0; }
+.pb-typing.quiet .lbl { color: var(--pb-fg3); }
+.pb-dfoot { padding: 10px 16px; border-top: 1px solid var(--pb-line); display: flex; justify-content: flex-end; }
 .pb-resnote { padding: 8px 12px; font-size: 11.5px; line-height: 1.45; color: var(--pb-fg2); border-top: 1px solid var(--pb-line); }
 .pb-resnote .hh { font-family: var(--pb-font-mono); font-size: 10px; color: var(--pb-fg3); }
 .pb-seg { display: flex; margin-right: auto; border: 1px solid var(--pb-line-2); border-radius: 2px; overflow: hidden; }

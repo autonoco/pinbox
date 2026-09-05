@@ -3,7 +3,15 @@ import { describe, expect, test } from "bun:test";
 import type { ThreadMessage } from "@autono/pinbox-core/schema";
 import type { BrowserPin } from "./capture.ts";
 import type { Draft } from "./state.ts";
-import { applyHubEvent, createStore, deriveUiStatus } from "./state.ts";
+import {
+  agentIsLive,
+  applyHubEvent,
+  createStore,
+  deriveUiStatus,
+  pendingKind,
+  STALE_AFTER_MS,
+  THINKING_MS,
+} from "./state.ts";
 
 function makePin(overrides: Partial<BrowserPin> = {}): BrowserPin {
   return {
@@ -111,6 +119,57 @@ describe("createStore", () => {
     expect(state.draft).toBeNull();
     expect(state.pins).toEqual([pin]);
     expect(state.activePinId).toBe(pin.id);
+  });
+});
+
+describe("pendingKind / stale", () => {
+  const at = "2026-08-04T10:00:00.000Z";
+  const T0 = Date.parse(at);
+  const pin = makePin({ createdAt: at });
+  const owed = [makeMessage("human", { at })];
+
+  test("stages by age of the last human word: thinking → waiting → stale", () => {
+    expect(pendingKind(pin, owed, { clock: T0 + 1000, agentLive: null })).toBe("thinking");
+    expect(pendingKind(pin, owed, { clock: T0 + THINKING_MS, agentLive: null })).toBe("waiting");
+    expect(pendingKind(pin, owed, { clock: T0 + STALE_AFTER_MS, agentLive: null })).toBe("stale");
+    expect(deriveUiStatus(pin, owed, { clock: T0 + STALE_AFTER_MS, agentLive: null })).toBe(
+      "stale",
+    );
+    expect(deriveUiStatus(pin, owed, { clock: T0 + THINKING_MS, agentLive: null })).toBe("waiting");
+  });
+
+  test("an empty thread ages from the pin itself", () => {
+    expect(pendingKind(pin, [], { clock: T0 + STALE_AFTER_MS, agentLive: true })).toBe("stale");
+  });
+
+  test("nobody listening ⇒ stale right after the thinking window; a live agent ⇒ waiting", () => {
+    const view = { clock: T0 + THINKING_MS + 1, agentLive: false };
+    expect(pendingKind(pin, owed, view)).toBe("stale");
+    expect(pendingKind(pin, owed, { ...view, agentLive: true })).toBe("waiting");
+  });
+
+  test("never pending: agent replied, resolved, comment pins, or a 0 clock", () => {
+    const view = { clock: T0 + STALE_AFTER_MS, agentLive: false };
+    expect(pendingKind(pin, [makeMessage("agent", { at })], view)).toBe("none");
+    expect(pendingKind({ ...pin, status: "resolved" }, owed, view)).toBe("none");
+    expect(pendingKind({ ...pin, kind: "comment" }, owed, view)).toBe("none");
+    expect(pendingKind(pin, owed, { clock: 0, agentLive: false })).toBe("thinking");
+    expect(pendingKind(pin, owed)).toBe("thinking");
+  });
+
+  test("agentIsLive: a recent, un-ended session; ended or stale sessions do not count", () => {
+    const seen = (agoMs: number, ended = false) => ({
+      id: "ses_aaaaaaaaaa",
+      agent: "claude",
+      key: "k",
+      registeredAt: at,
+      lastSeenAt: new Date(T0 - agoMs).toISOString(),
+      ...(ended ? { endedAt: at } : {}),
+    });
+    expect(agentIsLive([seen(60_000)], T0)).toBe(true);
+    expect(agentIsLive([seen(60_000, true)], T0)).toBe(false);
+    expect(agentIsLive([seen(60 * 60_000)], T0)).toBe(false);
+    expect(agentIsLive([], T0)).toBe(false);
   });
 });
 

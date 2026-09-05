@@ -15,6 +15,7 @@ import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { createPlacement, type Placement } from "./placement.ts";
 import { captureElement, releaseCapture, uploadAttachment } from "./screenshot.ts";
 import {
+  agentIsLive,
   appendThreadMessage,
   applyHubEvent,
   createStore,
@@ -74,6 +75,8 @@ export class PinboxToolbarElement extends BaseElement {
   /** SPA view watcher: DOM/history changes re-run the anchor-gated render. */
   #anchors: AnchorWatch | null = null;
   #helpOpen = false;
+  /** The 30 s wall-clock tick that ages pending pins into WAITING / NO RESPONSE. 0 when idle. */
+  #clockTimer = 0;
   #pageStyle: HTMLStyleElement | null = null;
   #unsubscribe: (() => void) | null = null;
 
@@ -82,6 +85,7 @@ export class PinboxToolbarElement extends BaseElement {
     send: (pinId, text, kind) => this.actions.send?.(pinId, text, kind),
     verify: (pinId, outcome) => this.actions.verify?.(pinId, outcome),
     resolve: (pinId) => this.actions.resolve?.(pinId),
+    nudge: (pinId) => this.#nudge(pinId),
     copy: (pinId) => this.#copyPin(pinId),
     close: () => this.#dismiss(),
   };
@@ -126,7 +130,15 @@ export class PinboxToolbarElement extends BaseElement {
     window.addEventListener("keydown", this.#onKeyDown, true);
     this.#unsubscribe = this.store.subscribe((s) => this.#render(s));
     this.#render(this.store.get());
+    this.#startClock();
     this.#queueStart();
+  }
+
+  /** Age is state (state.ts `clock`), so a tick is a render and stale pins flip without a hub event. */
+  #startClock(): void {
+    const tick = (): void => this.store.update({ clock: Date.now() });
+    tick();
+    this.#clockTimer = window.setInterval(tick, 30_000);
   }
 
   /**
@@ -168,6 +180,8 @@ export class PinboxToolbarElement extends BaseElement {
     this.#anchors = null;
     this.#unsubscribe?.();
     this.#unsubscribe = null;
+    window.clearInterval(this.#clockTimer);
+    this.#clockTimer = 0;
     this.#pageStyle?.remove();
     this.#pageStyle = null;
     document.body.classList.remove(PAGE_PLACING_CLASS);
@@ -298,6 +312,7 @@ export class PinboxToolbarElement extends BaseElement {
       onEvent: (e) => applyHubEvent(this.store, e),
       onConnection: (connection) => this.store.update({ connection }),
       onPins: (pins) => this.store.update({ pins }),
+      onSessions: (sessions) => this.store.update({ agentLive: agentIsLive(sessions, Date.now()) }),
       onOutbox: (ids) => this.store.update({ queuedIds: new Set(ids) }),
     });
     this.#transport = transport;
@@ -404,6 +419,19 @@ export class PinboxToolbarElement extends BaseElement {
       const y = rect.y + rect.height / 2;
       window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: "smooth" });
     }
+  }
+
+  /**
+   * Nudge a stale pin: re-post the last human message as a new thread message. A watcher that
+   * missed the original (crashed, restarted, registered late) gets a fresh event to wake on.
+   */
+  #nudge(pinId: string): void {
+    const state = this.store.get();
+    const pin = state.pins.find((p) => p.id === pinId);
+    if (pin === undefined) return;
+    const thread = state.threads.get(pinId) ?? [];
+    const last = [...thread].reverse().find((m) => m.role === "human");
+    this.actions.send?.(pinId, last?.text ?? pin.text, "note");
   }
 
   /** The markdown offline fallback: copy every open pin's block to the clipboard. */

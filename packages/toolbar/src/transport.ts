@@ -6,6 +6,7 @@
 // allowTypeOnly), so the §5 wire constants are mirrored below from
 // core/src/ws-protocol.ts — pinned text; e2e (Task 10) locks compatibility.
 import type { Attachment, Pin, PinInput, ThreadMessage } from "@autono/pinbox-core/schema";
+import type { Session } from "@autono/pinbox-core/sessions";
 import {
   Mirror,
   memoryStorage,
@@ -62,6 +63,8 @@ export interface TransportOptions {
   onConnection(state: ConnectionState): void;
   /** Reconciled pin lists: fresh `listPins()` after each reconnect (hub wins on status). */
   onPins?(pins: Pin[]): void;
+  /** Agent sessions, fetched alongside each reconcile — the UI's "is anyone listening" signal. */
+  onSessions?(sessions: Session[]): void;
   /** Queued outbox localIds whenever the set changes — the UI flags them as pending sync. */
   onOutbox?(localIds: string[]): void;
   /** Test seam; default global fetch. */
@@ -379,6 +382,7 @@ export class HubTransport {
 
   /** Refresh listPins (hub wins on status) → flush the outbox (client wins on new pins) → persist the fresh mirror. */
   async #reconcile(): Promise<void> {
+    void this.#refreshSessions();
     try {
       const pins = await this.#snapshotPins();
       if (pins !== null) this.#opts.onPins?.(pins);
@@ -408,6 +412,16 @@ export class HubTransport {
       if (this.#cursor === takenAt) return pins;
     }
     return null;
+  }
+
+  /** Best-effort: a hub without the route (or unreachable) simply leaves liveness unknown. */
+  async #refreshSessions(): Promise<void> {
+    if (this.#opts.onSessions === undefined) return;
+    try {
+      this.#opts.onSessions(await this.#rest.listSessions());
+    } catch {
+      // liveness stays whatever it was; the next reconcile retries
+    }
   }
 
   async #flushOutbox(): Promise<Pin[]> {

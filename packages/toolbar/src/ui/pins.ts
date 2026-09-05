@@ -4,7 +4,7 @@
 // data-pin and patched in place — the layer is never rebuilt — and each chip's
 // innerHTML is memoized (the prototype's `_h`) so unchanged chips are untouched.
 import type { Pin, Rect } from "@autono/pinbox-core/schema";
-import type { ToolbarState } from "../state.ts";
+import { deriveUiStatus, type ToolbarState } from "../state.ts";
 import { esc, pinNumber } from "./html.ts";
 
 /** The prototype's `_h` innerHTML memo, kept off the DOM node. */
@@ -74,10 +74,14 @@ function pinPoint(r: Rect, spot?: { x: number; y: number }): { x: number; y: num
 
 /** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
  * plus the queued badge while the pin waits in the outbox for the reconnect flush. */
-function chipInner(n: number, pin: Pin | null, queued = false): string {
+function chipInner(n: number, pin: Pin | null, queued = false, stale = false): string {
   const link = pin?.links?.[0];
   const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
-  const qd = queued ? '<span class="qd">QUEUED</span>' : "";
+  const qd = queued
+    ? '<span class="qd">QUEUED</span>'
+    : stale
+      ? '<span class="qd">NO REPLY</span>'
+      : "";
   // A comment pin reads apart on the page: an N glyph and, via .note, a muted chip.
   const nt =
     pin?.kind === "comment" ? '<span class="nt" title="Note — no agent acts on this">N</span>' : "";
@@ -148,7 +152,9 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
     const queued = state.queuedIds.has(pin.id);
     node.classList.toggle("queued", queued);
     node.classList.toggle("note", pin.kind === "comment");
-    patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
+    const stale = deriveUiStatus(pin, state.threads.get(pin.id) ?? [], state) === "stale";
+    node.classList.toggle("stale", stale);
+    patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued, stale));
   }
   if (state.draft) {
     const node = ensureNode(layer, "draft", true);

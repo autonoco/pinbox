@@ -69,6 +69,34 @@ describe("drawer row actions", () => {
   });
 });
 
+describe("drawer stale footer", () => {
+  test("lists a two-click Resolve-all for stale pins with the no-response note; none when fresh", () => {
+    const on = spies();
+    const d = createDrawer(docIn(), on);
+    const at = "2026-08-04T10:00:00.000Z";
+    const a = makePin("pin_aaaaaaaaaa", { createdAt: at });
+    const b = makePin("pin_bbbbbbbbbb", { createdAt: at });
+    const fresh = makePin("pin_ffffffffff", { createdAt: "2026-08-04T10:59:00.000Z" });
+    const clock = Date.parse("2026-08-04T11:00:00.000Z");
+    d.update(open([a, b, fresh], { clock, agentLive: true }));
+    const foot = d.root.querySelector('[data-ref="foot"]') as HTMLElement;
+    expect(foot.hidden).toBe(false);
+    expect(foot.textContent).toBe("RESOLVE 2 WITH NO RESPONSE");
+    expect(d.root.querySelector('[data-item="pin_aaaaaaaaaa"]')?.textContent).toContain(
+      "NO RESPONSE",
+    );
+    click(d.root, "[data-bulk]");
+    expect(on.onResolve).not.toHaveBeenCalled();
+    click(d.root, "[data-bulk]");
+    expect(on.onResolve.mock.calls).toEqual([
+      ["pin_aaaaaaaaaa", "no agent response"],
+      ["pin_bbbbbbbbbb", "no agent response"],
+    ]);
+    d.update(open([fresh], { clock, agentLive: true }));
+    expect(foot.hidden).toBe(true);
+  });
+});
+
 describe("drawer link groups", () => {
   test("groupByLink keeps loose pins apart and groups by connector#ref in first-seen order", () => {
     const loose = makePin("pin_llllllllll");

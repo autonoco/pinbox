@@ -11,7 +11,7 @@
 // and open pins linked to the same tracker item (pin.links[0]) group under a
 // header with a two-click Resolve-group for "everything in PR #58 shipped".
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
-import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
+import { deriveUiStatus, type StatusView, type ToolbarState, type UiStatus } from "../state.ts";
 import { esc, pinNumber, safeUrl } from "./html.ts";
 
 const X_ICON =
@@ -31,6 +31,7 @@ const STATUS_TEXT: Record<UiStatus, string> = {
   resolved: "RESOLVED",
   verify: "VERIFY",
   note: "NOTE",
+  stale: "NO RESPONSE",
 };
 
 const STATUS_DOT: Record<UiStatus, string> = {
@@ -40,6 +41,7 @@ const STATUS_DOT: Record<UiStatus, string> = {
   resolved: "var(--pb-ok)",
   verify: "var(--pb-amber)",
   note: "var(--pb-fg3)",
+  stale: "var(--pb-amber)",
 };
 
 export interface DrawerHandlers {
@@ -76,8 +78,9 @@ function itemHtml(
   active: boolean,
   thread: ThreadMessage[],
   queued: boolean,
+  view: StatusView,
 ): string {
-  const status = deriveUiStatus(pin, thread);
+  const status = deriveUiStatus(pin, thread, view);
   const link = pin.links?.[0];
   // A queued pin is not on the hub yet, so there is nothing to resolve until the flush.
   const act =
@@ -135,7 +138,8 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
     '<button type="button" class="pb-tab on" data-tab="open">OPEN · 0</button>' +
     '<button type="button" class="pb-tab" data-tab="notes">NOTES · 0</button>' +
     '<button type="button" class="pb-tab" data-tab="resolved">RESOLVED · 0</button></div>' +
-    '<div class="pb-items" data-ref="items"></div>';
+    '<div class="pb-items" data-ref="items"></div>' +
+    '<div class="pb-dfoot" data-ref="foot" hidden></div>';
 
   let tab: "open" | "notes" | "resolved" = "open";
   let last: ToolbarState | null = null;
@@ -144,6 +148,8 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
   let confirming: string | null = null;
   let confirmTimer = 0;
   const items = root.querySelector('[data-ref="items"]') as HTMLElement;
+  const foot = root.querySelector('[data-ref="foot"]') as HTMLElement;
+  let footMemo = "";
   const tabButtons = [...root.querySelectorAll<HTMLElement>("[data-tab]")];
   const win = doc.defaultView;
 
@@ -174,6 +180,28 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
     for (const pin of pins) on.onResolve(pin.id, `shipped in ${key}`);
   }
 
+  /** Every open pin the agent never answered (dogfood #6–10): one click clears the backlog. */
+  function stalePins(state: ToolbarState): Pin[] {
+    return state.pins.filter(
+      (p) =>
+        p.status === "open" &&
+        !state.queuedIds.has(p.id) &&
+        deriveUiStatus(p, state.threads.get(p.id) ?? [], state) === "stale",
+    );
+  }
+
+  function resolveStale(): void {
+    if (confirming !== "stale") {
+      setConfirming("stale");
+      return;
+    }
+    setConfirming(null);
+    for (const pin of last ? stalePins(last) : []) on.onResolve(pin.id, "no agent response");
+  }
+  foot.addEventListener("click", (e) => {
+    if ((e.target as Element).closest?.("[data-bulk]")) resolveStale();
+  });
+
   items.addEventListener("click", (e) => {
     const target = e.target as Element;
     const act = target.closest?.("[data-act]");
@@ -200,6 +228,7 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
       p.id === state.activePinId,
       state.threads.get(p.id) ?? [],
       state.queuedIds.has(p.id),
+      state,
     );
 
   function openHtml(state: ToolbarState, open: Pin[]): string {
@@ -210,6 +239,20 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
       html += groupHtml(key, pins, confirming === key) + pins.map(row).join("");
     }
     return html;
+  }
+
+  /** The bulk footer: present on the OPEN tab exactly while some pin has had no response. */
+  function renderFoot(state: ToolbarState): void {
+    const stale = tab === "open" ? stalePins(state) : [];
+    const html =
+      stale.length === 0
+        ? ""
+        : `<button type="button" class="pb-gres${confirming === "stale" ? " confirm" : ""}" data-bulk="stale">` +
+          `${confirming === "stale" ? "CONFIRM?" : `RESOLVE ${stale.length} WITH NO RESPONSE`}</button>`;
+    if (footMemo === html) return;
+    foot.innerHTML = html;
+    foot.hidden = html === "";
+    footMemo = html;
   }
 
   function render(state: ToolbarState): void {
@@ -223,6 +266,7 @@ export function createDrawer(doc: Document, on: DrawerHandlers): Drawer {
       btn.textContent = `${key.toUpperCase()} · ${counts[key].length}`;
       btn.classList.toggle("on", tab === key);
     }
+    renderFoot(state);
     const list = counts[tab];
     const html = list.length
       ? tab === "open"

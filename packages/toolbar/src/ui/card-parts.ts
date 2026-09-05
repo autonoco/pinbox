@@ -13,6 +13,7 @@ export const STATUS_LABEL: Record<UiStatus, string> = {
   resolved: "RESOLVED",
   verify: "VERIFY",
   note: "NOTE",
+  stale: "NO RESPONSE",
 };
 
 export type DraftKind = "note" | "comment";
@@ -83,6 +84,19 @@ export function resolutionHtml(pin: Pin | null): string {
   const commit =
     r.commit === undefined ? "" : ` <span class="hh">${esc(r.commit.slice(0, 7))}</span>`;
   return `<div class="pb-resnote">Resolved by ${who}${note}${commit}</div>`;
+}
+
+/**
+ * The pin has waited too long. Nudge re-posts your last message so a watcher re-triggers;
+ * Resolve clears it — the two things you can actually do about a silent agent.
+ */
+export function staleHtml(status: UiStatus | null): string {
+  if (status !== "stale") return "";
+  return (
+    '<div class="pb-stale"><span class="msg">No agent has answered. It may not be running.</span>' +
+    '<button type="button" class="pb-bt-ghost" data-action="nudge" title="Re-send your last message">Nudge</button>' +
+    '<button type="button" class="pb-bt-ok" data-action="resolve">Resolve</button></div>'
+  );
 }
 
 export function verifyHtml(status: UiStatus | null): string {

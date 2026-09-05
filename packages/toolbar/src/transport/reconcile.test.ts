@@ -28,6 +28,53 @@ const resolvedEvent = (seq: number) => ({
 
 const notFound = { status: 404, body: { ok: false, error: { code: "E_NOT_FOUND", message: "?" } } };
 
+describe("reconcile fetches agent sessions", () => {
+  test("GET /sessions rides each reconcile and reaches onSessions; a hub without it is harmless", async () => {
+    const session = {
+      id: "ses_aaaaaaaaaa",
+      agent: "claude",
+      key: "k",
+      registeredAt: "2026-08-04T00:00:00.000Z",
+      lastSeenAt: "2026-08-04T00:00:00.000Z",
+    };
+    const { fetchFn, calls } = makeFetch((method, path) => {
+      if (method === "GET" && path === "/pins")
+        return { status: 200, body: { ok: true, data: [] } };
+      if (method === "GET" && path === "/sessions")
+        return { status: 200, body: { ok: true, data: [session] } };
+      return notFound;
+    });
+    const seen: unknown[] = [];
+    const h = harness({ fetchFn, onSessions: (s) => seen.push(s) });
+    h.transport.connect();
+    (h.sockets[0] as FakeSocket).open();
+    (h.sockets[0] as FakeSocket).frame(catchUp(0));
+    await settle();
+    expect(seen).toEqual([[session]]);
+    expect(calls.some((c) => c.path === "/sessions")).toBe(true);
+
+    // Older hub: 404 on /sessions must not disturb the pin reconcile.
+    const old = makeFetch((method, path) =>
+      method === "GET" && path === "/pins"
+        ? { status: 200, body: { ok: true, data: [] } }
+        : notFound,
+    );
+    const pins: unknown[] = [];
+    const seen2: unknown[] = [];
+    const h2 = harness({
+      fetchFn: old.fetchFn,
+      onSessions: (s) => seen2.push(s),
+      onPins: (p) => pins.push(p),
+    });
+    h2.transport.connect();
+    (h2.sockets[0] as FakeSocket).open();
+    (h2.sockets[0] as FakeSocket).frame(catchUp(0));
+    await settle();
+    expect(seen2).toEqual([]);
+    expect(pins).toEqual([[]]);
+  });
+});
+
 describe("reconcile race with live events", () => {
   test("an event landing during the snapshot GET wins over the staler snapshot", async () => {
     const open = serverPin("pin_a000000001");

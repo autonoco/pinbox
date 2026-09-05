@@ -4,9 +4,17 @@
 // abandoned draft (esc / click-away / close) is discarded and never reaches the
 // hub — ports dropEmpty from docs/design/toolbar/v2-command-bar.html (lines 466–472).
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
+import type { Session } from "@autono/pinbox-core/sessions";
 import type { CaptureResult } from "./capture.ts";
 
-export type UiStatus = "open" | "waiting" | "replied" | "resolved" | "verify" | "note";
+export type UiStatus = "open" | "waiting" | "replied" | "resolved" | "verify" | "note" | "stale";
+
+/** While the last word is yours and this young, the card shows the THINKING dots. */
+export const THINKING_MS = 90_000;
+/** Past this with no reply, the pin is stale: NO RESPONSE, with Nudge and Resolve. */
+export const STALE_AFTER_MS = 10 * 60_000;
+/** A session seen more recently than this counts as an agent that is listening. */
+const AGENT_LIVE_MS = 15 * 60_000;
 
 export interface Draft {
   target: CaptureResult;
@@ -35,6 +43,18 @@ export interface ToolbarState {
    * pin unhides so the marker you just dropped is never invisible.
    */
   pinsHidden: boolean;
+  /**
+   * Wall clock, refreshed by the element every 30 s while connected (and on connect). 0 until
+   * then, which means "unknown": nothing is ever stale against an unknown clock, so tests that
+   * never tick see exactly the pre-clock behaviour. Living in state, a tick is a render.
+   */
+  clock: number;
+  /**
+   * Is an agent session listening on the hub? From GET /sessions on each (re)connect; null
+   * until the first answer. With nobody listening, a pin goes stale after THINKING_MS instead
+   * of STALE_AFTER_MS — there is no point telling you an agent is thinking when none is there.
+   */
+  agentLive: boolean | null;
 }
 
 export interface Store {
@@ -62,6 +82,8 @@ export function initialState(): ToolbarState {
     queuedIds: new Set(),
     minimized: false,
     pinsHidden: false,
+    clock: 0,
+    agentLive: null,
   };
 }
 
@@ -137,21 +159,71 @@ export function applyHubEvent(
   upsertPin(store, pin);
 }
 
+/** What the status derivation needs from state besides the pin: the clock and agent liveness. */
+export type StatusView = Pick<ToolbarState, "clock" | "agentLive">;
+
+/** Unknown clock, unknown agent — the pre-clock derivation. */
+const NO_VIEW: StatusView = { clock: 0, agentLive: null };
+
+export type PendingKind = "thinking" | "waiting" | "stale" | "none";
+
+/** When the human last spoke on this pin: the last message if it is theirs, else the pin itself. */
+function lastHumanAt(pin: Pin, thread: ThreadMessage[]): number {
+  const last = thread[thread.length - 1];
+  return Date.parse(last === undefined ? pin.createdAt : last.at);
+}
+
+/**
+ * How long the agent has owed a reply, as a state the card can draw.
+ *
+ * Dogfood: a THINKING row spun for two weeks on a pin nobody ever answered, because the row
+ * meant only "the last word is yours". Now that means thinking for 90 s, then a quiet WAITING
+ * FOR AGENT, then NO RESPONSE after ten minutes — or after those 90 s when the hub reports no
+ * agent listening at all. "none" for anything not owed a reply. A 0 clock never goes stale.
+ */
+export function pendingKind(
+  pin: Pin,
+  thread: ThreadMessage[],
+  view: StatusView = NO_VIEW,
+): PendingKind {
+  if (pin.status !== "open" || pin.kind === "comment") return "none";
+  const last = thread[thread.length - 1];
+  if (last !== undefined && last.role !== "human") return "none";
+  if (view.clock === 0) return "thinking";
+  const age = view.clock - lastHumanAt(pin, thread);
+  if (age < THINKING_MS) return "thinking";
+  if (view.agentLive === false || age >= STALE_AFTER_MS) return "stale";
+  return "waiting";
+}
+
 /**
  * Wire-status → UI-status mapping:
  * resolved + no verification ⇒ "verify" (accept/reopen prompt);
  * resolved + verification ⇒ "resolved";
  * open comment pin ⇒ "note" (nobody owes a reply — never "waiting");
+ * open + reply owed too long (pendingKind "stale") ⇒ "stale";
  * open + empty thread or last message human ⇒ "waiting";
  * open + last message agent|mirror ⇒ "replied".
  * The prototype's WORKING/APPLIED chips need an event vocabulary the hub does not emit — excluded here.
  */
-export function deriveUiStatus(pin: Pin, thread: ThreadMessage[]): UiStatus {
+export function deriveUiStatus(
+  pin: Pin,
+  thread: ThreadMessage[],
+  view: StatusView = NO_VIEW,
+): UiStatus {
   if (pin.status === "resolved") return pin.verification ? "resolved" : "verify";
   if (pin.kind === "comment") return "note";
-  const last = thread[thread.length - 1];
-  if (!last || last.role === "human") return "waiting";
+  const pending = pendingKind(pin, thread, view);
+  if (pending === "stale") return "stale";
+  if (pending !== "none") return "waiting";
   return "replied";
+}
+
+/** Is anyone listening? A session not ended and seen within AGENT_LIVE_MS. */
+export function agentIsLive(sessions: Session[], now: number): boolean {
+  return sessions.some(
+    (s) => s.endedAt === undefined && now - Date.parse(s.lastSeenAt) < AGENT_LIVE_MS,
+  );
 }
 
 /** Open pins that ask something of someone — comment pins are remarks, so the badges skip them. */

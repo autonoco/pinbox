@@ -3,6 +3,7 @@
 // envelope {ok:false,error:{code,message,hint}} as a HubError; network and parse
 // failures use E_HUB_UNREACHABLE, the client-only error code.
 import type { Attachment, Pin, PinInput, ThreadMessage } from "@autono/pinbox-core/schema";
+import type { Session } from "@autono/pinbox-core/sessions";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -79,6 +80,11 @@ export class RestClient {
 
   listPins(): Promise<Pin[]> {
     return this.#request("GET", "/pins");
+  }
+
+  /** Agent sessions the hub knows, most recently seen first (routes-sessions.ts). */
+  listSessions(): Promise<Session[]> {
+    return this.#request("GET", "/sessions");
   }
 
   createPin(input: PinInput): Promise<Pin> {

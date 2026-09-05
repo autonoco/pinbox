@@ -9,8 +9,8 @@
 // sub-renderers as pure functions — they render nothing until the event
 // vocabulary lands — presentational and data-starved by design.
 import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
-import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
-import { patchThread, patchTyping } from "./card-messages.ts";
+import { deriveUiStatus, pendingKind, type ToolbarState, type UiStatus } from "../state.ts";
+import { patchPending, patchThread } from "./card-messages.ts";
 import {
   type DraftKind,
   hdHtml,
@@ -19,6 +19,7 @@ import {
   resolutionHtml,
   rowHtml,
   STATUS_LABEL,
+  staleHtml,
   verifyHtml,
 } from "./card-parts.ts";
 import { esc } from "./html.ts";
@@ -29,6 +30,8 @@ export interface CardActions {
   send(pinId: string | "draft", text: string, kind: DraftKind): void;
   verify(pinId: string, outcome: "accepted" | "reopened"): void;
   resolve(pinId: string): void;
+  /** A stale pin: re-post the last human message so a watcher re-triggers. */
+  nudge(pinId: string): void;
   /** Copy THIS pin's markdown block (the bar's C copies every open pin). */
   copy(pinId: string): void;
   close(): void;
@@ -98,6 +101,7 @@ const PIN_ACTIONS: Record<
   (card: HTMLElement, ctx: CardCtx, pid: string, from: Element) => void
 > = {
   resolve: (_card, ctx, pid) => ctx.actions.resolve(pid),
+  nudge: (_card, ctx, pid) => ctx.actions.nudge(pid),
   copy: (card, ctx, pid, from) => {
     ctx.actions.copy(pid);
     flashCopied(card, from);
@@ -257,7 +261,7 @@ function viewOf(root: ShadowRoot, state: ToolbarState): CardView | null {
     pin,
     thread,
     n: ordinalOf(state, pin),
-    status: pin ? deriveUiStatus(pin, thread) : null,
+    status: pin ? deriveUiStatus(pin, thread, state) : null,
     label: labelOf(pin?.target ?? state.draft?.target.target),
     at: anchorOf(root, pin, state.draft),
   };
@@ -307,15 +311,23 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
   setPart(card, ctx, "loci", lociHtml(view.pin));
-  setPart(card, ctx, "verify", resolutionHtml(view.pin) + verifyHtml(view.status));
+  setPart(
+    card,
+    ctx,
+    "verify",
+    resolutionHtml(view.pin) + staleHtml(view.status) + verifyHtml(view.status),
+  );
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
   setPart(card, ctx, "row", rowHtml(messages.length > 0, view.pid === "draft", ctx.draftKind));
   const threadEl = card.querySelector<HTMLElement>('[data-ref="thread"]');
   if (threadEl) {
     patchThread(threadEl, messages);
-    // Pending exactly when the last word is yours and the pin is still open — the same condition
-    // that makes the status "waiting", so the chip and the row can never disagree.
-    patchTyping(threadEl, !queued && view.pin?.status === "open" && view.status === "waiting");
+    // Pending exactly when the last word is yours and the pin is still open — the same derivation
+    // that makes the status "waiting"/"stale", so the chip and the row can never disagree.
+    patchPending(
+      threadEl,
+      queued || view.pin === null ? "none" : pendingKind(view.pin, view.thread, state),
+    );
   }
   position(card, view.at);
 }

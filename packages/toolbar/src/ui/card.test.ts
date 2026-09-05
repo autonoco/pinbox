@@ -57,10 +57,18 @@ function spyActions(): CardActions & {
   send: ReturnType<typeof mock>;
   verify: ReturnType<typeof mock>;
   resolve: ReturnType<typeof mock>;
+  nudge: ReturnType<typeof mock>;
   copy: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
 } {
-  return { send: mock(), verify: mock(), resolve: mock(), copy: mock(), close: mock() };
+  return {
+    send: mock(),
+    verify: mock(),
+    resolve: mock(),
+    nudge: mock(),
+    copy: mock(),
+    close: mock(),
+  };
 }
 
 const RESOLUTION = { by: "agent", at: "2026-08-04T11:00:00.000Z" } as const;
@@ -322,6 +330,53 @@ describe("renderCard draft kind", () => {
     renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
     expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
     expect((shadow.querySelector(".pb-hd .st") as HTMLElement).textContent).toBe("NOTE");
+  });
+});
+
+describe("renderCard pending stages", () => {
+  const T0 = Date.parse("2026-08-04T10:00:00.000Z");
+  const open = (clock: number, agentLive: boolean | null = null) => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const threads = new Map([[pin.id, [makeMsg("msg_1", pin.id, "human", "please fix")]]]);
+    const actions = spyActions();
+    renderCard(
+      shadow,
+      stateWith({ pins: [pin], activePinId: pin.id, threads, clock, agentLive }),
+      actions,
+    );
+    return { shadow, actions };
+  };
+
+  test("young: THINKING dots; older: a quiet WAITING FOR AGENT; no stale footer", () => {
+    const young = open(T0 + 30_000).shadow;
+    expect(young.querySelector(".pb-typing:not(.quiet) .lbl")?.textContent).toBe("THINKING");
+    expect(young.querySelector(".pb-stale")).toBeNull();
+    const older = open(T0 + 5 * 60_000).shadow;
+    expect(older.querySelector(".pb-typing.quiet .lbl")?.textContent).toBe("WAITING FOR AGENT");
+    expect(older.querySelector(".pb-stale")).toBeNull();
+  });
+
+  test("ten minutes on: NO RESPONSE footer replaces the row; Nudge and Resolve fire", () => {
+    const { shadow, actions } = open(T0 + 11 * 60_000);
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
+    expect((shadow.querySelector(".pb-hd .st") as HTMLElement).textContent).toBe("NO RESPONSE");
+    (shadow.querySelector('.pb-stale [data-action="nudge"]') as HTMLElement).click();
+    expect(actions.nudge).toHaveBeenCalledWith("pin_aaaaaaaaaa");
+    (shadow.querySelector('.pb-stale [data-action="resolve"]') as HTMLElement).click();
+    expect(actions.resolve).toHaveBeenCalledWith("pin_aaaaaaaaaa");
+  });
+
+  test("with no agent listening, stale arrives after the thinking window instead", () => {
+    const { shadow } = open(T0 + 2 * 60_000, false);
+    expect(shadow.querySelector(".pb-stale")).not.toBeNull();
+    // ...but a live agent keeps the quiet row at the same age.
+    expect(open(T0 + 2 * 60_000, true).shadow.querySelector(".pb-stale")).toBeNull();
+  });
+
+  test("an unticked clock never goes stale — the pre-clock behaviour", () => {
+    const { shadow } = open(0);
+    expect(shadow.querySelector(".pb-typing .lbl")?.textContent).toBe("THINKING");
   });
 });
 

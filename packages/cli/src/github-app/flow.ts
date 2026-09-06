@@ -26,8 +26,6 @@ import {
 export type SetupInput = {
   hubUrl: string;
   repo: string;
-  /** Create under this organization; null ⇒ the user's own account. */
-  org: string | null;
   appName: string;
   /** Print the secrets for the user to set instead of running wrangler. */
   printSecrets: boolean;
@@ -88,7 +86,8 @@ export async function runGithubSetup(input: SetupInput, seams: SetupSeams): Prom
   const api = (input.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
   const owner = input.repo.split("/")[0] ?? "";
 
-  const app = await createApp(input, hub, api, seams);
+  const org = await ownerOrganization(api, owner, seams);
+  const app = await createApp(input, hub, api, org, seams);
   seams.say(`Install the App on ${owner} and select ${input.repo} — opening GitHub.`);
   await seams.open(`${app.html_url}/installations/new`);
   const installation = await awaitInstallation(
@@ -130,6 +129,7 @@ async function createApp(
   input: SetupInput,
   hub: string,
   api: string,
+  org: string | null,
   seams: SetupSeams,
 ): Promise<Conversion> {
   const state = randomState();
@@ -140,11 +140,36 @@ async function createApp(
       hubUrl: hub,
       redirectUrl: `${origin}/callback`,
     });
-    return manifestFormHtml(manifestTarget(input.org, state), manifest);
+    return manifestFormHtml(manifestTarget(org, state), manifest);
   }, state);
   const app = await convert(api, code, seams.fetchImpl);
   seams.say(`App created: ${app.html_url} (id ${app.id})`);
   return app;
+}
+
+/**
+ * GitHub has two creation pages — an organization's and a user's — and posting to the wrong
+ * one 404s. The owner's public profile says which it is; if that lookup fails (offline,
+ * rate-limited) the organization page is the better bet for a team repo, and we say so.
+ */
+async function ownerOrganization(
+  api: string,
+  owner: string,
+  seams: SetupSeams,
+): Promise<string | null> {
+  try {
+    const res = await seams.fetchImpl(`${api}/users/${encodeURIComponent(owner)}`, {
+      headers: { accept: "application/vnd.github+json", "user-agent": "pinbox" },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { type?: string };
+      return body.type === "Organization" ? owner : null;
+    }
+  } catch {
+    // fall through
+  }
+  seams.say(`Could not tell whether ${owner} is an organization — assuming it is.`);
+  return owner;
 }
 
 /** Step 3: vars into wrangler.jsonc, secrets through wrangler — or nothing, when no worker. */

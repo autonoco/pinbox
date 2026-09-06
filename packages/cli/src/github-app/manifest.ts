@@ -58,6 +58,23 @@ export function normalizeHubUrl(raw: string): string {
   return hub;
 }
 
+/**
+ * The hub URL a worker config already states: a `routes` entry with `custom_domain: true`
+ * names the public host (pinbox.sh's own worker is configured this way). Null when the
+ * worker is on workers.dev — that subdomain is not in the config, so the caller must ask.
+ */
+export function hubFromWranglerConfig(jsonc: string): string | null {
+  // JSONC, so no parser: one route object at a time, host from its pattern.
+  const routes = /"routes"\s*:\s*\[([\s\S]*?)\]/.exec(jsonc)?.[1];
+  if (routes === undefined) return null;
+  for (const entry of routes.match(/\{[^{}]*\}/g) ?? []) {
+    if (!/"custom_domain"\s*:\s*true/.test(entry)) continue;
+    const host = /"pattern"\s*:\s*"([^"]+)"/.exec(entry)?.[1];
+    if (host !== undefined) return `https://${host.replace(/\/.*$/, "")}/_pinbox`;
+  }
+  return null;
+}
+
 export function webhookUrl(hub: string): string {
   return `${hub}/webhooks/github`;
 }

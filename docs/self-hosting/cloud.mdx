@@ -117,6 +117,8 @@ Set in `wrangler.jsonc`:
 | `AUTH_STRATEGY` | var | `token` (default), `jwt`, or `none`. |
 | `PINBOX_PROJECT` | var | Names the Durable Object. One DO per name; default `"default"`. |
 | `ORIGIN_URL` | var | Staging origin to proxy and inject into. Empty disables injection. |
+| `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_REPO` | var | The GitHub App that backs `pinbox link <id> github`. See [GitHub](/integrations/github#on-a-cloud-hub). |
+| `GITHUB_API_BASE` | var | GitHub Enterprise Server API root, e.g. `https://ghe.example.com/api/v3`. Omit for github.com. |
 
 Two more lines in `wrangler.jsonc` matter:
 
@@ -134,6 +136,8 @@ Set with `wrangler secret put <NAME>`. Never put these in `wrangler.jsonc` vars.
 | `JWT_ISSUER`, `JWT_JWKS_URL`, `JWT_AUDIENCE` | `AUTH_STRATEGY=jwt` |
 | `ALLOW_UNAUTHENTICATED` | `AUTH_STRATEGY=none` (must be exactly `1`) |
 | `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Attachment uploads |
+| `GITHUB_APP_PRIVATE_KEY` | The GitHub App's PEM, as downloaded (PKCS#1) or PKCS#8 |
+| `SLACK_BOT_TOKEN` (with `SLACK_CHANNEL` var) | The Slack connector |
 
 ## Auth strategies
 

@@ -21,7 +21,11 @@ SQLite storage, with hibernating WebSockets and R2-backed attachments.
    allowing `PUT`/`GET` from the same origins), or text pins will work while screenshot
    uploads fail. Without `CORS_ORIGINS` the websocket still connects (CORS-exempt), so
    the toolbar reads "live" while every REST write quietly queues offline.
-6. `bun run deploy` — runs the locally installed wrangler (pinned `^4.118.0` in
+6. (Optional, GitHub linking) Create a GitHub App and install it on the repo — see
+   "GitHub connector" below. Put `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and
+   `GITHUB_REPO` in `wrangler.jsonc` vars and the key in a secret:
+   `wrangler secret put GITHUB_APP_PRIVATE_KEY < pinbox-app.private-key.pem`.
+7. `bun run deploy` — runs the locally installed wrangler (pinned `^4.118.0` in
    `package.json`; wrangler < 3.91 silently ignores `wrangler.jsonc`, so don't reach for a
    global). Local loop: copy `.dev.vars.example` to `.dev.vars`, `bun run dev`.
 
@@ -41,6 +45,28 @@ The template inherits the host's auth strategy via `AUTH_STRATEGY`:
 
 Misconfiguration (e.g. `token` with no secret, `none` without the explicit opt-in) is a
 loud 500 on every request — the hub never falls open.
+
+## GitHub connector
+
+The local hub shells out to the developer's own `gh`. A Worker cannot, so the cloud hub
+uses a **GitHub App**: issues and comments are authored by `<your-app>[bot]`, access is
+per installed repo, and every request uses a one-hour installation token minted from the
+App's private key (the key never leaves the Worker).
+
+1. GitHub → Settings → Developer settings → GitHub Apps → New. Permissions: **Issues:
+   Read & write**, **Metadata: Read-only**. Webhook: off for now. Where can it be
+   installed: only this account.
+2. Generate a private key (downloads a `.pem`). Note the **App ID** on the same page.
+3. Install the App on the organization or user that owns the repo, choosing that repo.
+   The **installation id** is the number at the end of the URL you land on
+   (`…/settings/installations/12345678`).
+4. `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_REPO` (`owner/name`) in
+   `wrangler.jsonc` vars; `wrangler secret put GITHUB_APP_PRIVATE_KEY` with the PEM as
+   downloaded. GitHub Enterprise Server: also `GITHUB_API_BASE=https://<host>/api/v3`.
+
+All four together enable the connector; any missing and `pinbox link <id> github` answers
+`E_CONNECTOR`. Linked pins reconcile on the Durable Object's alarm: outbound comments and
+status flush, inbound comments and closes mirror back, on the same cadence as the local hub.
 
 ## Zero-touch staging injection
 

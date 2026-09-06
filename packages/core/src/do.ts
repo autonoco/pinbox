@@ -12,6 +12,11 @@ import type {
 } from "@cloudflare/workers-types";
 import { verifyJwt } from "./auth/jwt.ts";
 import { verifyNone, verifyToken } from "./auth/verify.ts";
+import { createGithubConnector } from "./connectors/github.ts";
+import { createGithubAppTransport } from "./connectors/github-app.ts";
+import { drainConnectorPolls } from "./connectors/poll.ts";
+import { createSlackConnector, createSlackTransport } from "./connectors/slack.ts";
+import type { Connector } from "./connectors/types.ts";
 import { DeliveryRouter } from "./delivery/router.ts";
 import { createWebhookAdapter } from "./delivery/webhook.ts";
 import { type DoPinStore, openDoStore } from "./do-store.ts";
@@ -50,6 +55,16 @@ export type PinboxDoEnv = {
   JWT_ISSUER?: string;
   JWT_JWKS_URL?: string;
   JWT_AUDIENCE?: string;
+  // GitHub connector via a GitHub App (the cloud counterpart of the CLI's `gh` shell-out).
+  // All four together enable `pinbox link <id> github`; any missing ⇒ no github connector.
+  GITHUB_APP_ID?: string;
+  GITHUB_APP_PRIVATE_KEY?: string; // secret: the App's PEM, PKCS#1 as downloaded or PKCS#8
+  GITHUB_INSTALLATION_ID?: string;
+  GITHUB_REPO?: string; // "owner/name"
+  GITHUB_API_BASE?: string; // GHES: https://<host>/api/v3
+  // Slack connector — same pair the CLI serve reads.
+  SLACK_BOT_TOKEN?: string;
+  SLACK_CHANNEL?: string;
   MEDIA?: R2Bucket; // attachments bucket binding (GET path)
   R2_ACCOUNT_ID?: string; // presign path (PUT) — S3 API credentials
   R2_BUCKET?: string;
@@ -214,6 +229,42 @@ function buildRouter(store: DoPinStore, env: PinboxDoEnv): DeliveryRouter | unde
   return new DeliveryRouter({ store, adapters: [createWebhookAdapter({ url, secret })] });
 }
 
+/**
+ * The cloud connector set, from the environment: github when the App quartet is present,
+ * slack when its pair is. A partial quartet is ignored rather than half-configured — the
+ * link route then answers 502 E_CONNECTOR with the `pinbox doctor` hint, as with no config.
+ */
+export function buildConnectors(env: PinboxDoEnv): Connector[] {
+  const out: Connector[] = [];
+  const present = (v: string | undefined): v is string => v !== undefined && v !== "";
+  if (
+    present(env.GITHUB_APP_ID) &&
+    present(env.GITHUB_APP_PRIVATE_KEY) &&
+    present(env.GITHUB_INSTALLATION_ID) &&
+    present(env.GITHUB_REPO)
+  ) {
+    out.push(
+      createGithubConnector(
+        createGithubAppTransport({
+          appId: env.GITHUB_APP_ID,
+          privateKeyPem: env.GITHUB_APP_PRIVATE_KEY,
+          installationId: env.GITHUB_INSTALLATION_ID,
+          repo: env.GITHUB_REPO,
+          ...(present(env.GITHUB_API_BASE) ? { apiBase: env.GITHUB_API_BASE } : {}),
+        }),
+      ),
+    );
+  }
+  if (present(env.SLACK_BOT_TOKEN) && present(env.SLACK_CHANNEL)) {
+    out.push(
+      createSlackConnector(createSlackTransport({ botToken: env.SLACK_BOT_TOKEN }), {
+        channel: env.SLACK_CHANNEL,
+      }),
+    );
+  }
+  return out;
+}
+
 export class PinboxHubDO {
   readonly store: DoPinStore;
   readonly broadcaster: DoBroadcaster;
@@ -225,6 +276,8 @@ export class PinboxHubDO {
   private readonly handler: (req: Request) => Promise<Response>;
   /** Undefined when no adapter is configured — the hub then stores pins and delivers nothing. */
   private readonly router: DeliveryRouter | undefined;
+  /** Host-injected tracker connectors (github via App token, slack); empty ⇒ link routes 502. */
+  private readonly connectors: Connector[];
 
   constructor(ctx: DurableObjectState, env: PinboxDoEnv) {
     this.ctx = ctx;
@@ -233,10 +286,12 @@ export class PinboxHubDO {
     this.topic = `project:${ctx.id.name ?? ctx.id.toString()}`;
     this.broadcaster = new DoBroadcaster(ctx);
     this.strategy = buildStrategy(env);
+    this.connectors = buildConnectors(env);
     this.handler = createHubHandler({
       store: this.store,
       token: env.PINBOX_TOKEN ?? "",
       ...("verify" in this.strategy ? { verify: this.strategy.verify } : {}),
+      ...(this.connectors.length > 0 ? { connectors: this.connectors } : {}),
     });
     // Wiring rule: exactly one store.subscribe listener feeds the Broadcaster; the hub handler
     // never touches it. The second listener is the delivery router, registered only when an
@@ -250,6 +305,12 @@ export class PinboxHubDO {
       });
       // Events appended while this DO was evicted are replayed from the deliveries cursor on
       // the next alarm, so waking is enough — no boot drain in the constructor.
+      void this.scheduleDrain();
+    }
+    if (this.connectors.length > 0) {
+      // Linked pins reconcile on pins.due_at (connectors/poll.ts), which `pinbox link` arms;
+      // any event may have armed one, so re-check the alarm after each.
+      this.store.subscribe(() => void this.scheduleDrain());
       void this.scheduleDrain();
     }
     // Keepalive is transport-level: no ping message exists at
@@ -339,19 +400,26 @@ export class PinboxHubDO {
    * DO has been unloaded and woken again.
    */
   async alarm(): Promise<void> {
-    if (this.router === undefined) return;
-    await this.router.drainDue();
+    if (this.router !== undefined) await this.router.drainDue();
+    // Tracker mirroring rides the same alarm: outbound flush + inbound pull for every linked pin
+    // whose due_at has passed (per-pin failures are logged and re-armed inside the drain).
+    if (this.connectors.length > 0) await drainConnectorPolls(this.store, this.connectors);
     await this.scheduleDrain();
   }
 
   /** Re-arm while work remains. Setting an alarm that already exists is a no-op. */
   private async scheduleDrain(): Promise<void> {
-    if (this.router === undefined) return;
-    // `due()` is "pending AND due_at <= now", so a timestamp past every possible due_at asks the
-    // one question the interface does not expose directly: is there any pending row at all?
-    if (this.store.deliveries.due(FAR_FUTURE).length === 0) return;
+    if (!this.hasPendingWork()) return;
     if ((await this.ctx.storage.getAlarm()) !== null) return;
     await this.ctx.storage.setAlarm(Date.now() + DRAIN_INTERVAL_MS);
+  }
+
+  /** Any delivery row pending, or any linked pin with a poll deadline set. */
+  private hasPendingWork(): boolean {
+    // `due()` is "pending AND due_at <= now", so a timestamp past every possible due_at asks the
+    // one question the interface does not expose directly: is there any pending row at all?
+    if (this.router !== undefined && this.store.deliveries.due(FAR_FUTURE).length > 0) return true;
+    return this.connectors.length > 0 && this.store.pinsDueBefore(FAR_FUTURE).length > 0;
   }
 
   private async upgrade(req: Request, url: URL, verify: VerifyFn): Promise<Response> {

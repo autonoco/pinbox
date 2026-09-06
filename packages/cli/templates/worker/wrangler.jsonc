@@ -23,7 +23,13 @@
     // Websockets are CORS-exempt, REST is not: left empty in that mode, the toolbar
     // reads "live" while every pin quietly queues offline. Browser screenshot uploads
     // ALSO need CORS on the R2 bucket itself (see README step 5).
-    "CORS_ORIGINS": ""
+    "CORS_ORIGINS": "",
+    // GitHub connector (`pinbox link <id> github`): a GitHub App installed on the repo.
+    // These three are configuration; the App's private key is a secret:
+    // `wrangler secret put GITHUB_APP_PRIVATE_KEY`. Leave all four unset to disable.
+    "GITHUB_APP_ID": "",
+    "GITHUB_INSTALLATION_ID": "",
+    "GITHUB_REPO": ""
   },
   // The toolbar bundle ships as text (served verbatim at /_pinbox/pinbox.js).
   "rules": [{ "type": "Text", "globs": ["**/*.iife.js"], "fallthrough": true }],

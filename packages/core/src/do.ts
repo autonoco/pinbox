@@ -337,14 +337,7 @@ export class PinboxHubDO {
   // frozen and routes-toolbar.ts is shared, so the cloud attachment surface mounts
   // here, behind the same auth gate the handler applies. Null falls through to the hub.
   private async intercept(req: Request, url: URL, verify: VerifyFn): Promise<Response | null> {
-    // GitHub cannot present our credential: the HMAC signature is this route's whole auth
-    // (github-webhook.ts), so it sits outside the bearer/JWT gate. Unconfigured ⇒ falls to 404.
-    if (req.method === "POST" && url.pathname === WEBHOOK_PATH) {
-      const secret = this.env.GITHUB_WEBHOOK_SECRET;
-      const repo = this.env.GITHUB_REPO;
-      if (secret === undefined || secret === "" || repo === undefined || repo === "") return null;
-      return handleGithubWebhook(req, this.store, { secret, repo });
-    }
+    if (req.method === "POST" && url.pathname === WEBHOOK_PATH) return this.githubWebhook(req);
     if (req.method === "POST" && url.pathname === "/attachments") {
       return (await this.unauthorized(verify, req)) ?? this.createAttachment(req, url);
     }
@@ -353,6 +346,17 @@ export class PinboxHubDO {
       return (await this.unauthorized(verify, req)) ?? this.serveMedia(mediaKey);
     }
     return null;
+  }
+
+  /**
+   * GitHub cannot present our credential: the HMAC signature is this route's whole auth
+   * (github-webhook.ts), so it sits outside the bearer/JWT gate. Unconfigured ⇒ falls to 404.
+   */
+  private githubWebhook(req: Request): Promise<Response> | null {
+    const secret = this.env.GITHUB_WEBHOOK_SECRET;
+    const repo = this.env.GITHUB_REPO;
+    if (secret === undefined || secret === "" || repo === undefined || repo === "") return null;
+    return handleGithubWebhook(req, this.store, { secret, repo });
   }
 
   // hello → catch-up (ws-protocol.ts, reused unchanged). Pinned-sync signature.

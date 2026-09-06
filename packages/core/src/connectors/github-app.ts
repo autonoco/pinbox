@@ -114,6 +114,9 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
+      // GitHub can revoke an installation token before expires_at; drop it so the
+      // next call mints a fresh one instead of replaying the rejected token.
+      if (res.status === 401) cached = null;
       throw new GithubAppError(
         `GitHub ${method} ${path} failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`,
         res.status,
@@ -144,6 +147,11 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
   return {
     async request(op, params) {
       const number = Number(params["number"]);
+      // link.ref is any string; a non-numeric one would become /issues/NaN and a 404
+      // wearing the misleading "check the App is installed" hint.
+      if (op !== "issue.create" && (!Number.isInteger(number) || number <= 0)) {
+        throw new GithubAppError(`github ${op} needs a positive issue number`, 0);
+      }
       switch (op) {
         case "issue.create": {
           const issue = await call<Issue>("POST", `/repos/${repo}/issues`, {

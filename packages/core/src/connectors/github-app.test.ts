@@ -191,6 +191,39 @@ describe("op mapping", () => {
     expect((gh.seen.at(-1) as Seen).body).toEqual({ body: "hello" });
     await expect(t.request("issue.explode", {})).rejects.toThrow("unknown github op");
   });
+
+  test("a non-numeric issue number is refused before any request is built", async () => {
+    const gh = fakeGithub(() => tokenResponse("n"));
+    const t = transportWith(gh);
+    for (const op of ["issue.comment", "issue.view", "issue.close", "issue.reopen"]) {
+      await expect(t.request(op, { number: "abc" })).rejects.toThrow("positive issue number");
+    }
+    await expect(t.request("issue.view", {})).rejects.toThrow("positive issue number");
+    expect(gh.seen).toHaveLength(0);
+  });
+});
+
+describe("token invalidation", () => {
+  test("a 401 on an API call drops the cached token so the next call re-mints", async () => {
+    let mints = 0;
+    let rejectNext = true;
+    const gh = fakeGithub((method, path) => {
+      if (path.endsWith("/access_tokens")) {
+        mints += 1;
+        return tokenResponse(`m${mints}`);
+      }
+      if (method === "PATCH" && rejectNext) {
+        rejectNext = false;
+        return { status: 401, body: { message: "Bad credentials" } };
+      }
+      return { status: 200, body: {} };
+    });
+    const t = transportWith(gh);
+    await expect(t.request("issue.close", { number: 1 })).rejects.toThrow("HTTP 401");
+    await t.request("issue.close", { number: 1 });
+    expect(mints).toBe(2);
+    expect((gh.seen.at(-1) as Seen).headers["authorization"]).toBe("Bearer ghs_m2");
+  });
 });
 
 describe("errors carry hints", () => {

@@ -27,8 +27,6 @@ export type SetupInput = {
   hubUrl: string;
   repo: string;
   appName: string;
-  /** Print the secrets for the user to set instead of running wrangler. */
-  printSecrets: boolean;
   apiBase?: string;
 };
 
@@ -44,7 +42,8 @@ export type SetupSeams = {
   worker: {
     dir: string;
     writeVars(vars: Record<string, string>): Promise<string[]>;
-    putSecret(name: string, value: string): Promise<void>;
+    /** False when wrangler could not set it; the flow then prints the values instead. */
+    putSecret(name: string, value: string): Promise<boolean>;
   } | null;
   now?: () => number;
   /** How long to wait for each browser step. */
@@ -193,13 +192,15 @@ async function configureWorker(
     GITHUB_INSTALLATION_ID: String(installation.id),
     GITHUB_REPO: input.repo,
   };
-  if (seams.worker === null)
+  if (seams.worker === null) {
     return { vars: { written: false, missing: Object.keys(vars) }, secrets: "printed" };
+  }
   const missing = await seams.worker.writeVars(vars);
-  if (input.printSecrets) return { vars: { written: true, missing }, secrets: "printed" };
-  await seams.worker.putSecret("GITHUB_APP_PRIVATE_KEY", app.pem);
-  await seams.worker.putSecret("GITHUB_WEBHOOK_SECRET", app.webhook_secret);
-  return { vars: { written: true, missing }, secrets: "written" };
+  const key = await seams.worker.putSecret("GITHUB_APP_PRIVATE_KEY", app.pem);
+  const hook = key && (await seams.worker.putSecret("GITHUB_WEBHOOK_SECRET", app.webhook_secret));
+  if (!key || !hook)
+    seams.say("wrangler could not set the secrets — printing them for you to set.");
+  return { vars: { written: true, missing }, secrets: key && hook ? "written" : "printed" };
 }
 
 async function convert(api: string, code: string, fetchImpl: FetchLike): Promise<Conversion> {

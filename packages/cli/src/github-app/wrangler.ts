@@ -1,27 +1,26 @@
 // pinbox CLI — the worker-side writes of `pinbox github setup`: find the scaffolded hub,
 // patch its wrangler.jsonc vars, push the two secrets through wrangler. Bun APIs: this is a
 // process we launch.
-import { CliError } from "../errors.ts";
 import { patchWranglerVars } from "./manifest.ts";
 
 const CONFIG_NAMES = ["wrangler.jsonc", "wrangler.json"];
 
 /**
- * The hub worker's directory: `--worker` when given; else the cwd or one of its immediate
- * subdirectories whose wrangler config names `PinboxHubDO`.
+ * The hub worker's directory: the cwd, or the nearest directory under it (up to four levels,
+ * node_modules skipped) whose wrangler config names `PinboxHubDO`. Null when the repo has
+ * no scaffolded hub — the values are then printed for wherever the worker lives.
  */
-export async function findWorkerDir(cwd: string, explicit?: string): Promise<string | null> {
-  if (explicit !== undefined) {
-    const dir = explicit.startsWith("/") ? explicit : `${cwd}/${explicit}`;
-    return (await configIn(dir)) === null ? null : dir;
-  }
+export async function findWorkerDir(cwd: string): Promise<string | null> {
   if ((await configIn(cwd)) !== null) return cwd;
-  const glob = new Bun.Glob("*/wrangler.json{,c}");
+  const glob = new Bun.Glob("{*,*/*,*/*/*,*/*/*/*}/wrangler.json{,c}");
+  const found: string[] = [];
   for await (const rel of glob.scan({ cwd, onlyFiles: true, dot: false })) {
+    if (rel.includes("node_modules/")) continue;
     const dir = `${cwd}/${rel.slice(0, rel.lastIndexOf("/"))}`;
-    if ((await configIn(dir)) !== null) return dir;
+    if ((await configIn(dir)) !== null) found.push(dir);
   }
-  return null;
+  found.sort((a, b) => a.length - b.length); // the shallowest match wins
+  return found[0] ?? null;
 }
 
 /** The config file in `dir` that names the hub DO, or null. */
@@ -52,8 +51,12 @@ async function wranglerCommand(workerDir: string): Promise<string[]> {
   return ["bunx", "wrangler@4"];
 }
 
-/** `wrangler secret put NAME` with the value on stdin — never on argv, never echoed. */
-export async function putSecret(workerDir: string, name: string, value: string): Promise<void> {
+/**
+ * `wrangler secret put NAME` with the value on stdin — never on argv, never echoed. Resolves
+ * false (with the reason on stderr) when wrangler cannot do it — not logged in, no network —
+ * so the caller falls back to printing the value instead of failing the whole setup.
+ */
+export async function putSecret(workerDir: string, name: string, value: string): Promise<boolean> {
   const cmd = await wranglerCommand(workerDir);
   const proc = Bun.spawn([...cmd, "secret", "put", name], {
     cwd: workerDir,
@@ -64,11 +67,9 @@ export async function putSecret(workerDir: string, name: string, value: string):
   proc.stdin.write(value);
   proc.stdin.end();
   const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-  if (exitCode !== 0) {
-    throw new CliError(
-      "E_CONNECTOR",
-      `wrangler secret put ${name} failed (exit ${exitCode}): ${stderr.trim().slice(0, 300)}`,
-      "run `wrangler login` in the worker directory, or pass --print-secrets to set them yourself",
-    );
-  }
+  if (exitCode === 0) return true;
+  console.error(
+    `wrangler secret put ${name} failed (exit ${exitCode}): ${stderr.trim().slice(0, 300)}`,
+  );
+  return false;
 }

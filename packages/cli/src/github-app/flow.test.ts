@@ -73,7 +73,7 @@ function fakeGithub(
   return { calls, fetchImpl };
 }
 
-function seamsWith(gh: ReturnType<typeof fakeGithub>, worker: boolean) {
+function seamsWith(gh: ReturnType<typeof fakeGithub>, worker: boolean, failSecrets = false) {
   const opened: string[] = [];
   const said: string[] = [];
   const vars: Record<string, string>[] = [];
@@ -96,7 +96,9 @@ function seamsWith(gh: ReturnType<typeof fakeGithub>, worker: boolean) {
             return ["GITHUB_INSTALLATION_ID"];
           },
           putSecret: async (name, value) => {
+            if (failSecrets) return false;
             secrets[name] = value;
+            return true;
           },
         }
       : null,
@@ -109,7 +111,6 @@ const INPUT = {
   hubUrl: "https://app.example/_pinbox",
   repo: "autonoco/pinbox",
   appName: "pinbox-pinbox",
-  printSecrets: false,
 };
 
 describe("runGithubSetup", () => {
@@ -163,10 +164,20 @@ describe("runGithubSetup", () => {
     expect(s.said.some((l) => l.includes("assuming it is"))).toBe(true);
   });
 
+  test("wrangler cannot set the secrets ⇒ vars still written, secrets come back to set by hand", async () => {
+    const gh = fakeGithub();
+    const s = seamsWith(gh, true, true);
+    const result = await runGithubSetup(INPUT, s.seams);
+    expect(result.vars.written).toBe(true);
+    expect(result.secrets).toBe("printed");
+    expect(result.secretValues?.GITHUB_WEBHOOK_SECRET).toBe("whsec");
+    expect(s.said.some((l) => l.includes("could not set the secrets"))).toBe(true);
+  });
+
   test("no worker found ⇒ nothing written, the values come back for the user to set", async () => {
     const gh = fakeGithub();
     const s = seamsWith(gh, false);
-    const result = await runGithubSetup({ ...INPUT, printSecrets: true }, s.seams);
+    const result = await runGithubSetup(INPUT, s.seams);
     expect(result.vars).toEqual({
       written: false,
       missing: ["GITHUB_APP_ID", "GITHUB_INSTALLATION_ID", "GITHUB_REPO"],

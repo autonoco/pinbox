@@ -481,6 +481,7 @@ var Pinbox = (function(exports) {
 			ui.surface.style.borderRadius = `${m.r}px`;
 			ui.surface.style.transform = `translate(${m.x}px, ${m.y}px)`;
 			ui.carrier.style.transform = `translate(${m.x + m.w / 2 - PUCK / 2}px, ${m.y + m.h / 2 - PUCK / 2}px)`;
+			if (mode === "settle") placePuck(m.x, m.y);
 			const iconOn = mode === "drag" || mode === "settle" || (mode === "toPuck" || mode === "toBar") && m.w < CARRIER_MAX_W;
 			ui.carrier.classList.toggle("show", iconOn);
 		}
@@ -655,9 +656,17 @@ var Pinbox = (function(exports) {
 			if (path.includes(ui.fan) || path.includes(ui.puck)) return;
 			closeFan();
 		}
+		/** Grabbable at rest and while settling — mid-flight, the spring's current spot is the origin. */
+		const grabbable = () => mode === "puck" || mode === "settle";
 		const drag = attachDrag(ui.puck, {
-			origin: () => mode === "puck" ? puckPos : null,
-			canStart: () => mode === "puck",
+			origin: () => {
+				if (mode === "settle") return {
+					x: main.cur.x,
+					y: main.cur.y
+				};
+				return mode === "puck" ? puckPos : null;
+			},
+			canStart: grabbable,
 			onStart(origin) {
 				closeFan();
 				mode = "drag";
@@ -720,6 +729,9 @@ var Pinbox = (function(exports) {
 					x: main.tgt.x,
 					y: main.tgt.y
 				});
+				placePuck(main.cur.x, main.cur.y);
+				ui.puck.classList.remove("pb-ghost");
+				hideMorph();
 				main.to({
 					...p,
 					w: PUCK,

@@ -147,6 +147,48 @@ describe("drag", () => {
   });
 });
 
+describe("settling (animated)", () => {
+  test("the puck is grabbable the instant it is released, and a grab mid-settle starts a new drag", async () => {
+    const h = harness({ reduced: false });
+    h.controller.minimize(false);
+    // Let the minimize morph finish (happy-dom rAF is timer-backed).
+    await waitFor(() => h.controller.mode() === "puck");
+    h.pointer("pointerdown", 200, 200);
+    h.pointer("pointermove", 300, 300);
+    h.pointer("pointermove", 500, 400);
+    h.pointer("pointerup", 500, 400);
+    expect(h.controller.mode()).toBe("settle");
+    expect(h.ui.puck.classList.contains("pb-ghost")).toBe(false); // interactive at once
+    expect(h.ui.morphWrap.classList.contains("on")).toBe(false);
+    // Grab again before it has landed: the press is honoured, not dropped, and the new drag
+    // starts from wherever the puck is right now (the real puck already sits on the spring).
+    const mid = parseTranslate(h.ui.puck.style.transform);
+    h.pointer("pointerdown", 500, 400);
+    h.pointer("pointermove", 510, 410);
+    h.pointer("pointermove", 700, 400);
+    h.pointer("pointerup", 700, 400);
+    expect(h.controller.mode()).toBe("settle");
+    await waitFor(() => h.controller.mode() === "puck");
+    const final = parseTranslate(h.ui.puck.style.transform);
+    expect(final.x).toBeCloseTo(Math.min(mid.x + 200, 1400 - 16 - 48), 0);
+    expect(final.y).toBeCloseTo(Math.max(mid.y, 16), 0);
+  });
+});
+
+function parseTranslate(transform: string): { x: number; y: number } {
+  const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(transform);
+  if (m === null) throw new Error(`not a translate: ${transform}`);
+  return { x: Number.parseFloat(m[1] as string), y: Number.parseFloat(m[2] as string) };
+}
+
+async function waitFor(pred: () => boolean, ms = 4000): Promise<void> {
+  const until = Date.now() + ms;
+  while (!pred()) {
+    if (Date.now() > until) throw new Error("waitFor timed out");
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
+
 describe("persistence", () => {
   test("applyInitial restores a persisted minimized state and dock", () => {
     const first = harness();

@@ -86,6 +86,67 @@ describe("attachDrag", () => {
   });
 });
 
+describe("release without capture", () => {
+  test("a pointerup that lands on the document, not the element, still ends the drag", () => {
+    const happy = new HappyWindow({ width: 1000, height: 800 });
+    const doc = happy.document as unknown as Document;
+    const el = doc.createElement("div");
+    doc.body.appendChild(el);
+    const log: string[] = [];
+    attachDrag(el, {
+      origin: () => ({ x: 0, y: 0 }),
+      canStart: () => true,
+      onStart: () => log.push("start"),
+      onMove: () => {},
+      onEnd: (r) => log.push(`end dragged=${r.dragged}`),
+    });
+    const Ctor = (happy as unknown as { PointerEvent: typeof PointerEvent }).PointerEvent;
+    const fire = (target: EventTarget, type: string, x: number, y: number): void => {
+      target.dispatchEvent(
+        new Ctor(type, { clientX: x, clientY: y, button: 0, pointerId: 7, bubbles: true }),
+      );
+    };
+    fire(el, "pointerdown", 10, 10);
+    fire(doc.body, "pointermove", 60, 60); // the element never sees this
+    fire(doc.body, "pointerup", 60, 60);
+    expect(log).toEqual(["start", "end dragged=true"]);
+    // Another pointer's events are not ours.
+    fire(el, "pointerdown", 10, 10);
+    el.dispatchEvent(
+      new Ctor("pointerup", { clientX: 10, clientY: 10, button: 0, pointerId: 9, bubbles: true }),
+    );
+    expect(log).toHaveLength(2);
+    fire(doc.body, "pointerup", 10, 10);
+    expect(log).toHaveLength(3);
+  });
+
+  test("losing the window ends a hold", () => {
+    const happy = new HappyWindow({ width: 1000, height: 800 });
+    const doc = happy.document as unknown as Document;
+    const el = doc.createElement("div");
+    doc.body.appendChild(el);
+    const log: string[] = [];
+    attachDrag(el, {
+      origin: () => ({ x: 0, y: 0 }),
+      canStart: () => true,
+      onStart: () => log.push("start"),
+      onMove: () => {},
+      onEnd: (r) => log.push(`end dragged=${r.dragged}`),
+    });
+    const Ctor = (happy as unknown as { PointerEvent: typeof PointerEvent }).PointerEvent;
+    el.dispatchEvent(
+      new Ctor("pointerdown", { clientX: 10, clientY: 10, button: 0, pointerId: 1, bubbles: true }),
+    );
+    el.dispatchEvent(
+      new Ctor("pointermove", { clientX: 80, clientY: 80, button: 0, pointerId: 1, bubbles: true }),
+    );
+    (happy as unknown as EventTarget).dispatchEvent(
+      new (happy as unknown as { Event: typeof Event }).Event("blur"),
+    );
+    expect(log).toEqual(["start", "end dragged=true"]);
+  });
+});
+
 describe("clampToViewport", () => {
   test("keeps the box a margin inside, and never inverts on a tiny viewport", () => {
     const win = { innerWidth: 1000, innerHeight: 800 } as Window;

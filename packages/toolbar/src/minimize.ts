@@ -14,6 +14,13 @@
 //
 // A tap toggles the fan menu (vertical quick-actions out of the puck); the
 // bar comes back via the fan's EXPAND, the M key, or restore().
+//
+// Release hands the landing to the REAL puck, not the morph surface (dogfood:
+// "after I drag it, it stops being draggable"). The surface is pointer-inert and
+// the ghosted puck was untouchable for the ~550 ms the spring took to settle, so
+// a grab during that window fell through to the page. Now the puck is visible
+// and grabbable the instant you let go; the spring still carries it home, and a
+// press mid-flight simply starts the next drag from wherever it is.
 import { attachDrag, clampToViewport, type Point, readPoint } from "./motion/drag.ts";
 import { FOLLOW_SPRING, MORPH_SPRING, mkSpring } from "./motion/spring.ts";
 import type { StorageLike } from "./transport/mirror.ts";
@@ -125,6 +132,8 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
     ui.surface.style.borderRadius = `${m.r}px`;
     ui.surface.style.transform = `translate(${m.x}px, ${m.y}px)`;
     ui.carrier.style.transform = `translate(${m.x + m.w / 2 - PUCK / 2}px, ${m.y + m.h / 2 - PUCK / 2}px)`;
+    // Settling: the real puck rides the spring (the morph layer is already hidden).
+    if (mode === "settle") placePuck(m.x, m.y);
     const iconOn =
       mode === "drag" ||
       mode === "settle" ||
@@ -296,10 +305,15 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   }
 
   // ---- drag (rules in motion/drag.ts) --------------------------------------
+  /** Grabbable at rest and while settling — mid-flight, the spring's current spot is the origin. */
+  const grabbable = (): boolean => mode === "puck" || mode === "settle";
   const drag = attachDrag(ui.puck, {
-    origin: () => (mode === "puck" ? puckPos : null),
+    origin: () => {
+      if (mode === "settle") return { x: main.cur.x, y: main.cur.y };
+      return mode === "puck" ? puckPos : null;
+    },
     // A keyboard restore mid-hold flips the mode; the held pointer must not drag the ghost.
-    canStart: () => mode === "puck",
+    canStart: grabbable,
     onStart(origin) {
       closeFan();
       mode = "drag";
@@ -344,8 +358,12 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
         persist();
         return;
       }
-      // Free placement: settle right where it was released, just inside the viewport.
+      // Free placement: settle right where it was released, just inside the viewport. The REAL
+      // puck takes over from the surface here, so it is grabbable at once (see header).
       const p = clampPos({ x: main.tgt.x, y: main.tgt.y });
+      placePuck(main.cur.x, main.cur.y);
+      ui.puck.classList.remove("pb-ghost");
+      hideMorph();
       main.to({ ...p, w: PUCK, h: PUCK, r: PUCK / 2 }, MORPH_SPRING);
       mode = "settle";
       ensureLoop();

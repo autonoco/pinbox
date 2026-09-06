@@ -9,6 +9,12 @@
 //     resumed by the next pointermove (keyboard restore hijacked the morph)
 //   - a release under TAP_MAX total travel is a tap — trackpad clicks wander
 //     several pixels, and treating them as drags read as "not responding"
+//   - the release must never depend on pointer capture succeeding. Move/up
+//     listeners live on the DOCUMENT for the life of a hold, so a pointerup
+//     that lands anywhere ends the drag; capture is requested as a nicety
+//     only. A drag whose pointerup was lost left the puck ghosted behind the
+//     morph surface for good (dogfood: "click does nothing, won't drag").
+//     Losing the window (blur) ends a hold the same way.
 
 /** Movement that begins a drag… */
 const DRAG_START = 8;
@@ -43,6 +49,7 @@ export interface Drag {
 }
 
 interface Hold {
+  pointerId: number;
   px: number;
   py: number;
   origin: Point;
@@ -52,34 +59,54 @@ interface Hold {
 }
 
 /**
- * Attach the drag rules to `el`. Move/up listeners live on `el` itself with pointer capture
- * (a capture failure on a synthetic pointer is tolerated); `touch-action: none` on the element
- * is the caller's job.
+ * Attach the drag rules to `el`. The press is read on `el`; move/up/cancel are read on its
+ * document while a hold is live, so the release cannot be lost to a failed capture. Pointer
+ * capture is still requested (it keeps moves flowing when the pointer leaves the window);
+ * `touch-action: none` on the element is the caller's job.
  */
 export function attachDrag(el: HTMLElement, on: DragHandlers): Drag {
+  const doc = el.ownerDocument;
+  const win = doc.defaultView;
   let hold: Hold | null = null;
 
+  function listen(active: boolean): void {
+    const method = active ? "addEventListener" : "removeEventListener";
+    doc[method]("pointermove", onPointerMove as EventListener, true);
+    doc[method]("pointerup", onPointerUp as EventListener, true);
+    doc[method]("pointercancel", onPointerUp as EventListener, true);
+    win?.[method]("blur", onBlur);
+  }
+
   function onPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || hold !== null) return;
     const origin = on.origin();
     if (origin === null) return;
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
-      // synthetic pointer events have no capturable pointer
+      // synthetic pointer events have no capturable pointer; the document listeners carry on
     }
-    hold = { px: e.clientX, py: e.clientY, origin, lx: e.clientX, ly: e.clientY, started: false };
+    hold = {
+      pointerId: e.pointerId,
+      px: e.clientX,
+      py: e.clientY,
+      origin,
+      lx: e.clientX,
+      ly: e.clientY,
+      started: false,
+    };
+    listen(true);
   }
 
   function onPointerMove(e: PointerEvent): void {
-    if (hold === null) return;
+    if (hold === null || e.pointerId !== hold.pointerId) return;
     hold.lx = e.clientX;
     hold.ly = e.clientY;
     const dx = e.clientX - hold.px;
     const dy = e.clientY - hold.py;
     if (!hold.started) {
       if (!on.canStart()) {
-        hold = null; // the owner changed under the held pointer — abandon
+        release(); // the owner changed under the held pointer — abandon
         return;
       }
       if (Math.hypot(dx, dy) < DRAG_START) return;
@@ -89,10 +116,20 @@ export function attachDrag(el: HTMLElement, on: DragHandlers): Drag {
     on.onMove({ x: hold.origin.x + dx, y: hold.origin.y + dy });
   }
 
-  function onPointerUp(): void {
-    if (hold === null) return;
-    const h = hold;
+  function release(): void {
     hold = null;
+    listen(false);
+  }
+
+  /** The window lost focus mid-hold: whatever the pointer does next, we will not see it. */
+  function onBlur(): void {
+    if (hold !== null) onPointerUp();
+  }
+
+  function onPointerUp(e?: PointerEvent): void {
+    if (hold === null || (e !== undefined && e.pointerId !== hold.pointerId)) return;
+    const h = hold;
+    release();
     const total = Math.hypot(h.lx - h.px, h.ly - h.py);
     on.onEnd({
       dragged: h.started && total >= TAP_MAX,
@@ -103,20 +140,12 @@ export function attachDrag(el: HTMLElement, on: DragHandlers): Drag {
   }
 
   el.addEventListener("pointerdown", onPointerDown);
-  el.addEventListener("pointermove", onPointerMove);
-  el.addEventListener("pointerup", onPointerUp);
-  el.addEventListener("pointercancel", onPointerUp);
 
   return {
-    cancel() {
-      hold = null;
-    },
+    cancel: release,
     destroy() {
-      hold = null;
+      release();
       el.removeEventListener("pointerdown", onPointerDown);
-      el.removeEventListener("pointermove", onPointerMove);
-      el.removeEventListener("pointerup", onPointerUp);
-      el.removeEventListener("pointercancel", onPointerUp);
     },
   };
 }

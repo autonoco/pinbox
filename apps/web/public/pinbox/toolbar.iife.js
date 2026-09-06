@@ -152,12 +152,12 @@ var Pinbox = (function(exports) {
 		"INPUT",
 		"SELECT"
 	]);
-	const TEXT_ROLES = /* @__PURE__ */ new Set([
+	const TEXT_ROLE_SELECTOR = [
 		"textbox",
 		"combobox",
 		"searchbox",
 		"spinbutton"
-	]);
+	].map((r) => `[role="${r}"]`).join(",");
 	/**
 	* Is the key going into a text control? `INPUT`/`TEXTAREA`/contentEditable, plus
 	* the things the old check missed: `<select>`, ARIA text roles on custom editors,
@@ -168,8 +168,7 @@ var Pinbox = (function(exports) {
 		if (!el || typeof el.tagName !== "string") return false;
 		if (TEXT_TAGS.has(el.tagName)) return true;
 		if (el.isContentEditable === true) return true;
-		const role = el.getAttribute?.("role");
-		if (role !== null && role !== void 0 && TEXT_ROLES.has(role)) return true;
+		if (el.closest?.(TEXT_ROLE_SELECTOR) != null) return true;
 		return el.closest?.(`[${IGNORE_KEYS_ATTR}]`) != null;
 	}
 	/**
@@ -2032,6 +2031,8 @@ var Pinbox = (function(exports) {
 		#timer = null;
 		/** One flush at a time — reconnect and the live write path both drain the outbox. */
 		#flushing = false;
+		/** Bumped per `GET /sessions`; only the newest request's snapshot reaches `onSessions`. */
+		#sessionsGen = 0;
 		constructor(opts) {
 			this.#opts = opts;
 			const storage = opts.storage ?? globalThis.localStorage ?? memoryStorage();
@@ -2264,11 +2265,16 @@ var Pinbox = (function(exports) {
 			}
 			return null;
 		}
-		/** Best-effort: a hub without the route (or unreachable) simply leaves liveness unknown. */
+		/** Best-effort: a hub without the route (or unreachable) simply leaves liveness unknown.
+		* Reconnects can overlap; a slow older GET must not overwrite a newer snapshot, so only
+		* the latest request applies. */
 		async #refreshSessions() {
 			if (this.#opts.onSessions === void 0) return;
+			this.#sessionsGen += 1;
+			const gen = this.#sessionsGen;
 			try {
-				this.#opts.onSessions(await this.#rest.listSessions());
+				const sessions = await this.#rest.listSessions();
+				if (gen === this.#sessionsGen) this.#opts.onSessions(sessions);
 			} catch {}
 		}
 		async #flushOutbox() {
@@ -2529,7 +2535,7 @@ var Pinbox = (function(exports) {
 	function patchThread(threadEl, messages) {
 		let appended = false;
 		for (const m of messages) {
-			let node = threadEl.querySelector(`[data-iid="${m.id}"]`);
+			let node = [...threadEl.children].find((c) => c.getAttribute("data-iid") === m.id) ?? null;
 			const html = messageHtml(m);
 			if (!node) {
 				node = threadEl.ownerDocument.createElement("div");
@@ -2843,11 +2849,20 @@ var Pinbox = (function(exports) {
 	function onCardClick(card, ctx, e) {
 		const from = e.target;
 		const kind = from.closest?.("[data-kind]")?.getAttribute("data-kind");
-		if (kind === "note" || kind === "comment") return onKindPick(card, ctx, kind);
+		if (kind === "note" || kind === "comment") {
+			onKindPick(card, ctx, kind);
+			return;
+		}
 		const action = from.closest?.("[data-action]")?.getAttribute("data-action");
 		if (!action || !ctx.pid) return;
-		if (action === "send") return submit(card, ctx);
-		if (action === "close") return ctx.actions.close();
+		if (action === "send") {
+			submit(card, ctx);
+			return;
+		}
+		if (action === "close") {
+			ctx.actions.close();
+			return;
+		}
 		if (ctx.pid !== "draft") PIN_ACTIONS[action]?.(card, ctx, ctx.pid, from);
 	}
 	function buildSkeleton(card, ctx, isDraft, hasThread) {

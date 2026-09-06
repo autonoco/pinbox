@@ -14,6 +14,7 @@ import { verifyJwt } from "./auth/jwt.ts";
 import { verifyNone, verifyToken } from "./auth/verify.ts";
 import { createGithubConnector } from "./connectors/github.ts";
 import { createGithubAppTransport } from "./connectors/github-app.ts";
+import { handleGithubWebhook } from "./connectors/github-webhook.ts";
 import { drainConnectorPolls } from "./connectors/poll.ts";
 import { createSlackConnector, createSlackTransport } from "./connectors/slack.ts";
 import type { Connector } from "./connectors/types.ts";
@@ -62,6 +63,9 @@ export type PinboxDoEnv = {
   GITHUB_INSTALLATION_ID?: string;
   GITHUB_REPO?: string; // "owner/name"
   GITHUB_API_BASE?: string; // GHES: https://<host>/api/v3
+  // The App's webhook secret. Set ⇒ POST /webhooks/github mirrors issue comments and
+  // closes the moment GitHub sends them (the alarm poll stays on as the safety net).
+  GITHUB_WEBHOOK_SECRET?: string;
   // Slack connector — same pair the CLI serve reads.
   SLACK_BOT_TOKEN?: string;
   SLACK_CHANNEL?: string;
@@ -211,6 +215,8 @@ export class DoBroadcaster implements Broadcaster {
   }
 }
 
+/** Hub-root path of the GitHub webhook receiver (`/_pinbox/webhooks/github` on the Worker). */
+const WEBHOOK_PATH = "/webhooks/github";
 /** Retry cadence for the delivery queue. Coarse: the receiver being down is not urgent. */
 const DRAIN_INTERVAL_MS = 30_000;
 /** Later than any due_at this hub can write, so `due()` answers "anything pending?". */
@@ -331,6 +337,14 @@ export class PinboxHubDO {
   // frozen and routes-toolbar.ts is shared, so the cloud attachment surface mounts
   // here, behind the same auth gate the handler applies. Null falls through to the hub.
   private async intercept(req: Request, url: URL, verify: VerifyFn): Promise<Response | null> {
+    // GitHub cannot present our credential: the HMAC signature is this route's whole auth
+    // (github-webhook.ts), so it sits outside the bearer/JWT gate. Unconfigured ⇒ falls to 404.
+    if (req.method === "POST" && url.pathname === WEBHOOK_PATH) {
+      const secret = this.env.GITHUB_WEBHOOK_SECRET;
+      const repo = this.env.GITHUB_REPO;
+      if (secret === undefined || secret === "" || repo === undefined || repo === "") return null;
+      return handleGithubWebhook(req, this.store, { secret, repo });
+    }
     if (req.method === "POST" && url.pathname === "/attachments") {
       return (await this.unauthorized(verify, req)) ?? this.createAttachment(req, url);
     }

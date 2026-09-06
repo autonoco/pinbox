@@ -137,6 +137,7 @@ Set with `wrangler secret put <NAME>`. Never put these in `wrangler.jsonc` vars.
 | `ALLOW_UNAUTHENTICATED` | `AUTH_STRATEGY=none` (must be exactly `1`) |
 | `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Attachment uploads |
 | `GITHUB_APP_PRIVATE_KEY` | The GitHub App's PEM, as downloaded (PKCS#1) or PKCS#8 |
+| `GITHUB_WEBHOOK_SECRET` | Verifies `POST /_pinbox/webhooks/github`; without it the route is not mounted |
 | `SLACK_BOT_TOKEN` (with `SLACK_CHANNEL` var) | The Slack connector |
 
 ## Auth strategies
@@ -298,4 +299,5 @@ CORS to configure and cookies ride along.
 | `GET /_pinbox/health` | No credential required |
 | `GET /_pinbox/pinbox.js` | The toolbar bundle, served as text |
 | `/_pinbox/ws` | WebSocket upgrade; authenticated at upgrade only |
+| `POST /_pinbox/webhooks/github` | GitHub App webhook; authenticated by its HMAC signature, not a bearer |
 | `/_pinbox/*` | The hub: pins, threads, events, sessions, attachments |

@@ -11,7 +11,8 @@
 // `X-Hub-Signature-256` is 401 regardless of its body. No Bun.* here — runs on workerd.
 import type { Link } from "../schema.ts";
 import type { PinStore } from "../store.ts";
-import { inboundEvents } from "./inbound.ts";
+import { type InboundSync, inboundEvents } from "./inbound.ts";
+import { outboundCandidates } from "./mirror.ts";
 import type { ConnectorEvents } from "./types.ts";
 
 export type GithubWebhookOptions = {
@@ -51,6 +52,12 @@ export async function handleGithubWebhook(
   } catch {
     return envelope(400, { code: "E_INVALID_INPUT", message: "webhook body is not JSON" });
   }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return envelope(400, {
+      code: "E_INVALID_INPUT",
+      message: "webhook body must be a JSON object",
+    });
+  }
   const event = req.headers.get("x-github-event") ?? "";
   const result = await apply(store, opts.repo, event, payload);
   return envelope(200, undefined, result);
@@ -77,10 +84,10 @@ async function apply(
     .all()
     .find((r) => r.link.connector === "github" && r.link.ref === String(number));
   if (row === undefined) return { applied: 0, ignored: `issue #${number} is not linked` };
-  const { events } = inboundEvents(store, row.pinId, "github", false);
+  const inbound = inboundEvents(store, row.pinId, "github", false);
   return event === "issue_comment"
-    ? applyComment(body, row.link, events)
-    : applyStatus(body, row.link, events);
+    ? applyComment(body, row.link, inbound.events)
+    : applyStatus(store, body, row, inbound);
 }
 
 async function applyComment(
@@ -104,20 +111,37 @@ async function applyComment(
   return { applied: 1, ignored: null };
 }
 
+type LinkRow = ReturnType<PinStore["links"]["all"]>[number];
+
 async function applyStatus(
+  store: PinStore,
   body: WebhookBody,
-  link: Link,
-  events: ConnectorEvents,
+  row: LinkRow,
+  inbound: InboundSync,
 ): Promise<Delivery> {
-  if (body.action === "closed") {
-    await events.onRemoteStatus(link, "closed");
-    return { applied: 1, ignored: null };
+  if (body.action !== "closed" && body.action !== "reopened") {
+    return { applied: 0, ignored: `issues ${body.action}` };
   }
-  if (body.action === "reopened") {
-    await events.onRemoteStatus(link, "open");
-    return { applied: 1, ignored: null };
-  }
-  return { applied: 0, ignored: `issues ${body.action}` };
+  await inbound.events.onRemoteStatus(row.link, body.action === "closed" ? "closed" : "open");
+  bankTransition(store, row, inbound.transitionedAt());
+  return { applied: 1, ignored: null };
+}
+
+/**
+ * §7's cross-drain anti-echo, the webhook's half (poll.ts step 3 is the poll's): the sinks
+ * stamp a remote-caused transition with a wall clock later than the link's cursor, so the
+ * next poll's pendingStatus would read it as a local transition and push it straight back
+ * to GitHub. Advance the cursor over the transition — but only when nothing outbound sits
+ * between the cursor and the stamp. This route has no transport to flush those with, and a
+ * cursor moved past an unposted comment drops it for good; holding it costs one idempotent
+ * re-close on the next poll instead.
+ */
+function bankTransition(store: PinStore, row: LinkRow, at: string | null): void {
+  if (at === null) return;
+  if (row.lastSyncedAt !== null && at <= row.lastSyncedAt) return;
+  const owed = outboundCandidates(store.getThread(row.pinId), "github", row.lastSyncedAt);
+  if (owed.some((message) => message.at <= at)) return;
+  store.links.markSynced(row.pinId, row.link, at);
 }
 
 type WebhookBody = {

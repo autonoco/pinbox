@@ -350,12 +350,17 @@ export class PinboxHubDO {
 
   /**
    * GitHub cannot present our credential: the HMAC signature is this route's whole auth
-   * (github-webhook.ts), so it sits outside the bearer/JWT gate. Unconfigured ⇒ falls to 404.
+   * (github-webhook.ts), so it sits outside the bearer/JWT gate. Unconfigured ⇒ 404 here,
+   * not a fall-through: the shared handler would answer 401 for the missing bearer first.
    */
-  private githubWebhook(req: Request): Promise<Response> | null {
+  private async githubWebhook(req: Request): Promise<Response> {
     const secret = this.env.GITHUB_WEBHOOK_SECRET;
     const repo = this.env.GITHUB_REPO;
-    if (secret === undefined || secret === "" || repo === undefined || repo === "") return null;
+    if (secret === undefined || secret === "" || repo === undefined || repo === "") {
+      return err(404, "E_NOT_FOUND", `no route: POST ${WEBHOOK_PATH}`, {
+        hint: "set GITHUB_WEBHOOK_SECRET and GITHUB_REPO to mount the GitHub webhook",
+      });
+    }
     return handleGithubWebhook(req, this.store, { secret, repo });
   }
 

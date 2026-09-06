@@ -182,8 +182,10 @@ issue resolves the pin, and that resolution does not then re-close the issue.
 
 ## When sync happens
 
-Mirroring reconciles on a poll, not a webhook. Nothing needs to be exposed to the
-internet.
+On a **local hub**, mirroring reconciles on a poll, not a webhook. Nothing needs to be
+exposed to the internet. A [cloud hub](#on-a-cloud-hub) receives the App's webhook
+instead, so inbound is immediate there; its alarm poll runs on the same cadence below
+as a safety net, and recognises anything the webhook already mirrored.
 
 - Every **60 seconds** while the pin is open.
 - Every **10 minutes** once it is resolved.

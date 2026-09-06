@@ -137,6 +137,9 @@ describe("mirroring", () => {
     expect(closed.body.data).toEqual({ applied: 1, ignored: null });
     expect(store.getPin(pin.id)?.status).toBe("resolved");
     expect(store.getPin(pin.id)?.resolution?.by).toBe("agent");
+    // §7 anti-echo: the cursor moves over the remote-caused transition, so the next poll's
+    // pendingStatus does not read it as a local close and push it back to GitHub.
+    expect(store.links.all()[0]?.lastSyncedAt).toBe(store.getPin(pin.id)?.resolution?.at);
     const reopened = await deliver(store, "issues", {
       action: "reopened",
       repository: repo,
@@ -144,6 +147,7 @@ describe("mirroring", () => {
     });
     expect(reopened.body.data).toEqual({ applied: 1, ignored: null });
     expect(store.getPin(pin.id)?.status).toBe("open");
+    expect(store.links.all()[0]?.lastSyncedAt).toBe(store.getPin(pin.id)?.verification?.at);
     // Other issue actions are acknowledged, not applied.
     const labeled = await deliver(store, "issues", {
       action: "labeled",
@@ -151,6 +155,17 @@ describe("mirroring", () => {
       issue: { number: 58 },
     });
     expect(labeled.body.data).toEqual({ applied: 0, ignored: "issues labeled" });
+    store.close();
+  });
+
+  test("the cursor holds when an unposted outbound comment sits below the transition", async () => {
+    const store = openStore(":memory:");
+    const pin = linked(store);
+    // A reply the poll has not mirrored out yet: moving the cursor past it would drop it.
+    store.addThreadMessage(pin.id, "agent", "on it");
+    await deliver(store, "issues", { action: "closed", repository: repo, issue: { number: 58 } });
+    expect(store.getPin(pin.id)?.status).toBe("resolved");
+    expect(store.links.all()[0]?.lastSyncedAt).toBeNull();
     store.close();
   });
 });
@@ -186,22 +201,26 @@ describe("what is ignored", () => {
     store.close();
   });
 
-  test("a non-JSON body with a valid signature is 400 E_INVALID_INPUT", async () => {
+  test("a non-JSON or non-object body with a valid signature is 400 E_INVALID_INPUT", async () => {
     const store = openStore(":memory:");
-    const raw = "not json";
-    const res = await handleGithubWebhook(
-      new Request("https://hub.example/webhooks/github", {
-        method: "POST",
-        headers: {
-          "x-github-event": "issues",
-          "x-hub-signature-256": await sign(OPTS.secret, raw),
-        },
-        body: raw,
-      }),
-      store,
-      OPTS,
-    );
-    expect(res.status).toBe(400);
+    for (const raw of ["not json", "null", "[]", '"str"']) {
+      const res = await handleGithubWebhook(
+        new Request("https://hub.example/webhooks/github", {
+          method: "POST",
+          headers: {
+            "x-github-event": "issues",
+            "x-hub-signature-256": await sign(OPTS.secret, raw),
+          },
+          body: raw,
+        }),
+        store,
+        OPTS,
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        "E_INVALID_INPUT",
+      );
+    }
     store.close();
   });
 });

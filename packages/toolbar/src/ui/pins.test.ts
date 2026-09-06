@@ -288,16 +288,64 @@ describe("viewport space (dogfood v4: pins drifted on scroll)", () => {
     expect(node.style.top).toBe("50px"); // document-space placement would have said −650
   });
 
-  test("the draft marker converts its document-space placement when the element is gone", () => {
+  test("an anchor scrolled out of its overflow container draws no marker; partly visible clips", () => {
+    const layer = layerIn();
+    const doc = layer.ownerDocument;
+    const hero = doc.querySelector("#hero") as HTMLElement;
+    const pane = doc.createElement("div");
+    pane.style.overflow = "auto";
+    doc.body.appendChild(pane);
+    pane.appendChild(hero);
+    const rect = (x: number, y: number, w: number, h: number) =>
+      ({ x, y, left: x, top: y, right: x + w, bottom: y + h, width: w, height: h }) as DOMRect;
+    pane.getBoundingClientRect = () => rect(100, 200, 400, 300);
+    // Fully above the pane: hidden.
+    hero.getBoundingClientRect = () => rect(120, 100, 40, 20);
+    renderPins(layer, stateWith({ pins: [makePin("pin_scrolledout")] }));
+    expect(layer.querySelector('[data-pin="pin_scrolledout"]')).toBeNull();
+    // Straddling the top edge: the marker sits on the visible half (clipped rect centre).
+    hero.getBoundingClientRect = () => rect(120, 190, 40, 20);
+    renderPins(layer, stateWith({ pins: [makePin("pin_scrolledout")] }));
+    const node = layer.querySelector('[data-pin="pin_scrolledout"]') as HTMLElement;
+    expect(node.style.top).toBe("205px"); // visible 200–210, centre 205 — not the raw 200
+    // Back inside: full rect again.
+    hero.getBoundingClientRect = () => rect(120, 300, 40, 20);
+    renderPins(layer, stateWith({ pins: [makePin("pin_scrolledout")] }));
+    expect(node.style.top).toBe("310px");
+  });
+
+  test("a draft whose element scrolled out of its pane drops its marker until it returns", () => {
+    const layer = layerIn();
+    const doc = layer.ownerDocument;
+    const hero = doc.querySelector("#hero") as HTMLElement;
+    const pane = doc.createElement("div");
+    pane.style.overflow = "auto";
+    doc.body.appendChild(pane);
+    pane.appendChild(hero);
+    const rect = (x: number, y: number, w: number, h: number) =>
+      ({ x, y, left: x, top: y, right: x + w, bottom: y + h, width: w, height: h }) as DOMRect;
+    pane.getBoundingClientRect = () => rect(100, 200, 400, 300);
+    hero.getBoundingClientRect = () => rect(120, 300, 40, 20);
+    const pin = makePin("pin_aaaaaaaaaa");
+    const draft = { target: { target: pin.target, env: pin.env }, placedAt: { x: 140, y: 310 } };
+    renderPins(layer, stateWith({ draft }));
+    expect(layer.querySelector('[data-pin="draft"]')).not.toBeNull();
+    hero.getBoundingClientRect = () => rect(120, 50, 40, 20); // pane scrolled past it
+    renderPins(layer, stateWith({ draft }));
+    expect(layer.querySelector('[data-pin="draft"]')).toBeNull();
+    hero.getBoundingClientRect = () => rect(120, 300, 40, 20);
+    renderPins(layer, stateWith({ draft }));
+    expect(layer.querySelector('[data-pin="draft"]')).not.toBeNull();
+  });
+
+  test("a draft whose element is gone draws no marker (its card docks instead)", () => {
     const layer = layerIn();
     const pin = makePin("pin_aaaaaaaaaa");
     const gone = { ...pin.target, selector: "#gone" };
     const draft = { target: { target: gone, env: pin.env }, placedAt: { x: 340, y: 160 } };
-    scrollTo(layer, 40, 100);
     renderPins(layer, stateWith({ pins: [pin], draft }));
-    const node = layer.querySelector('[data-pin="draft"]') as HTMLElement;
-    expect(node.style.left).toBe("300px");
-    expect(node.style.top).toBe("60px");
+    expect(layer.querySelector('[data-pin="draft"]')).toBeNull();
+    expect(layer.querySelector('[data-pin="pin_aaaaaaaaaa"]')).not.toBeNull();
   });
 });
 

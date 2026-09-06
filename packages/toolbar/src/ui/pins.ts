@@ -68,7 +68,32 @@ export function targetRect(doc: Document, target: Pin["target"]): Rect | null {
   if (el === null) return null;
   const r = el.getBoundingClientRect();
   if (r.width <= 0 && r.height <= 0) return toViewport(win, stored);
-  return { x: r.left, y: r.top, width: r.width, height: r.height };
+  return clipToScrollAncestors(win, el, { x: r.left, y: r.top, width: r.width, height: r.height });
+}
+
+const CLIPPING = new Set(["auto", "scroll", "hidden", "clip"]);
+
+/**
+ * The part of `rect` an ancestor scroll container actually shows. A row scrolled out of its
+ * pane has a live client rect above or below the pane; drawing a marker there floats it over
+ * unrelated content (dogfood: the draft on Record 12 sat on the heading once the pane scrolled).
+ * Null when nothing of the element is visible; the drawer still lists the pin.
+ */
+function clipToScrollAncestors(win: Window, el: Element, rect: Rect): Rect | null {
+  let out = rect;
+  for (let p = el.parentElement; p !== null && p !== win.document.body; p = p.parentElement) {
+    const cs = win.getComputedStyle(p);
+    if (![cs.overflow, cs.overflowX, cs.overflowY].some((v) => CLIPPING.has(v))) continue;
+    const c = p.getBoundingClientRect();
+    if (c.width <= 0 && c.height <= 0) continue; // no layout (test DOMs): nothing to clip against
+    const x1 = Math.max(out.x, c.left);
+    const y1 = Math.max(out.y, c.top);
+    const x2 = Math.min(out.x + out.width, c.right);
+    const y2 = Math.min(out.y + out.height, c.bottom);
+    if (x2 <= x1 || y2 <= y1) return null;
+    out = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  }
+  return out;
 }
 
 /**
@@ -86,21 +111,17 @@ function pinPoint(r: Rect, spot?: { x: number; y: number }): { x: number; y: num
 
 /**
  * Where the draft marker sits: its captured element's LIVE rect at the clicked spot, exactly as a
- * committed pin would (a draft on a sticky header must ride the header while you type); the raw
- * placement point, scroll-adjusted, only when the element cannot be resolved.
+ * committed pin would (a draft on a sticky header must ride the header while you type). Null when
+ * the element is scrolled out of its container or gone — no marker, and the card docks
+ * (card.ts) instead of floating over whatever now occupies the stale point.
  */
 export function draftPoint(
   doc: Document,
   draft: NonNullable<ToolbarState["draft"]>,
-): {
-  x: number;
-  y: number;
-} {
+): { x: number; y: number } | null {
   const target = draft.target.target;
   const live = targetRect(doc, target);
-  if (live !== null) return pinPoint(live, target.spot);
-  const win = doc.defaultView;
-  return win === null ? draft.placedAt : toViewport(win, draft.placedAt);
+  return live === null ? null : pinPoint(live, target.spot);
 }
 
 /** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
@@ -187,13 +208,10 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
     node.classList.toggle("stale", stale);
     patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued, stale));
   }
-  if (state.draft) {
+  const draftAt = state.draft ? draftPoint(layer.ownerDocument, state.draft) : null;
+  if (draftAt === null) layer.querySelector('[data-pin="draft"]')?.remove();
+  if (state.draft && draftAt !== null) {
     const node = ensureNode(layer, "draft", true);
-    patchNode(
-      node,
-      draftPoint(layer.ownerDocument, state.draft),
-      true,
-      chipInner(nextOrdinal(state.pins), null),
-    );
+    patchNode(node, draftAt, true, chipInner(nextOrdinal(state.pins), null));
   }
 }

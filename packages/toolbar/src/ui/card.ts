@@ -241,9 +241,16 @@ function anchorOf(
 ): { x: number; y: number } {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
-  if (pin === null) return draft === null ? { x: 0, y: 0 } : draftPoint(doc, draft);
-  const live = anchorRect(doc, pin);
-  if (live !== null) return { x: live.x + live.width / 2, y: live.y + live.height / 2 };
+  let live: { x: number; y: number } | null = null;
+  if (pin !== null) {
+    const r = anchorRect(doc, pin);
+    live = r === null ? null : { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  } else if (draft !== null) {
+    live = draftPoint(doc, draft);
+  } else {
+    return { x: 0, y: 0 };
+  }
+  if (live !== null) return live;
   if (win === null) return { x: 0, y: 0 };
   // position() offsets by (+22, −60) and clamps; this lands the card centred.
   return { x: win.innerWidth / 2 - CARD_W / 2 - 22, y: win.innerHeight / 3 + 60 };

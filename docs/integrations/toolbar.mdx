@@ -121,6 +121,10 @@ interface PinboxConfig {
   endpoint: string;                 // hub base URL — the only required field
   token?: string;                   // static bearer token (dev)
   getToken?: () => Promise<string>; // callback, for hosts with real auth
+  screenshots?: boolean;            // default true
+  capture?: "dom" | "tab";          // default "dom": no permission prompt
+  minimized?: boolean;              // start collapsed to the puck
+  shortcuts?: "all" | "escape-only" | "off";
   targeting?: "dom" | "anchor";
   anchorAttribute?: string;
   project?: string;
@@ -132,6 +136,10 @@ interface PinboxConfig {
 | `endpoint` | Base URL of the hub. Everything else is optional. |
 | `token` | Bearer token sent with every request. The dev plugins fill this in from local hub state. |
 | `getToken` | Called once on mount to fetch a token. Use this when the hub verifies a real credential. |
+| `screenshots` | `false` ships pins with their structured capture only, no pixels. |
+| `capture` | First-run screenshot mode. `"dom"` snapshots the element with no browser prompt; `"tab"` uses tab capture (real pixels, Chrome asks once per page load). The visitor can flip it from the bar's camera button, and their choice persists per endpoint. |
+| `minimized` | Start collapsed to the floating puck. A visitor's own choice, persisted per endpoint, wins on reload. |
+| `shortcuts` | `"escape-only"` keeps `Esc` and hands every letter back to your app's own hotkeys; `"off"` never reads the keyboard. Any subtree with `data-pinbox-ignore-keys` is skipped too. |
 
 The toolbar **never renders a login**. If your hub authenticates requests, the
 host app already knows who the user is — pass a callback that mints or fetches a
@@ -389,18 +397,39 @@ Once it is on the page:
 | `R` | Mark the active pin resolved |
 | `C` | Copy open pins as markdown |
 | `D` | Toggle light/dark |
+| `H` | Hide / show pin markers |
+| `S` | Toggle tab capture for screenshots |
+| `M` | Minimize to the puck / expand |
 | `Esc` | Cancel |
 | `?` | Show the shortcut list |
 
-Keystrokes are ignored while a text field has focus. In placing mode, moving the
-cursor outlines the deepest element under it; clicking places a draft. Nothing
-reaches the hub until you submit the first comment — `Esc` or a click away
-discards the draft with nothing written.
+The same actions sit on the command bar and, minimized, on the puck's fan menu.
+Keystrokes are ignored while a text field has focus, and modifier chords
+(`⌘P`, `Ctrl+I`) always belong to the page. The toolbar sees keys before your
+app's own handlers and consumes only the ones that did something — an `Esc`
+with nothing open is your `Esc`. Drag the grip on the bar's left edge to move
+it; double-click the grip to put it back.
 
-Screenshots are cropped and encoded to WebP in the browser, uploaded separately,
-and the pin carries the returned **path**, never image bytes. Capture is
-best-effort: where the browser cannot do it, the pin ships with its structured
-capture alone.
+In placing mode, moving the cursor outlines the deepest element under it;
+clicking places a draft. The draft composer offers **Ask agent** (the default)
+or **Note**: a note is a `comment` pin, a remark for people that the hub never
+routes to an agent. Nothing reaches the hub until you submit — `Esc` or a click
+away discards the draft with nothing written.
+
+Pins that wait on an agent show THINKING, then a quiet WAITING FOR AGENT, then
+NO RESPONSE after ten minutes (or sooner when the hub reports no agent session
+listening), with **Nudge** and **Resolve** on the card and a bulk resolve in the
+inbox. Every inbox row can be resolved or unresolved in place, and pins linked
+to the same tracker item group under a header with a Resolve-group action.
+
+Screenshots default to a **DOM snapshot** of the target element: cloned, styles
+inlined, drawn to a canvas, no permission prompt. Images inside it render as
+neutral boxes. Press `S` (or the camera button) for **tab capture** — real
+pixels, and Chrome asks to share the tab once per page load. Either way the
+image is encoded to WebP in the browser, uploaded separately, and the pin
+carries the returned **path**, never image bytes. Capture is best-effort and
+bounded: past four seconds, or where the browser cannot do it, the pin ships
+with its structured capture alone.
 
 ## Offline behavior
 

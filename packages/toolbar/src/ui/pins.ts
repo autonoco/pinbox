@@ -4,7 +4,7 @@
 // data-pin and patched in place — the layer is never rebuilt — and each chip's
 // innerHTML is memoized (the prototype's `_h`) so unchanged chips are untouched.
 import type { Pin, Rect } from "@autono/pinbox-core/schema";
-import type { ToolbarState } from "../state.ts";
+import { deriveUiStatus, type ToolbarState } from "../state.ts";
 import { esc, pinNumber } from "./html.ts";
 
 /** The prototype's `_h` innerHTML memo, kept off the DOM node. */
@@ -30,34 +30,70 @@ function sameView(win: Window, url: string | undefined): boolean {
   }
 }
 
+/** A stored (document-space) rect or point, in today's viewport. */
+export function toViewport<T extends { x: number; y: number }>(win: Window, p: T): T {
+  return { ...p, x: p.x - win.scrollX, y: p.y - win.scrollY };
+}
+
 /**
- * Where the pin's anchor is NOW (dogfood #26: markers lingered over unrelated
- * views after SPA tab switches, because placement trusted the stored rect
- * forever). Re-resolve the captured selector on every render:
- *  - it resolves with layout → snap to the LIVE rect (also fixes drift);
- *  - it resolves without layout (test DOMs, display:none) → stored rect;
+ * Where the pin's anchor is NOW, in VIEWPORT space (dogfood #26: markers lingered over
+ * unrelated views after SPA tab switches, because placement trusted the stored rect forever;
+ * dogfood v4: pins drifted on scroll, because the layer was document-space and only
+ * re-rendered on DOM mutation). Re-resolve the captured selector on every render:
+ *  - it resolves with layout → the LIVE client rect, which is right inside inner scroll
+ *    containers and on sticky/fixed anchors alike;
+ *  - it resolves without layout (test DOMs, display:none) → stored rect minus scroll;
  *  - it does not resolve → no marker; the drawer stays the see-everything list.
  * A pin with no selector (terminal-adjacent) keeps its stored rect, as before.
  */
-function anchorRect(layer: HTMLElement, pin: Pin): Rect | null {
-  const stored = pin.target?.rect;
+export function anchorRect(doc: Document, pin: Pin): Rect | null {
+  return targetRect(doc, pin.target);
+}
+
+/** The same resolution for any captured target — a pin's, or the draft's before it commits. */
+export function targetRect(doc: Document, target: Pin["target"]): Rect | null {
+  const stored = target?.rect;
   if (stored === undefined) return null;
-  const doc = layer.ownerDocument;
   const win = doc.defaultView;
   if (win === null) return stored;
-  if (!sameView(win, pin.target?.url)) return null;
-  const selector = pin.target?.selector;
-  if (selector === undefined) return stored;
+  if (!sameView(win, target?.url)) return null;
+  const selector = target?.selector;
+  if (selector === undefined) return toViewport(win, stored);
   let el: Element | null;
   try {
     el = doc.querySelector(selector);
   } catch {
-    return stored; // a selector we cannot evaluate must not hide the pin forever
+    return toViewport(win, stored); // a selector we cannot evaluate must not hide the pin forever
   }
   if (el === null) return null;
   const r = el.getBoundingClientRect();
-  if (r.width <= 0 && r.height <= 0) return stored;
-  return { x: r.left + win.scrollX, y: r.top + win.scrollY, width: r.width, height: r.height };
+  if (r.width <= 0 && r.height <= 0) return toViewport(win, stored);
+  return clipToScrollAncestors(win, el, { x: r.left, y: r.top, width: r.width, height: r.height });
+}
+
+const CLIPPING = new Set(["auto", "scroll", "hidden", "clip"]);
+
+/**
+ * The part of `rect` an ancestor scroll container actually shows. A row scrolled out of its
+ * pane has a live client rect above or below the pane; drawing a marker there floats it over
+ * unrelated content (dogfood: the draft on Record 12 sat on the heading once the pane scrolled).
+ * Null when nothing of the element is visible; the drawer still lists the pin.
+ */
+function clipToScrollAncestors(win: Window, el: Element, rect: Rect): Rect | null {
+  let out = rect;
+  for (let p = el.parentElement; p !== null && p !== win.document.body; p = p.parentElement) {
+    const cs = win.getComputedStyle(p);
+    if (![cs.overflow, cs.overflowX, cs.overflowY].some((v) => CLIPPING.has(v))) continue;
+    const c = p.getBoundingClientRect();
+    if (c.width <= 0 && c.height <= 0) continue; // no layout (test DOMs): nothing to clip against
+    const x1 = Math.max(out.x, c.left);
+    const y1 = Math.max(out.y, c.top);
+    const x2 = Math.min(out.x + out.width, c.right);
+    const y2 = Math.min(out.y + out.height, c.bottom);
+    if (x2 <= x1 || y2 <= y1) return null;
+    out = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  }
+  return out;
 }
 
 /**
@@ -73,13 +109,35 @@ function pinPoint(r: Rect, spot?: { x: number; y: number }): { x: number; y: num
   return { x: r.x + r.width * fx, y: r.y + r.height * fy };
 }
 
+/**
+ * Where the draft marker sits: its captured element's LIVE rect at the clicked spot, exactly as a
+ * committed pin would (a draft on a sticky header must ride the header while you type). Null when
+ * the element is scrolled out of its container or gone — no marker, and the card docks
+ * (card.ts) instead of floating over whatever now occupies the stale point.
+ */
+export function draftPoint(
+  doc: Document,
+  draft: NonNullable<ToolbarState["draft"]>,
+): { x: number; y: number } | null {
+  const target = draft.target.target;
+  const live = targetRect(doc, target);
+  return live === null ? null : pinPoint(live, target.spot);
+}
+
 /** Chip contents (prototype chipBtnInner, lines 546–550): number + linked-channel tag,
  * plus the queued badge while the pin waits in the outbox for the reconnect flush. */
-function chipInner(n: number, pin: Pin | null, queued = false): string {
+function chipInner(n: number, pin: Pin | null, queued = false, stale = false): string {
   const link = pin?.links?.[0];
   const badge = link ? `<span class="lk"><span>${esc(link.connector)}</span></span>` : "";
-  const qd = queued ? '<span class="qd">QUEUED</span>' : "";
-  return `<span>${pinNumber(n)}</span>${badge}${qd}`;
+  const qd = queued
+    ? '<span class="qd">QUEUED</span>'
+    : stale
+      ? '<span class="qd">NO REPLY</span>'
+      : "";
+  // A comment pin reads apart on the page: an N glyph and, via .note, a muted chip.
+  const nt =
+    pin?.kind === "comment" ? '<span class="nt" title="Note — no agent acts on this">N</span>' : "";
+  return `<span>${pinNumber(n)}</span>${nt}${badge}${qd}`;
 }
 
 function ensureNode(layer: HTMLElement, key: string, fresh: boolean): HTMLElement {
@@ -129,7 +187,7 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
   // keep their ordinal — the drawer lists them.
   const placed: { pin: Pin; n: number; rect: Rect; spot?: { x: number; y: number } }[] = [];
   visible.forEach((pin, i) => {
-    const rect = anchorRect(layer, pin);
+    const rect = anchorRect(layer.ownerDocument, pin);
     if (rect === null) return;
     const spot = pin.target?.spot;
     const n = pin.n ?? i + 1; // hub-born issue number; index only for pre-`n` pins
@@ -145,10 +203,15 @@ export function renderPins(layer: HTMLElement, state: ToolbarState): void {
     const hot = pin.id === state.activePinId;
     const queued = state.queuedIds.has(pin.id);
     node.classList.toggle("queued", queued);
-    patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued));
+    node.classList.toggle("note", pin.kind === "comment");
+    const stale = deriveUiStatus(pin, state.threads.get(pin.id) ?? [], state) === "stale";
+    node.classList.toggle("stale", stale);
+    patchNode(node, pinPoint(rect, spot), hot, chipInner(n, pin, queued, stale));
   }
-  if (state.draft) {
+  const draftAt = state.draft ? draftPoint(layer.ownerDocument, state.draft) : null;
+  if (draftAt === null) layer.querySelector('[data-pin="draft"]')?.remove();
+  if (state.draft && draftAt !== null) {
     const node = ensureNode(layer, "draft", true);
-    patchNode(node, state.draft.placedAt, true, chipInner(nextOrdinal(state.pins), null));
+    patchNode(node, draftAt, true, chipInner(nextOrdinal(state.pins), null));
   }
 }

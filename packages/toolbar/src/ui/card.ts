@@ -8,198 +8,47 @@
 // "verify". stepsHtml/diffHtml port the prototype's activity-steps and change
 // sub-renderers as pure functions — they render nothing until the event
 // vocabulary lands — presentational and data-starved by design.
-import type { Attachment, Pin, ThreadMessage } from "@autono/pinbox-core/schema";
-import { deriveUiStatus, type ToolbarState, type UiStatus } from "../state.ts";
-import { esc, pinNumber, safeUrl } from "./html.ts";
-import { nextOrdinal } from "./pins.ts";
+import type { Pin, ThreadMessage } from "@autono/pinbox-core/schema";
+import { deriveUiStatus, pendingKind, type ToolbarState, type UiStatus } from "../state.ts";
+import { patchPending, patchThread } from "./card-messages.ts";
+import {
+  type DraftKind,
+  hdHtml,
+  linkHtml,
+  lociHtml,
+  resolutionHtml,
+  rowHtml,
+  STATUS_LABEL,
+  staleHtml,
+  verifyHtml,
+} from "./card-parts.ts";
+import { esc } from "./html.ts";
+import { anchorRect, draftPoint, nextOrdinal } from "./pins.ts";
 
 export interface CardActions {
-  /** draft ⇒ createPin; else thread reply. */
-  send(pinId: string | "draft", text: string): void;
+  /** draft ⇒ createPin (as `kind`); else thread reply. */
+  send(pinId: string | "draft", text: string, kind: DraftKind): void;
   verify(pinId: string, outcome: "accepted" | "reopened"): void;
   resolve(pinId: string): void;
+  /** A stale pin: re-post the last human message so a watcher re-triggers. */
+  nudge(pinId: string): void;
   /** Copy THIS pin's markdown block (the bar's C copies every open pin). */
   copy(pinId: string): void;
   close(): void;
 }
-
-const STATUS_LABEL: Record<UiStatus, string> = {
-  open: "OPEN",
-  waiting: "OPEN",
-  replied: "REPLIED",
-  resolved: "RESOLVED",
-  verify: "VERIFY",
-};
-
-const CHECK_ICON =
-  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
-const X_ICON =
-  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
-const COPY_ICON =
-  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 3.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></svg>';
-
 interface CardCtx {
   pid: string | null;
   parts: Record<string, string>;
   actions: CardActions;
+  /** What the open draft will become. Reset to "note" per draft — never a sticky mode. */
+  draftKind: DraftKind;
 }
 
 const ctxByCard = new WeakMap<Element, CardCtx>();
-/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
-const nodeMemo = new WeakMap<Element, string>();
+/** .pb-card width (styles.ts). */
+const CARD_W = 344;
 
-/* ── ported pure sub-renderers (an event vocabulary feeds these; nothing calls them yet) ── */
-
-export interface ActivityStep {
-  label: string;
-  done: boolean;
-}
-
-/** Prototype's agent activity steps (lines 604–611), as a pure HTML function. */
-export function stepsHtml(steps: ActivityStep[]): string {
-  return steps
-    .map(
-      (s) =>
-        `<div class="pb-step" style="color:${s.done ? "var(--pb-ok)" : "var(--pb-fg3)"}">` +
-        `<span class="g">${s.done ? "✓" : "◇"}</span><span class="l">${esc(s.label)}</span></div>`,
-    )
-    .join("");
-}
-
-export interface DiffCard {
-  file: string;
-  minus: string;
-  plus: string;
-  hash?: string;
-  applied?: boolean;
-}
-
-/** Prototype's change card (changeInner, lines 583–592) minus its interactive footer. */
-export function diffHtml(d: DiffCard): string {
-  const applied = d.applied
-    ? `<div class="ft"><span class="applied">${CHECK_ICON}<span>APPLIED</span>` +
-      `${d.hash ? `<span class="hh">${esc(d.hash)}</span>` : ""}</span></div>`
-    : "";
-  return (
-    `<div class="pb-change"><div class="fh"><span>${esc(d.file)}</span></div>` +
-    `<div class="code"><div class="mi">${esc(d.minus)}</div><div class="pl">${esc(d.plus)}</div></div>${applied}</div>`
-  );
-}
-
-/* ── message rendering ── */
-
-function timeOf(at: string): string {
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function isImage(att: Attachment): boolean {
-  if (att.contentType?.startsWith("image/")) return true;
-  return /\.(png|webp|jpe?g|gif)$/i.test(att.url ?? att.path ?? "");
-}
-
-function fileName(att: Attachment): string {
-  const source = att.url ?? att.path ?? att.id;
-  return source.split("/").pop() ?? source;
-}
-
-/** Thumbnail when the attachment is an image; the error listener degrades it to a chip. */
-function attachmentsHtml(m: ThreadMessage): string {
-  if (!m.attachments?.length) return "";
-  const items = m.attachments.map((att) =>
-    isImage(att)
-      ? `<span class="pb-att"><img src="${esc(safeUrl(att.url ?? att.path ?? ""))}" alt="${esc(fileName(att))}" loading="lazy"></span>`
-      : `<span class="pb-att-chip">${esc(fileName(att))}</span>`,
-  );
-  return `<div class="atts">${items.join("")}</div>`;
-}
-
-/** "claude:lark-mac-agent" → "Claude · lark-mac-agent"; other shapes verbatim. */
-function agentName(origin: string): string {
-  const idx = origin.indexOf(":");
-  if (idx <= 0) return origin;
-  const agent = origin.slice(0, idx);
-  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${origin.slice(idx + 1)}`;
-}
-
-function messageHtml(m: ThreadMessage): string {
-  if (m.role === "agent") {
-    // Dogfood: "Which agent is replying to me?" — a REST watcher can identify
-    // itself via the message's origin ("claude:lark-mac-agent"); anonymous
-    // agent posts keep the generic label.
-    const who = m.origin === undefined ? "Agent" : agentName(m.origin);
-    return (
-      `<div class="pb-msg"><div class="pb-av agent">AI</div><div class="col">` +
-      `<div class="line"><span class="who">${esc(who)}</span><span class="tm">${esc(timeOf(m.at))}</span></div>` +
-      `<div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`
-    );
-  }
-  // human and mirror share the "you" row; mirror rows carry their origin via-badge.
-  const mirror = m.role === "mirror";
-  const origin = mirror ? (m.origin ?? "mirror") : null;
-  const who = origin ? (origin.split(":")[1] ?? origin) : "You";
-  const initials = who.slice(0, 2).toUpperCase();
-  const via = origin ? `<span class="via-tag"><span>${esc(origin)}</span></span>` : "";
-  return (
-    `<div class="pb-msg you"><div class="pb-av${mirror ? " via" : ""}">${esc(initials)}</div><div class="col">` +
-    `<div class="line"><span class="who">${esc(who)}</span><span class="tm">${esc(timeOf(m.at))}</span>${via}</div>` +
-    `<div class="txt">${esc(m.text)}</div>${attachmentsHtml(m)}</div></div>`
-  );
-}
-
-/** The agent has the message and has not answered yet. Its own node, so patching never rebuilds. */
-const TYPING_HTML =
-  '<div class="pb-typing"><div class="pb-av agent">AI</div>' +
-  '<div class="dots"><i></i><i></i><i></i></div><div class="lbl">THINKING</div></div>';
-
-/**
- * Show or hide the "working on it" row.
- *
- * Without it the card sits silent from the moment you comment until the answer lands, which reads
- * as nothing happening — the single most common report on the demo.
- */
-function patchTyping(threadEl: HTMLElement, pending: boolean): void {
-  const existing = threadEl.querySelector<HTMLElement>('[data-iid="pb-typing"]');
-  if (!pending) {
-    existing?.remove();
-    return;
-  }
-  if (existing) {
-    threadEl.appendChild(existing); // stay last as messages arrive
-    return;
-  }
-  const node = threadEl.ownerDocument.createElement("div");
-  node.className = "pb-msg-w";
-  node.setAttribute("data-iid", "pb-typing");
-  node.innerHTML = TYPING_HTML;
-  threadEl.appendChild(node);
-  threadEl.scrollTop = threadEl.scrollHeight;
-}
-
-/** Keyed thread patching: appends/patches [data-iid] nodes only, never rebuilds. */
-function patchThread(threadEl: HTMLElement, messages: ThreadMessage[]): void {
-  let appended = false;
-  for (const m of messages) {
-    let node = threadEl.querySelector<HTMLElement>(`[data-iid="${m.id}"]`);
-    const html = messageHtml(m);
-    if (!node) {
-      node = threadEl.ownerDocument.createElement("div");
-      node.className = "pb-msg-w";
-      node.setAttribute("data-iid", m.id);
-      node.innerHTML = html;
-      nodeMemo.set(node, html);
-      threadEl.appendChild(node);
-      appended = true;
-    } else if (nodeMemo.get(node) !== html) {
-      node.innerHTML = html;
-      nodeMemo.set(node, html);
-    }
-  }
-  if (appended) threadEl.scrollTop = threadEl.scrollHeight;
-}
-
-/* ── shell, parts, placement ── */
+/* ── shell, click delegation, placement ── */
 
 function ensureShell(root: ShadowRoot): HTMLElement {
   let card = root.querySelector<HTMLElement>(".pb-card");
@@ -210,7 +59,12 @@ function ensureShell(root: ShadowRoot): HTMLElement {
     root.appendChild(card);
   }
   if (!ctxByCard.has(card)) {
-    const ctx: CardCtx = { pid: null, parts: {}, actions: null as unknown as CardActions };
+    const ctx: CardCtx = {
+      pid: null,
+      parts: {},
+      actions: null as unknown as CardActions,
+      draftKind: "note",
+    };
     ctxByCard.set(card, ctx);
     card.addEventListener("click", (e) => onCardClick(card as HTMLElement, ctx, e));
   }
@@ -221,34 +75,64 @@ function submit(card: HTMLElement, ctx: CardCtx): void {
   const ta = card.querySelector("textarea");
   const text = ta?.value.trim();
   if (!ta || !text || !ctx.pid) return;
-  ctx.actions.send(ctx.pid === "draft" ? "draft" : ctx.pid, text);
+  ctx.actions.send(ctx.pid === "draft" ? "draft" : ctx.pid, text, ctx.draftKind);
   ta.value = "";
 }
 
+/** The draft's kind control: pick, redraw the row, keep typing. */
+function onKindPick(card: HTMLElement, ctx: CardCtx, kind: DraftKind): void {
+  ctx.draftKind = kind;
+  setPart(card, ctx, "row", rowHtml(false, true, kind));
+  card.querySelector("textarea")?.focus();
+}
+
+/** A moment of green on the copy button is the whole receipt — there is no toast layer,
+ * and the header part-memo never resets a class toggle. */
+function flashCopied(card: HTMLElement, from: Element): void {
+  const btn = from.closest?.('[data-action="copy"]');
+  if (!btn) return;
+  btn.classList.add("ok");
+  card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
+}
+
+/** Actions that need a committed pin (a draft has no id to act on). */
+const PIN_ACTIONS: Record<
+  string,
+  (card: HTMLElement, ctx: CardCtx, pid: string, from: Element) => void
+> = {
+  resolve: (_card, ctx, pid) => ctx.actions.resolve(pid),
+  nudge: (_card, ctx, pid) => ctx.actions.nudge(pid),
+  copy: (card, ctx, pid, from) => {
+    ctx.actions.copy(pid);
+    flashCopied(card, from);
+  },
+  "verify-accept": (_card, ctx, pid) => ctx.actions.verify(pid, "accepted"),
+  // reopen flips the pin open and focuses the composer (the sticky-session rule makes the
+  // follow-up reply route to the same session; here it is a thread POST).
+  "verify-reopen": (card, ctx, pid) => {
+    ctx.actions.verify(pid, "reopened");
+    card.querySelector("textarea")?.focus();
+  },
+};
+
 function onCardClick(card: HTMLElement, ctx: CardCtx, e: Event): void {
-  const action = (e.target as Element).closest?.("[data-action]")?.getAttribute("data-action");
-  if (!action || !ctx.pid) return;
-  if (action === "send") submit(card, ctx);
-  else if (action === "close") ctx.actions.close();
-  else if (ctx.pid !== "draft") {
-    if (action === "resolve") ctx.actions.resolve(ctx.pid);
-    else if (action === "copy") {
-      ctx.actions.copy(ctx.pid);
-      // A moment of green on the button is the whole receipt — there is no
-      // toast layer, and the header part-memo never resets a class toggle.
-      const btn = (e.target as Element).closest?.('[data-action="copy"]');
-      if (btn) {
-        btn.classList.add("ok");
-        card.ownerDocument.defaultView?.setTimeout(() => btn.classList.remove("ok"), 900);
-      }
-    } else if (action === "verify-accept") ctx.actions.verify(ctx.pid, "accepted");
-    else if (action === "verify-reopen") {
-      // reopen flips the pin open and focuses the composer (the sticky-session rule
-      // makes the follow-up reply route to the same session; here it is a thread POST).
-      ctx.actions.verify(ctx.pid, "reopened");
-      card.querySelector("textarea")?.focus();
-    }
+  const from = e.target as Element;
+  const kind = from.closest?.("[data-kind]")?.getAttribute("data-kind");
+  if (kind === "note" || kind === "comment") {
+    onKindPick(card, ctx, kind);
+    return;
   }
+  const action = from.closest?.("[data-action]")?.getAttribute("data-action");
+  if (!action || !ctx.pid) return;
+  if (action === "send") {
+    submit(card, ctx);
+    return;
+  }
+  if (action === "close") {
+    ctx.actions.close();
+    return;
+  }
+  if (ctx.pid !== "draft") PIN_ACTIONS[action]?.(card, ctx, ctx.pid, from);
 }
 
 function buildSkeleton(
@@ -290,96 +174,23 @@ function buildSkeleton(
   if (isDraft) ta.focus();
 }
 
-function hdHtml(
-  n: number,
-  targetLabel: string,
-  status: string,
-  resolvable: boolean,
-  copyable: boolean,
-): string {
-  return (
-    `<div class="meta"><span class="num">${pinNumber(n)}</span>` +
-    `<span>${esc(targetLabel)}</span><span class="st">${esc(status)}</span></div>` +
-    '<div style="display:flex;gap:2px">' +
-    (copyable
-      ? `<button type="button" class="pb-ico" data-action="copy" title="Copy this pin">${COPY_ICON}</button>`
-      : "") +
-    (resolvable
-      ? `<button type="button" class="pb-ico ok" data-action="resolve" title="Resolve (R)">${CHECK_ICON}</button>`
-      : "") +
-    `<button type="button" class="pb-ico" data-action="close" title="Close (Esc)">${X_ICON}</button></div>`
-  );
-}
-
-/** One name per locus: selector first, else anchor, else tag. */
-function locusName(t: NonNullable<Pin["target"]>): string | undefined {
-  return t.selector ?? t.anchor ?? t.tag?.toUpperCase();
-}
-
-/** The extra loci of a multi-target pin — the anchor leads, extras follow. */
-function lociHtml(pin: Pin | null): string {
-  const target = pin?.target;
-  const extras = target?.targets;
-  if (target === undefined || extras === undefined || extras.length === 0) return "";
-  const names = [target, ...extras].map((t) => esc(locusName(t) ?? "?"));
-  return `<div class="pb-loci">${names.length} targets: ${names.join(" · ")}</div>`;
-}
-
-/** Link badge: pin.links[0] read-only — no picker, no unlink yet. */
-function linkHtml(pin: Pin | null): string {
-  const link = pin?.links?.[0];
-  if (!link) return "";
-  return (
-    `<div class="pb-linkbar"><span class="ch">${esc(link.connector)}</span>` +
-    `<span class="mt">${esc(link.ref)}</span><span class="sp"></span>` +
-    `<a class="pb-open" href="${esc(safeUrl(link.url))}" target="_blank" rel="noreferrer">OPEN</a></div>`
-  );
-}
-
-function verifyHtml(status: UiStatus | null): string {
-  if (status === "verify") {
-    return (
-      '<div class="pb-verify">' +
-      '<button type="button" class="pb-bt-ok" data-action="verify-accept">Looks good</button>' +
-      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Reopen</button></div>'
-    );
-  }
-  // A verified-resolved pin was previously a dead end (dogfood: "how would I
-  // unresolve a resolved comment?"). Same wire call as Reopen — the hub flips
-  // any resolved pin back to open — so the card offers it whenever resolved.
-  if (status === "resolved") {
-    return (
-      '<div class="pb-verify">' +
-      '<button type="button" class="pb-bt-ghost" data-action="verify-reopen">Unresolve</button></div>'
-    );
-  }
-  return "";
-}
-
-function rowHtml(hasThread: boolean): string {
-  return (
-    '<div class="pb-kbd">⌘ ↵</div>' +
-    `<button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : "Comment"}</button>`
-  );
-}
-
 /**
- * Viewport-aware placement, ported verbatim (prototype lines 660–668): measure
- * the rendered card, flip left when it would overflow right, clamp between
- * scrollY + margin and the command-bar clearance — never off-screen.
+ * Viewport-aware placement, ported from the prototype (lines 660–668) into viewport space:
+ * measure the rendered card, flip left when it would overflow right, clamp between the margin
+ * and the command-bar clearance — never off-screen.
  */
 function position(card: HTMLElement, at: { x: number; y: number }): void {
   const win = card.ownerDocument.defaultView;
   if (!win) return;
-  const W = 344;
+  const W = CARD_W;
   const m = 12;
   const barClear = 84;
   let left = at.x + 22;
-  if (left + W > win.scrollX + win.innerWidth - m) left = at.x - W - 22;
-  left = Math.max(win.scrollX + m, left);
+  if (left + W > win.innerWidth - m) left = at.x - W - 22;
+  left = Math.max(m, left);
   const h = card.querySelector<HTMLElement>(".in")?.offsetHeight ?? 0;
-  const minTop = win.scrollY + m;
-  const maxTop = win.scrollY + win.innerHeight - h - barClear;
+  const minTop = m;
+  const maxTop = win.innerHeight - h - barClear;
   card.style.left = `${left}px`;
   card.style.top = `${Math.max(minTop, Math.min(at.y - 60, maxTop))}px`;
 }
@@ -417,12 +228,32 @@ function ordinalOf(state: ToolbarState, pin: Pin | null): number {
   return visible.indexOf(pin) + 1;
 }
 
-function anchorOf(pin: Pin | null, draft: ToolbarState["draft"]): { x: number; y: number } {
-  // No pin, or a terminal `pinbox pin` with no captured rect: the card is not
-  // tethered to anything on the page, so it falls back to the draft placement.
-  const r = pin?.target?.rect;
-  if (!r) return draft?.placedAt ?? { x: 0, y: 0 };
-  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+/**
+ * Where the card tethers, in viewport space. The LIVE anchor when the pin's element is on this
+ * view; otherwise (other URL, selector gone, a terminal `pinbox pin`) the middle of the viewport
+ * — dogfood: the stored rect of a pin whose view had moved on put the card off-screen, so a pin
+ * listed in the drawer could be opened but never seen, let alone resolved.
+ */
+function anchorOf(
+  root: ShadowRoot,
+  pin: Pin | null,
+  draft: ToolbarState["draft"],
+): { x: number; y: number } {
+  const doc = root.ownerDocument;
+  const win = doc.defaultView;
+  let live: { x: number; y: number } | null = null;
+  if (pin !== null) {
+    const r = anchorRect(doc, pin);
+    live = r === null ? null : { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  } else if (draft !== null) {
+    live = draftPoint(doc, draft);
+  } else {
+    return { x: 0, y: 0 };
+  }
+  if (live !== null) return live;
+  if (win === null) return { x: 0, y: 0 };
+  // position() offsets by (+22, −60) and clamps; this lands the card centred.
+  return { x: win.innerWidth / 2 - CARD_W / 2 - 22, y: win.innerHeight / 3 + 60 };
 }
 
 /**
@@ -433,7 +264,7 @@ function labelOf(target: Pin["target"]): string {
   return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 }
 
-function viewOf(state: ToolbarState): CardView | null {
+function viewOf(root: ShadowRoot, state: ToolbarState): CardView | null {
   const pin = activePin(state);
   const pid = pin?.id ?? (state.draft ? "draft" : null);
   if (!pid) return null;
@@ -443,9 +274,9 @@ function viewOf(state: ToolbarState): CardView | null {
     pin,
     thread,
     n: ordinalOf(state, pin),
-    status: pin ? deriveUiStatus(pin, thread) : null,
+    status: pin ? deriveUiStatus(pin, thread, state) : null,
     label: labelOf(pin?.target ?? state.draft?.target.target),
-    at: anchorOf(pin, state.draft),
+    at: anchorOf(root, pin, state.draft),
   };
 }
 
@@ -471,7 +302,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   const card = ensureShell(root);
   const ctx = ctxByCard.get(card) as CardCtx;
   ctx.actions = actions;
-  const view = viewOf(state);
+  const view = viewOf(root, state);
   if (!view) {
     card.hidden = true;
     ctx.pid = null;
@@ -480,6 +311,7 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   if (ctx.pid !== view.pid) {
     ctx.pid = view.pid;
     ctx.parts = {};
+    ctx.draftKind = "note";
     // A committed pin always has at least its own message, so the thread area always exists.
     buildSkeleton(card, ctx, view.pid === "draft", view.pin !== null || view.thread.length > 0);
   }
@@ -492,15 +324,23 @@ export function renderCard(root: ShadowRoot, state: ToolbarState, actions: CardA
   setPart(card, ctx, "hd", hdHtml(view.n, view.label, statusLabel, resolvable, view.pin !== null));
   setPart(card, ctx, "link", linkHtml(view.pin));
   setPart(card, ctx, "loci", lociHtml(view.pin));
-  setPart(card, ctx, "verify", verifyHtml(view.status));
+  setPart(
+    card,
+    ctx,
+    "verify",
+    resolutionHtml(view.pin) + staleHtml(view.status) + verifyHtml(view.status),
+  );
   const messages = view.pin === null ? view.thread : [pinAsMessage(view.pin), ...view.thread];
-  setPart(card, ctx, "row", rowHtml(messages.length > 0));
+  setPart(card, ctx, "row", rowHtml(messages.length > 0, view.pid === "draft", ctx.draftKind));
   const threadEl = card.querySelector<HTMLElement>('[data-ref="thread"]');
   if (threadEl) {
     patchThread(threadEl, messages);
-    // Pending exactly when the last word is yours and the pin is still open — the same condition
-    // that makes the status "waiting", so the chip and the row can never disagree.
-    patchTyping(threadEl, !queued && view.pin?.status === "open" && view.status === "waiting");
+    // Pending exactly when the last word is yours and the pin is still open — the same derivation
+    // that makes the status "waiting"/"stale", so the chip and the row can never disagree.
+    patchPending(
+      threadEl,
+      queued || view.pin === null ? "none" : pendingKind(view.pin, view.thread, state),
+    );
   }
   position(card, view.at);
 }

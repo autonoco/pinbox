@@ -112,7 +112,7 @@ async function encode(bmp: ImageBitmap): Promise<CapturedImage> {
   return image;
 }
 
-function toBase64(buffer: ArrayBuffer): string {
+export function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);

@@ -44,7 +44,7 @@ The hub assigns `id`, `schemaVersion`, `status`, `createdAt`, and stamps `env.br
 | Field | Notes |
 | --- | --- |
 | `text` | Required. The feedback itself. |
-| `kind` | `note` or `move`. Defaults to `note`; `move` carries `move: { from, to }` rects. |
+| `kind` | `note`, `comment` or `move`. Defaults to `note` (an agent picks it up). `comment` is a remark for people: the hub never delivers it to an agent session, and the toolbar shows it as a muted `N` chip. `move` carries `move: { from, to }` rects. |
 | `author` | Required: `userId`, optional `name` and `email`. |
 | `target` | Where the pin points: `url`, `selector`, `tag`, `rect`, `fixed`, `anchor`, `source`, `context`. |
 | `target.source` | `{ file, line?, via }` where `via` is `plugin`, `framework`, or `none`. |

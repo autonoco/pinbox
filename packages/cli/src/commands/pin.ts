@@ -20,7 +20,13 @@ import { CliError } from "../errors.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
 import { usageHint } from "./flags.ts";
 
-export type PinOptions = OutputFlags & { file?: string; url?: string; selector?: string };
+export type PinOptions = OutputFlags & {
+  file?: string;
+  url?: string;
+  selector?: string;
+  /** A remark for people: the hub never routes it to an agent. */
+  comment?: boolean;
+};
 
 export function registerPin(program: Command): void {
   program
@@ -35,6 +41,7 @@ export function registerPin(program: Command): void {
     .option("--file <path[:line]>", "anchor to a source location (recorded repo-relative)")
     .option("--url <url>", "the web surface this pin is about")
     .option("--selector <sel>", "CSS selector on that surface (needs --url)")
+    .option("--comment", "a note for people, not a task: no agent is woken for it")
     .option("--json", "machine output")
     .action(async (text: string, _opts: PinOptions, cmd: Command) => {
       await runPin(text, cmd.optsWithGlobals() as PinOptions);
@@ -79,7 +86,7 @@ export async function buildPinInput(
   const target = await buildTarget(opts, cwd);
   return {
     text: body,
-    kind: "note",
+    kind: opts.comment === true ? "comment" : "note",
     ...(target === undefined ? {} : { target }),
     author: terminalAuthor(cwd),
     // No `env` key at all: the hub stamps branch/commit, and a terminal knows

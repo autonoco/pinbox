@@ -42,6 +42,9 @@ export function renderSkill(program: Command, version: string): string {
     "- **Always pass `--json`** and parse the envelope. Use exact ids (`pin_xxxxxxxxxx`), never prefixes.",
     "- **Sticky sessions:** replies reach the agent session the thread started in - keep working " +
       "a pin in the session where you first saw it.",
+    '- **Comment pins are context, not tasks.** A pin with `kind: "comment"` is a note a person ' +
+      "left for people; the hub never routes it to you. Read it for context, never act on it or " +
+      "resolve it unprompted.",
     "",
     "## Commands",
     "",

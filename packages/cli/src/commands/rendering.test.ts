@@ -190,7 +190,7 @@ describe("help text", () => {
       /^ {2}list \[options\]\s+list pins, newest first$/m,
       /^ {2}show <id>\s+one pin with its full thread$/m,
       /^ {2}reply \[options\] <id> <text>\s+add a thread message to a pin$/m,
-      /^ {2}resolve \[options\] <id>\s+mark a pin resolved$/m,
+      /^ {2}resolve \[options\] \[id\]\s+mark a pin resolved$/m,
       /^ {2}export \[options\]\s+write pins to stdout as markdown or JSON$/m,
       /^ {2}doctor\s+probe this machine's capabilities$/m,
       /^ {2}update \[options\]\s+install the latest pinbox CLI$/m,

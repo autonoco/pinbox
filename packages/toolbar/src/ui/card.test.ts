@@ -57,10 +57,18 @@ function spyActions(): CardActions & {
   send: ReturnType<typeof mock>;
   verify: ReturnType<typeof mock>;
   resolve: ReturnType<typeof mock>;
+  nudge: ReturnType<typeof mock>;
   copy: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
 } {
-  return { send: mock(), verify: mock(), resolve: mock(), copy: mock(), close: mock() };
+  return {
+    send: mock(),
+    verify: mock(),
+    resolve: mock(),
+    nudge: mock(),
+    copy: mock(),
+    close: mock(),
+  };
 }
 
 const RESOLUTION = { by: "agent", at: "2026-08-04T11:00:00.000Z" } as const;
@@ -177,6 +185,49 @@ describe("renderCard verify footer", () => {
   });
 });
 
+describe("renderCard resolution note", () => {
+  test("a resolved pin shows who resolved it, the note and a short commit", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa", {
+      status: "resolved",
+      resolution: { ...RESOLUTION, note: "flex-shrink on the CTA", commit: "abcdef1234567" },
+      verification: VERIFICATION,
+    });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    const note = shadow.querySelector(".pb-resnote") as HTMLElement;
+    expect(note.textContent).toContain("Resolved by agent");
+    expect(note.textContent).toContain("flex-shrink on the CTA");
+    expect(note.textContent).toContain("abcdef1");
+    expect(note.textContent).not.toContain("abcdef1234567");
+  });
+
+  test("an open pin has no resolution note", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    expect(shadow.querySelector(".pb-resnote")).toBeNull();
+  });
+});
+
+describe("renderCard placement", () => {
+  test("a pin whose anchor is not on this view docks mid-viewport, not at its stale rect", () => {
+    const shadow = shadowIn();
+    // makePin's URL is another view for this window (about:blank), so the anchor gate fails.
+    const pin = makePin("pin_aaaaaaaaaa", {
+      target: { ...makePin("x").target, rect: { x: 5000, y: 9000, width: 50, height: 20 } },
+    } as Partial<BrowserPin>);
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    const card = shadow.querySelector(".pb-card") as HTMLElement;
+    const win = shadow.ownerDocument.defaultView as unknown as {
+      innerWidth: number;
+      innerHeight: number;
+    };
+    // anchorOf's fallback point, after position()'s (+22, −60) offset
+    expect(Number.parseFloat(card.style.top)).toBeCloseTo(win.innerHeight / 3, 0);
+    expect(Number.parseFloat(card.style.left)).toBeCloseTo(win.innerWidth / 2 - 172, 0);
+  });
+});
+
 describe("renderCard actions", () => {
   test("resolve and close fire with the active pin id", () => {
     const shadow = shadowIn();
@@ -226,7 +277,7 @@ describe("renderCard actions", () => {
     const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
     ta.value = "tighter please";
     send.click();
-    expect(actions.send).toHaveBeenCalledWith(pin.id, "tighter please");
+    expect(actions.send).toHaveBeenCalledWith(pin.id, "tighter please", "note");
     expect(ta.value).toBe("");
   });
 });
@@ -250,6 +301,85 @@ describe("renderCard queued pin", () => {
   });
 });
 
+describe("renderCard draft kind", () => {
+  test("Ask agent is the default; Note flips the label and sends kind comment; resets per draft", () => {
+    const shadow = shadowIn();
+    const actions = spyActions();
+    const draft = { target: { target: makePin("x").target } as never, placedAt: { x: 1, y: 2 } };
+    renderCard(shadow, stateWith({ draft }), actions);
+    const send = () => shadow.querySelector('[data-action="send"]') as HTMLElement;
+    expect(send().textContent).toBe("Comment");
+    (shadow.querySelector('[data-kind="comment"]') as HTMLElement).click();
+    expect(send().textContent).toBe("Leave note");
+    const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
+    ta.value = "for the designers";
+    send().click();
+    expect(actions.send).toHaveBeenCalledWith("draft", "for the designers", "comment");
+    // A committed pin replaces the draft; the next draft starts as Ask agent again.
+    const pin = makePin("pin_aaaaaaaaaa");
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), actions);
+    expect(shadow.querySelector(".pb-seg")).toBeNull();
+    renderCard(shadow, stateWith({ draft }), actions);
+    expect(send().textContent).toBe("Comment");
+    expect(shadow.querySelector('[data-kind="note"]')?.classList.contains("on")).toBe(true);
+  });
+
+  test("a comment pin never shows the THINKING row and is labelled NOTE", () => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa", { kind: "comment" });
+    renderCard(shadow, stateWith({ pins: [pin], activePinId: pin.id }), spyActions());
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
+    expect((shadow.querySelector(".pb-hd .st") as HTMLElement).textContent).toBe("NOTE");
+  });
+});
+
+describe("renderCard pending stages", () => {
+  const T0 = Date.parse("2026-08-04T10:00:00.000Z");
+  const open = (clock: number, agentLive: boolean | null = null) => {
+    const shadow = shadowIn();
+    const pin = makePin("pin_aaaaaaaaaa");
+    const threads = new Map([[pin.id, [makeMsg("msg_1", pin.id, "human", "please fix")]]]);
+    const actions = spyActions();
+    renderCard(
+      shadow,
+      stateWith({ pins: [pin], activePinId: pin.id, threads, clock, agentLive }),
+      actions,
+    );
+    return { shadow, actions };
+  };
+
+  test("young: THINKING dots; older: a quiet WAITING FOR AGENT; no stale footer", () => {
+    const young = open(T0 + 30_000).shadow;
+    expect(young.querySelector(".pb-typing:not(.quiet) .lbl")?.textContent).toBe("THINKING");
+    expect(young.querySelector(".pb-stale")).toBeNull();
+    const older = open(T0 + 5 * 60_000).shadow;
+    expect(older.querySelector(".pb-typing.quiet .lbl")?.textContent).toBe("WAITING FOR AGENT");
+    expect(older.querySelector(".pb-stale")).toBeNull();
+  });
+
+  test("ten minutes on: NO RESPONSE footer replaces the row; Nudge and Resolve fire", () => {
+    const { shadow, actions } = open(T0 + 11 * 60_000);
+    expect(shadow.querySelector('[data-iid="pb-typing"]')).toBeNull();
+    expect((shadow.querySelector(".pb-hd .st") as HTMLElement).textContent).toBe("NO RESPONSE");
+    (shadow.querySelector('.pb-stale [data-action="nudge"]') as HTMLElement).click();
+    expect(actions.nudge).toHaveBeenCalledWith("pin_aaaaaaaaaa");
+    (shadow.querySelector('.pb-stale [data-action="resolve"]') as HTMLElement).click();
+    expect(actions.resolve).toHaveBeenCalledWith("pin_aaaaaaaaaa");
+  });
+
+  test("with no agent listening, stale arrives after the thinking window instead", () => {
+    const { shadow } = open(T0 + 2 * 60_000, false);
+    expect(shadow.querySelector(".pb-stale")).not.toBeNull();
+    // ...but a live agent keeps the quiet row at the same age.
+    expect(open(T0 + 2 * 60_000, true).shadow.querySelector(".pb-stale")).toBeNull();
+  });
+
+  test("an unticked clock never goes stale — the pre-clock behaviour", () => {
+    const { shadow } = open(0);
+    expect(shadow.querySelector(".pb-typing .lbl")?.textContent).toBe("THINKING");
+  });
+});
+
 describe("renderCard draft card", () => {
   test('shows Comment and sends send("draft", …)', () => {
     const shadow = shadowIn();
@@ -262,7 +392,7 @@ describe("renderCard draft card", () => {
     const ta = shadow.querySelector("textarea") as HTMLTextAreaElement;
     ta.value = "What should change here?";
     send.click();
-    expect(actions.send).toHaveBeenCalledWith("draft", "What should change here?");
+    expect(actions.send).toHaveBeenCalledWith("draft", "What should change here?", "note");
     // empty text never sends
     send.click();
     expect(actions.send).toHaveBeenCalledTimes(1);

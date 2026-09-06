@@ -16,11 +16,13 @@ export * from "./index.ts";
  * (its transport starts in connectedCallback) and removes it when the node is destroyed.
  * Config forwards once; re-create the node to change endpoints.
  */
-export const pinbox: Action<HTMLElement, PinboxConfig> = (node, config) => {
+export const pinbox: Action<HTMLElement, PinboxConfig> = (_node, config) => {
   defineToolbarElement();
   const el = document.createElement(PinboxToolbarElement.tagName) as PinboxToolbarElement;
   el.configure(config);
-  node.appendChild(el);
+  // On body, not under `node`: the overlay is viewport-fixed, and a transformed or scrolling
+  // ancestor in the app tree would become its containing block (pins drift with it).
+  document.body.appendChild(el);
   return {
     destroy: () => {
       el.remove();

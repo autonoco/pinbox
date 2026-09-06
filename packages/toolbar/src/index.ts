@@ -19,19 +19,29 @@ export interface PinboxConfig {
   /** Reserved; the realtime topic is fixed server-side. */
   project?: string;
   /**
-   * Attach a screenshot to new pins. Default true.
-   *
-   * Capturing one means asking the browser to share the tab, and that permission prompt is the
-   * first thing a visitor sees — fine in a project you already trust, hostile on a public page.
-   * Set false and pins ship with their structured capture (selector, markup, viewport) and no
-   * pixels.
+   * Attach a screenshot to new pins. Default true. Set false and pins ship with their
+   * structured capture (selector, markup, viewport) and no pixels at all.
    */
   screenshots?: boolean;
+  /**
+   * How the screenshot is taken when nothing is persisted yet. Default "dom": a no-permission
+   * snapshot of the element (cloned, styles inlined, drawn to a canvas — images become neutral
+   * boxes). "tab": real pixels via tab capture, which makes Chrome ask to share the tab once per
+   * page load. The visitor can flip this from the bar's camera button; their choice persists per
+   * endpoint and wins over this on reload.
+   */
+  capture?: "dom" | "tab";
   /**
    * Start with the bar collapsed to the floating puck. Default false. A
    * visitor's own choice, persisted per endpoint, wins over this on reload.
    */
   minimized?: boolean;
+  /**
+   * Keyboard shortcuts. Default "all". "escape-only" keeps Esc (dismiss) and hands every
+   * letter back to the host; "off" never reads the keyboard. For hosts whose own hotkeys
+   * collide. A subtree can also opt out with `data-pinbox-ignore-keys`.
+   */
+  shortcuts?: "all" | "escape-only" | "off";
 }
 
 /** Register <pinbox-toolbar>; no-op outside a browser or when already defined. */

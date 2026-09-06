@@ -6,8 +6,10 @@
 // attaches refs AFTER the node is inserted, but the element starts its transport in
 // connectedCallback — a configure() delivered via ref would arrive too late and the
 // element would sit configless forever. Creating + configuring BEFORE appendChild is the
-// only ordering that works, so the wrapper renders a display:contents host div and mounts
-// the element into it on mount.
+// only ordering that works, so the wrapper renders a display:contents host div for React's
+// lifecycle and mounts the element on document.body: its overlay is viewport-fixed, and a
+// transformed, positioned or scrolling ancestor inside the app tree would become its containing
+// block and drag every pin with it (dogfood: "pins drift on scroll").
 import { createElement, type ReactElement, useEffect, useRef } from "react";
 import { defineToolbarElement, type PinboxConfig, PinboxToolbarElement } from "./index.ts";
 
@@ -17,7 +19,6 @@ import { defineToolbarElement, type PinboxConfig, PinboxToolbarElement } from ".
  * reconfiguration; remount with a `key` to change endpoints.
  */
 export function PinboxToolbar(props: PinboxConfig): ReactElement {
-  const host = useRef<HTMLDivElement | null>(null);
   const config = useRef(props);
   config.current = props;
 
@@ -25,11 +26,11 @@ export function PinboxToolbar(props: PinboxConfig): ReactElement {
     defineToolbarElement();
     const el = document.createElement(PinboxToolbarElement.tagName) as PinboxToolbarElement;
     el.configure(config.current);
-    host.current?.appendChild(el);
+    document.body.appendChild(el);
     return () => {
       el.remove();
     };
   }, []);
 
-  return createElement("div", { ref: host, style: { display: "contents" } });
+  return createElement("div", { style: { display: "contents" } });
 }

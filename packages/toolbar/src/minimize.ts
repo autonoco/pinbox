@@ -7,29 +7,20 @@
 // over the settled surface, the layer fades out beneath). An opaque surface
 // exists at every instant, so nothing ever pops.
 //
-// Three regressions this file must never reintroduce (each hit for real in
-// the prototype, each a named test case in minimize.test.ts):
-//   - a non-primary-button press must not start a drag (macOS right-click
-//     never delivers pointerup — the pending drag wedged the UI)
-//   - restore()/minimize() clear pending pointer state, and a drag may only
-//     START from mode "puck" (a keyboard restore mid-hold otherwise let the
-//     next pointermove hijack the morph)
-//   - a release under TAP_MAX total travel is a tap — trackpad clicks wander
-//     several pixels, and treating them as drags read as the puck "not
-//     responding"
+// The drag/tap rules (primary button only, 8px start, 12px tap ceiling, a hold
+// abandoned when the owner changes mid-press) live in motion/drag.ts, shared
+// with the command bar; the three prototype regressions they guard are still
+// named test cases in minimize.test.ts.
 //
 // A tap toggles the fan menu (vertical quick-actions out of the puck); the
 // bar comes back via the fan's EXPAND, the M key, or restore().
+import { attachDrag, clampToViewport, type Point, readPoint } from "./motion/drag.ts";
 import { FOLLOW_SPRING, MORPH_SPRING, mkSpring } from "./motion/spring.ts";
 import type { StorageLike } from "./transport/mirror.ts";
 import type { FanAction, MinimizeUi } from "./ui/puck.ts";
 
 const PUCK = 48;
 const MARGIN = 16;
-/** Movement that begins a drag… */
-const DRAG_START = 8;
-/** …but a release under this much TOTAL travel is still a tap. */
-const TAP_MAX = 12;
 /** Spring hold while the surface swap crossfades (ms). */
 const HOLD_MINIMIZE = 90;
 const HOLD_RESTORE = 70;
@@ -77,23 +68,12 @@ export interface MinimizeController {
   destroy(): void;
 }
 
-interface PointerHold {
-  px: number;
-  py: number;
-  ox: number;
-  oy: number;
-  lx: number;
-  ly: number;
-  moved: boolean;
-}
-
 export function createMinimize(host: MinimizeHost): MinimizeController {
   const { win, bar, ui } = host;
   const main = mkSpring({ x: 0, y: 0, w: 0, h: 0, r: 0 });
   let mode: MinimizeMode = "bar";
   let puckPos: { x: number; y: number } | null = null;
   let dock: { x: number; y: number } | null = loadDock();
-  let pdown: PointerHold | null = null;
   let keyboardToggle = false;
   let raf = 0;
   let last = 0;
@@ -104,16 +84,8 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   let fanTimer = 0;
 
   // ---- persistence (mirror convention: storage never throws upward) -------
-  function loadDock(): { x: number; y: number } | null {
-    try {
-      const raw = host.storage?.getItem(`${host.storagePrefix}:dock`);
-      if (raw == null) return null;
-      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown };
-      if (typeof parsed.x !== "number" || typeof parsed.y !== "number") return null;
-      return { x: parsed.x, y: parsed.y };
-    } catch {
-      return null;
-    }
+  function loadDock(): Point | null {
+    return readPoint(host.storage, `${host.storagePrefix}:dock`);
   }
   function persist(): void {
     try {
@@ -133,12 +105,8 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   }
 
   // ---- geometry -----------------------------------------------------------
-  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
-  function clampPos(p: { x: number; y: number }): { x: number; y: number } {
-    return {
-      x: clamp(p.x, MARGIN, win.innerWidth - MARGIN - PUCK),
-      y: clamp(p.y, MARGIN, win.innerHeight - MARGIN - PUCK),
-    };
+  function clampPos(p: Point): Point {
+    return clampToViewport(p, win, { w: PUCK, h: PUCK }, MARGIN);
   }
   function defaultDock(): { x: number; y: number } {
     const r = bar.getBoundingClientRect();
@@ -221,7 +189,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   // ---- transitions --------------------------------------------------------
   function minimize(keyboard = false): void {
     if (mode !== "bar") return;
-    pdown = null;
+    drag.cancel();
     keyboardToggle = keyboard;
     const r = bar.getBoundingClientRect();
     const d = clampPos(dock ?? defaultDock());
@@ -250,7 +218,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
   function restore(keyboard = false): void {
     if (mode !== "puck" || puckPos === null) return;
     closeFan();
-    pdown = null;
+    drag.cancel();
     keyboardToggle = keyboard;
     dock = { ...puckPos };
     ui.puck.classList.add("pb-ghost");
@@ -327,96 +295,62 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
     closeFan();
   }
 
-  // ---- drag ---------------------------------------------------------------
-  function onPointerDown(e: PointerEvent): void {
-    if (mode !== "puck" || e.button !== 0) return;
-    try {
-      ui.puck.setPointerCapture(e.pointerId);
-    } catch {
-      // synthetic pointer events have no capturable pointer
-    }
-    if (puckPos === null) return;
-    pdown = {
-      px: e.clientX,
-      py: e.clientY,
-      ox: puckPos.x,
-      oy: puckPos.y,
-      lx: e.clientX,
-      ly: e.clientY,
-      moved: false,
-    };
-  }
-
-  function onPointerMove(e: PointerEvent): void {
-    if (pdown === null) return;
-    pdown.lx = e.clientX;
-    pdown.ly = e.clientY;
-    const dx = e.clientX - pdown.px;
-    const dy = e.clientY - pdown.py;
-    if (!pdown.moved) {
-      if (mode !== "puck") {
-        // A keyboard restore ran mid-hold — abandon the pending drag.
-        pdown = null;
-        return;
-      }
-      if (Math.hypot(dx, dy) < DRAG_START) return;
-      pdown.moved = true;
+  // ---- drag (rules in motion/drag.ts) --------------------------------------
+  const drag = attachDrag(ui.puck, {
+    origin: () => (mode === "puck" ? puckPos : null),
+    // A keyboard restore mid-hold flips the mode; the held pointer must not drag the ghost.
+    canStart: () => mode === "puck",
+    onStart(origin) {
       closeFan();
       mode = "drag";
       if (!host.reduced) {
         ui.puck.classList.add("pb-ghost");
-        main.snap({ x: pdown.ox, y: pdown.oy, w: PUCK, h: PUCK, r: PUCK / 2 });
+        main.snap({ x: origin.x, y: origin.y, w: PUCK, h: PUCK, r: PUCK / 2 });
         render();
         showMorph();
       }
-    }
-    const next = { x: pdown.ox + dx, y: pdown.oy + dy };
-    if (host.reduced) {
-      const p = clampPos(next);
-      placePuck(p.x, p.y);
-    } else {
-      main.to({ ...next, w: PUCK, h: PUCK, r: PUCK / 2 }, FOLLOW_SPRING);
-      ensureLoop();
-    }
-  }
-
-  function onPointerUp(): void {
-    if (pdown === null) return;
-    const total = Math.hypot(pdown.lx - pdown.px, pdown.ly - pdown.py);
-    const wasDrag = pdown.moved && total >= TAP_MAX;
-    const origin = { x: pdown.ox, y: pdown.oy };
-    const startedDrag = pdown.moved;
-    pdown = null;
-    if (!wasDrag) {
-      // A tap (even a slightly sloppy one) toggles the fan — the bar comes
-      // back via the fan's EXPAND. If a drag had visually started, put the
-      // puck back first.
-      if (startedDrag && mode === "drag") {
-        main.snap({ x: origin.x, y: origin.y, w: PUCK, h: PUCK, r: PUCK / 2 });
-        placePuck(origin.x, origin.y);
-        ui.puck.classList.remove("pb-ghost");
-        hideMorph();
-        mode = "puck";
-      }
-      if (!closeFan()) openFan();
-      return;
-    }
-    if (host.reduced) {
-      if (puckPos) {
-        const p = clampPos(puckPos);
+    },
+    onMove(next) {
+      if (host.reduced) {
+        const p = clampPos(next);
         placePuck(p.x, p.y);
-        dock = { ...p };
+      } else {
+        main.to({ ...next, w: PUCK, h: PUCK, r: PUCK / 2 }, FOLLOW_SPRING);
+        ensureLoop();
       }
-      mode = "puck";
-      persist();
-      return;
-    }
-    // Free placement: settle right where it was released, just inside the viewport.
-    const p = clampPos({ x: main.tgt.x, y: main.tgt.y });
-    main.to({ ...p, w: PUCK, h: PUCK, r: PUCK / 2 }, MORPH_SPRING);
-    mode = "settle";
-    ensureLoop();
-  }
+    },
+    onEnd({ dragged, started, origin }) {
+      if (!dragged) {
+        // A tap (even a slightly sloppy one) toggles the fan — the bar comes
+        // back via the fan's EXPAND. If a drag had visually started, put the
+        // puck back first.
+        if (started && mode === "drag") {
+          main.snap({ x: origin.x, y: origin.y, w: PUCK, h: PUCK, r: PUCK / 2 });
+          placePuck(origin.x, origin.y);
+          ui.puck.classList.remove("pb-ghost");
+          hideMorph();
+          mode = "puck";
+        }
+        if (!closeFan()) openFan();
+        return;
+      }
+      if (host.reduced) {
+        if (puckPos) {
+          const p = clampPos(puckPos);
+          placePuck(p.x, p.y);
+          dock = { ...p };
+        }
+        mode = "puck";
+        persist();
+        return;
+      }
+      // Free placement: settle right where it was released, just inside the viewport.
+      const p = clampPos({ x: main.tgt.x, y: main.tgt.y });
+      main.to({ ...p, w: PUCK, h: PUCK, r: PUCK / 2 }, MORPH_SPRING);
+      mode = "settle";
+      ensureLoop();
+    },
+  });
 
   /** Keyboard/AT activation is a synthesized click (detail 0) with no pointer events. */
   function onClick(e: MouseEvent): void {
@@ -433,10 +367,6 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
     if (dock !== null) dock = clampPos(dock);
   }
 
-  ui.puck.addEventListener("pointerdown", onPointerDown);
-  ui.puck.addEventListener("pointermove", onPointerMove);
-  ui.puck.addEventListener("pointerup", onPointerUp);
-  ui.puck.addEventListener("pointercancel", onPointerUp);
   ui.puck.addEventListener("click", onClick);
   ui.fan.addEventListener("click", onFanClick);
   win.document.addEventListener("pointerdown", onDocPointerDown);
@@ -465,10 +395,7 @@ export function createMinimize(host: MinimizeHost): MinimizeController {
       else win.requestAnimationFrame(apply);
     },
     destroy() {
-      ui.puck.removeEventListener("pointerdown", onPointerDown);
-      ui.puck.removeEventListener("pointermove", onPointerMove);
-      ui.puck.removeEventListener("pointerup", onPointerUp);
-      ui.puck.removeEventListener("pointercancel", onPointerUp);
+      drag.destroy();
       ui.puck.removeEventListener("click", onClick);
       ui.fan.removeEventListener("click", onFanClick);
       win.document.removeEventListener("pointerdown", onDocPointerDown);

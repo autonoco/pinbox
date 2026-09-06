@@ -16,6 +16,7 @@ CLI-first feedback loop: pins dropped on a live app, fixed and resolved by agent
 - **Never guess on an ambiguous pin.** Reply with a question instead: `pinbox reply <id> "<your question>"`.
 - **Always pass `--json`** and parse the envelope. Use exact ids (`pin_xxxxxxxxxx`), never prefixes.
 - **Sticky sessions:** replies reach the agent session the thread started in - keep working a pin in the session where you first saw it.
+- **Comment pins are context, not tasks.** A pin with `kind: "comment"` is a note a person left for people; the hub never routes it to you. Read it for context, never act on it or resolve it unprompted.
 
 ## Commands
 
@@ -50,6 +51,7 @@ Options:
 - `--file <path[:line]>` - anchor to a source location (recorded repo-relative)
 - `--url <url>` - the web surface this pin is about
 - `--selector <sel>` - CSS selector on that surface (needs --url)
+- `--comment` - a note for people, not a task: no agent is woken for it
 - `--json` - machine output
 
 ### pinbox summary
@@ -71,6 +73,7 @@ Usage: `pinbox list [options]`
 Options:
 
 - `--status <status>` - filter: open or resolved (default: all)
+- `--kind <kind>` - filter: note (agent tasks) or comment (notes for people)
 - `--json` - machine output
 
 ### pinbox show
@@ -105,16 +108,17 @@ Options:
 
 ### pinbox resolve
 
-Mark a pin resolved.
+Mark a pin resolved — one by id, or every open pin linked to a tracker item.
 
-Usage: `pinbox resolve [options] <id>`
+Usage: `pinbox resolve [options] [id]`
 
 Arguments:
 
-- `id` - pin id (pin_xxxxxxxxxx)
+- `id` - pin id (pin_xxxxxxxxxx); omit with --link
 
 Options:
 
+- `--link <connector#ref>` - resolve every open pin linked to this item, e.g. github#58
 - `--note <text>` - resolution note (e.g. what changed, or why it won't)
 - `--as <role>` - resolver: human or agent (default: "human")
 - `--json` - machine output

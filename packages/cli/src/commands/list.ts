@@ -10,11 +10,12 @@ import { pinLocus } from "@autono/pinbox-core/markdown";
 import type { Pin } from "@autono/pinbox-core/schema";
 import type { Command } from "commander";
 import { connectClient } from "../client.ts";
+import { CliError } from "../errors.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
 import { relativeAge } from "../render.ts";
-import { parseStatus } from "./flags.ts";
+import { parseStatus, usageHint } from "./flags.ts";
 
-export type ListOptions = OutputFlags & { status?: string };
+export type ListOptions = OutputFlags & { status?: string; kind?: string };
 
 export function registerList(program: Command): void {
   program
@@ -22,6 +23,7 @@ export function registerList(program: Command): void {
     .summary("list pins, newest first")
     .description("List pins, newest first.")
     .option("--status <status>", "filter: open or resolved (default: all)")
+    .option("--kind <kind>", "filter: note (agent tasks) or comment (notes for people)")
     .option("--json", "machine output")
     .action(async (_opts: ListOptions, cmd: Command) => {
       await runList(cmd.optsWithGlobals() as ListOptions);
@@ -31,8 +33,10 @@ export function registerList(program: Command): void {
 export async function runList(opts: ListOptions): Promise<void> {
   try {
     const status = parseStatus(opts.status, "list");
+    const kind = parseKind(opts.kind);
     const client = await connectClient();
-    const pins = await client.list(status);
+    const all = await client.list(status);
+    const pins = kind === undefined ? all : all.filter((p) => p.kind === kind);
     emit(pins, opts, renderList);
     if (!isJsonMode(opts)) console.error(countLine(pins));
   } catch (err) {
@@ -48,7 +52,8 @@ export function renderList(pins: Pin[]): string {
   if (pins.length === 0) return "";
   const rows = pins.map((pin) => ({
     id: pin.id,
-    status: pin.status,
+    // An open comment pin is a note, not work waiting on someone.
+    status: pin.status === "open" && pin.kind === "comment" ? "note" : pin.status,
     age: relativeAge(pin.createdAt),
     locus: pinLocus(pin) ?? NO_LOCUS,
     text: pin.text,
@@ -77,4 +82,14 @@ export function countLine(pins: Pin[]): string {
   return parts.length === 0
     ? `${pins.length} ${noun}`
     : `${pins.length} ${noun} (${parts.join(", ")})`;
+}
+
+function parseKind(raw: string | undefined): "note" | "comment" | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "note" || raw === "comment") return raw;
+  throw new CliError(
+    "E_INVALID_INPUT",
+    `invalid --kind: "${raw}" (expected note or comment)`,
+    usageHint("list"),
+  );
 }

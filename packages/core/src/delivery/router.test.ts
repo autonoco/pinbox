@@ -14,7 +14,7 @@ import {
   hooksEscalateMs,
 } from "./router.ts";
 
-const FUTURE = "2027-01-01T00:00:00.000Z";
+const FUTURE = "2099-01-01T00:00:00.000Z"; // far enough that the calendar never catches it
 
 const input = {
   text: "button is cut off",
@@ -191,6 +191,28 @@ describe("rule 3 — agent-authored events are skipped, ledger stays complete", 
   });
 });
 
+describe("rule 4 — comment pins are context, not tasks", () => {
+  test("a comment pin and a human reply on it write skipped rows; no adapter, no binding", async () => {
+    const store = openStore(":memory:");
+    const adapter = fakeAdapter("hooks");
+    const router = new DeliveryRouter({ store, adapters: [adapter] });
+    const session = store.sessions.register({ agent: "claude", key: "s1" });
+    const pin = store.createPin({ ...structuredClone(input), kind: "comment" }, {});
+    await router.dispatch(lastEvent(store));
+    store.addThreadMessage(pin.id, "human", "for whoever picks this up next");
+    await router.dispatch(lastEvent(store));
+    expect(adapter.calls).toEqual([]);
+    expect(store.getPin(pin.id)?.agentSession).toBeUndefined();
+    expect(store.deliveries.pendingForSession(session.id)).toEqual([]);
+    expect(store.deliveries.lastEventSeq()).toBe(lastEvent(store).seq); // cursor still complete
+    // The same input as a note IS delivered — the kind is the only difference.
+    store.createPin(structuredClone(input), {});
+    await router.dispatch(lastEvent(store));
+    expect(adapter.calls.length).toBe(1);
+    store.close();
+  });
+});
+
 describe("adapter preference order", () => {
   test("first matching adapter wins; later adapters never see the event", async () => {
     const store = openStore(":memory:");
@@ -245,11 +267,16 @@ describe("failure, backoff, terminal", () => {
       expect(row?.attempts).toBe(attempts);
       expect(row?.dueAt).toBe(new Date(Date.parse(drainNow) + backoffMs).toISOString());
     };
-    await expectRetry("2026-09-01T00:00:00.000Z", 2, 120_000); // 30s·4^1
-    await expectRetry("2026-09-02T00:00:00.000Z", 3, 480_000); // 30s·4^2
-    await expectRetry("2026-09-03T00:00:00.000Z", 4, 900_000); // 30s·4^3 = 32 min, capped 15 min
+    // Drain times step forward from the real first attempt, a day apart. They were once literal
+    // dates; the test went red the morning the calendar passed them, because a drain dated
+    // before the row's `dueAt` finds nothing due.
+    const day = 86_400_000;
+    const daysOn = (n: number): string => new Date(after + n * day).toISOString();
+    await expectRetry(daysOn(1), 2, 120_000); // 30s·4^1
+    await expectRetry(daysOn(2), 3, 480_000); // 30s·4^2
+    await expectRetry(daysOn(3), 4, 900_000); // 30s·4^3 = 32 min, capped 15 min
 
-    await router.drainDue("2026-09-04T00:00:00.000Z"); // 5th attempt — terminal
+    await router.drainDue(daysOn(4)); // 5th attempt — terminal
     expect(store.deliveries.pendingForSession(session.id)).toEqual([]);
     expect(store.deliveries.due(FUTURE)).toEqual([]);
     expect(boom.calls).toHaveLength(5);

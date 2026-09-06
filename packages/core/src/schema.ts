@@ -170,7 +170,9 @@ export const LinkSchema = z.object({
 // `text` and `author` stay required — both are honest from any client.
 export const PinInputSchema = z.object({
   text: z.string().min(1),
-  kind: z.enum(["note", "move"]).default("note"),
+  // "note" is the actionable default (an agent picks it up); "comment" is a remark for
+  // people — the delivery router never routes it to a session. "move" carries rects.
+  kind: z.enum(["note", "move", "comment"]).default("note"),
   target: TargetSchema.optional(),
   move: z.object({ from: RectSchema, to: RectSchema }).optional(),
   env: EnvSchema.optional(),

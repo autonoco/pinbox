@@ -241,20 +241,31 @@ var Pinbox = (function(exports) {
 	/** …but a release under this much TOTAL travel is still a tap. */
 	const TAP_MAX = 12;
 	/**
-	* Attach the drag rules to `el`. Move/up listeners live on `el` itself with pointer capture
-	* (a capture failure on a synthetic pointer is tolerated); `touch-action: none` on the element
-	* is the caller's job.
+	* Attach the drag rules to `el`. The press is read on `el`; move/up/cancel are read on its
+	* document while a hold is live, so the release cannot be lost to a failed capture. Pointer
+	* capture is still requested (it keeps moves flowing when the pointer leaves the window);
+	* `touch-action: none` on the element is the caller's job.
 	*/
 	function attachDrag(el, on) {
+		const doc = el.ownerDocument;
+		const win = doc.defaultView;
 		let hold = null;
+		function listen(active) {
+			const method = active ? "addEventListener" : "removeEventListener";
+			doc[method]("pointermove", onPointerMove, true);
+			doc[method]("pointerup", onPointerUp, true);
+			doc[method]("pointercancel", onPointerUp, true);
+			win?.[method]("blur", onBlur);
+		}
 		function onPointerDown(e) {
-			if (e.button !== 0) return;
+			if (e.button !== 0 || hold !== null) return;
 			const origin = on.origin();
 			if (origin === null) return;
 			try {
 				el.setPointerCapture(e.pointerId);
 			} catch {}
 			hold = {
+				pointerId: e.pointerId,
 				px: e.clientX,
 				py: e.clientY,
 				origin,
@@ -262,16 +273,17 @@ var Pinbox = (function(exports) {
 				ly: e.clientY,
 				started: false
 			};
+			listen(true);
 		}
 		function onPointerMove(e) {
-			if (hold === null) return;
+			if (hold === null || e.pointerId !== hold.pointerId) return;
 			hold.lx = e.clientX;
 			hold.ly = e.clientY;
 			const dx = e.clientX - hold.px;
 			const dy = e.clientY - hold.py;
 			if (!hold.started) {
 				if (!on.canStart()) {
-					hold = null;
+					release();
 					return;
 				}
 				if (Math.hypot(dx, dy) < DRAG_START) return;
@@ -283,10 +295,18 @@ var Pinbox = (function(exports) {
 				y: hold.origin.y + dy
 			});
 		}
-		function onPointerUp() {
-			if (hold === null) return;
-			const h = hold;
+		function release() {
 			hold = null;
+			listen(false);
+		}
+		/** The window lost focus mid-hold: whatever the pointer does next, we will not see it. */
+		function onBlur() {
+			if (hold !== null) onPointerUp();
+		}
+		function onPointerUp(e) {
+			if (hold === null || e !== void 0 && e.pointerId !== hold.pointerId) return;
+			const h = hold;
+			release();
 			const total = Math.hypot(h.lx - h.px, h.ly - h.py);
 			on.onEnd({
 				dragged: h.started && total >= TAP_MAX,
@@ -299,19 +319,11 @@ var Pinbox = (function(exports) {
 			});
 		}
 		el.addEventListener("pointerdown", onPointerDown);
-		el.addEventListener("pointermove", onPointerMove);
-		el.addEventListener("pointerup", onPointerUp);
-		el.addEventListener("pointercancel", onPointerUp);
 		return {
-			cancel() {
-				hold = null;
-			},
+			cancel: release,
 			destroy() {
-				hold = null;
+				release();
 				el.removeEventListener("pointerdown", onPointerDown);
-				el.removeEventListener("pointermove", onPointerMove);
-				el.removeEventListener("pointerup", onPointerUp);
-				el.removeEventListener("pointercancel", onPointerUp);
 			}
 		};
 	}

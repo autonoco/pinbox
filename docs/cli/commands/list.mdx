@@ -16,6 +16,7 @@ List pins, newest first.
 
 Options:
   --status <status>  filter: open or resolved (default: all)
+  --kind <kind>      filter: note (agent tasks) or comment (notes for people)
   --json             machine output
   -h, --help         display help for command
 ```
@@ -24,6 +25,13 @@ Options:
 
 <ParamField path="--status" type="string">
   Filter: `open` or `resolved`. Default: all.
+</ParamField>
+
+<ParamField path="--kind" type="string">
+  Filter: `note` (pins an agent picks up) or `comment` (notes people left for people — the
+  toolbar's *Note* option or [`pinbox pin --comment`](/cli/commands/pin); the hub never
+  delivers these to an agent). Default: both. In the table, an open comment pin shows
+  `note` in the status column.
 </ParamField>
 
 <ParamField path="--json" type="boolean">
@@ -175,7 +183,7 @@ That is the [output contract](/cli/overview), not a quirk of this command.
 
 | Exit | Code | When |
 | --- | --- | --- |
-| 2 | `E_INVALID_INPUT` | `--status` is anything other than `open` or `resolved` |
+| 2 | `E_INVALID_INPUT` | `--status` is not `open`/`resolved`, or `--kind` is not `note`/`comment` |
 | 5 | `E_HUB_UNREACHABLE` | the hub is absent and could not be started |
 
 ```console

@@ -72,6 +72,7 @@
               "cli/commands/resolve",
               "cli/commands/summary",
               "cli/commands/link",
+              "cli/commands/github",
               "cli/commands/export",
               "cli/commands/doctor",
               "cli/commands/update"

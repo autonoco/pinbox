@@ -1,6 +1,6 @@
 # pinbox (CLI)
 
-The primary surface, running on Bun. Verbs: `init`, `summary`, `list`, `show`, `reply`, `resolve`, `link`, `export`, `doctor` (`serve` exists but auto-spawns — users never run it).
+The primary surface, running on Bun. Verbs: `init`, `pin`, `summary`, `list`, `show`, `reply`, `resolve`, `link`, `github`, `export`, `doctor`, `update` (`serve` and `session` exist but are plumbing — users never run them).
 
 What lives here:
 

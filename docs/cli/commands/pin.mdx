@@ -27,6 +27,7 @@ Options:
   --file <path[:line]>  anchor to a source location (recorded repo-relative)
   --url <url>           the web surface this pin is about
   --selector <sel>      CSS selector on that surface (needs --url)
+  --comment             a note for people, not a task: no agent is woken for it
   --json                machine output
   -h, --help            display help for command
 ```
@@ -52,6 +53,13 @@ Options:
 <ParamField path="--selector" type="string">
   CSS selector on that surface. Requires `--url` — a selector with no page is not a
   target.
+</ParamField>
+
+<ParamField path="--comment" type="boolean">
+  A note for people, not a task. The pin is stored with `kind: "comment"`; the hub never
+  routes it to an agent session, and the agent skill tells agents to read such pins as
+  context and never act on or resolve them. The toolbar's *Note* option creates the same
+  kind. Filter them with [`pinbox list --kind comment`](/cli/commands/list).
 </ParamField>
 
 <ParamField path="--json" type="boolean">

@@ -17,7 +17,14 @@ beforeAll(() => {
 
 type Call = { method: string; path: string; auth: string | undefined };
 
-function fakeGithub(opts: { installAfterPolls?: number; repoStatus?: number } = {}) {
+function fakeGithub(
+  opts: {
+    installAfterPolls?: number;
+    repoStatus?: number;
+    ownerType?: string;
+    ownerStatus?: number;
+  } = {},
+) {
   const calls: Call[] = [];
   let polls = 0;
   const fetchImpl: SetupSeams["fetchImpl"] = async (input, init) => {
@@ -33,6 +40,12 @@ function fakeGithub(opts: { installAfterPolls?: number; repoStatus?: number } = 
         status,
         headers: { "content-type": "application/json" },
       });
+    if (url.pathname === "/users/autonoco") {
+      return json(opts.ownerStatus ?? 200, {
+        login: "autonoco",
+        type: opts.ownerType ?? "Organization",
+      });
+    }
     if (url.pathname === "/app-manifests/CODE123/conversions") {
       return json(201, {
         id: 4242,
@@ -95,7 +108,6 @@ function seamsWith(gh: ReturnType<typeof fakeGithub>, worker: boolean) {
 const INPUT = {
   hubUrl: "https://app.example/_pinbox",
   repo: "autonoco/pinbox",
-  org: "autonoco",
   appName: "pinbox-pinbox",
   printSecrets: false,
 };
@@ -133,6 +145,22 @@ describe("runGithubSetup", () => {
       { GITHUB_APP_ID: "4242", GITHUB_INSTALLATION_ID: "777", GITHUB_REPO: "autonoco/pinbox" },
     ]);
     expect(s.secrets).toEqual({ GITHUB_APP_PRIVATE_KEY: pem, GITHUB_WEBHOOK_SECRET: "whsec" });
+  });
+
+  test("the owner's profile decides the creation page: a User posts to the personal page", async () => {
+    const gh = fakeGithub({ ownerType: "User" });
+    const s = seamsWith(gh, true);
+    await runGithubSetup(INPUT, s.seams);
+    expect(s.form()).toContain('action="https://github.com/settings/apps/new?state=');
+    expect(s.form()).not.toContain("organizations/");
+  });
+
+  test("when the owner lookup fails the organization page is assumed, and said", async () => {
+    const gh = fakeGithub({ ownerStatus: 503 });
+    const s = seamsWith(gh, true);
+    await runGithubSetup(INPUT, s.seams);
+    expect(s.form()).toContain("organizations/autonoco/settings/apps/new");
+    expect(s.said.some((l) => l.includes("assuming it is"))).toBe(true);
   });
 
   test("no worker found ⇒ nothing written, the values come back for the user to set", async () => {

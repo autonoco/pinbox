@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { CliError } from "../errors.ts";
 import {
   buildManifest,
+  hubFromWranglerConfig,
   manifestFormHtml,
   manifestTarget,
   normalizeHubUrl,
@@ -45,6 +46,21 @@ describe("manifest", () => {
     expect(html).toContain("&quot;x\\&quot;y&quot;"); // the name's quote survives as JSON, escaped for HTML
     expect(html).toContain("submit()");
     expect(manifestTarget(null, "s")).toBe("https://github.com/settings/apps/new?state=s");
+  });
+});
+
+describe("hubFromWranglerConfig", () => {
+  test("a custom_domain route names the hub; workers.dev configs give null", () => {
+    const withDomain = `{
+  "name": "pinbox-site",
+  // the site's home
+  "routes": [{ "pattern": "pinbox.sh", "custom_domain": true }],
+  "vars": {}
+}`;
+    expect(hubFromWranglerConfig(withDomain)).toBe("https://pinbox.sh/_pinbox");
+    const zoneRoute = `{ "routes": [{ "pattern": "app.example/*", "zone_name": "example" }] }`;
+    expect(hubFromWranglerConfig(zoneRoute)).toBeNull();
+    expect(hubFromWranglerConfig(`{ "name": "pinbox-hub" }`)).toBeNull();
   });
 });
 

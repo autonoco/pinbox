@@ -6,16 +6,15 @@
 import type { Command } from "commander";
 import { CliError } from "../errors.ts";
 import { runGithubSetup, type SetupResult, type SetupSeams } from "../github-app/flow.ts";
-import { repoFromRemote } from "../github-app/manifest.ts";
+import { hubFromWranglerConfig, repoFromRemote } from "../github-app/manifest.ts";
 import { startReceiver } from "../github-app/receiver.ts";
 import { configIn, findWorkerDir, putSecret, writeWranglerVars } from "../github-app/wrangler.ts";
+import { askLine } from "../init/prompt.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
 
 type GithubSetupOptions = OutputFlags & {
   hub?: string;
   repo?: string;
-  org?: string;
-  personal?: boolean;
   name?: string;
   worker?: string;
   printSecrets?: boolean;
@@ -38,14 +37,12 @@ export function registerGithub(program: Command): void {
         "into the worker's wrangler config and push the private key and webhook secret through " +
         "wrangler. Interactive: run it yourself, not from an agent.",
     )
-    .requiredOption(
+    .option(
       "--hub <url>",
-      "the cloud hub, mount included, e.g. https://app.example/_pinbox",
+      "the cloud hub's URL, mount included (default: the worker's custom domain, else asked)",
     )
     .option("--repo <owner/name>", "the repository (default: this checkout's origin remote)")
-    .option("--org <login>", "create the App under this organization (default: the repo owner)")
-    .option("--personal", "create the App under your personal account instead of an organization")
-    .option("--name <name>", "App name (default: pinbox-<repo name>)")
+    .option("--name <name>", "App name, unique across GitHub (default: pinbox-<owner>-<repo>)")
     .option("--worker <dir>", "the scaffolded hub worker directory (default: detected)")
     .option(
       "--print-secrets",
@@ -83,10 +80,9 @@ async function runGithubSetupCommand(
     const seams = await realSeams(workerDir);
     const result = await runGithubSetup(
       {
-        hubUrl: opts.hub ?? "",
+        hubUrl: await hubUrlFor(opts, workerDir),
         repo,
-        org: opts.personal === true ? null : (opts.org ?? owner),
-        appName: opts.name ?? `pinbox-${name}`,
+        appName: opts.name ?? `pinbox-${owner}-${name}`,
         printSecrets: opts.printSecrets === true || workerDir === null,
       },
       seams,
@@ -96,6 +92,44 @@ async function runGithubSetupCommand(
   } catch (err) {
     fail(err, opts);
   }
+}
+
+/**
+ * The hub's public URL, which the App manifest must carry as its webhook target. From the
+ * flag, else the worker's custom-domain route, else the person at the terminal — a
+ * workers.dev subdomain is not in any config we can read.
+ */
+async function hubUrlFor(opts: GithubSetupOptions, workerDir: string | null): Promise<string> {
+  if (opts.hub !== undefined) return opts.hub;
+  const configPath = workerDir === null ? null : await configIn(workerDir);
+  if (configPath !== null) {
+    const derived = hubFromWranglerConfig(await Bun.file(configPath).text());
+    if (derived !== null) {
+      console.error(`hub: ${derived} (from ${configPath})`);
+      return derived;
+    }
+  }
+  if (!process.stdin.isTTY) {
+    throw new CliError(
+      "E_INVALID_INPUT",
+      "the worker's public URL is not in its config",
+      "pass --hub https://<worker-host>/_pinbox",
+    );
+  }
+  const answer = askLine(
+    "Hub URL, mount included (e.g. https://my-hub.example.workers.dev/_pinbox): ",
+    {
+      newline: false,
+    },
+  );
+  if (answer === null || answer.trim() === "") {
+    throw new CliError(
+      "E_INVALID_INPUT",
+      "no hub URL given",
+      "pass --hub https://<worker-host>/_pinbox",
+    );
+  }
+  return answer.trim();
 }
 
 /** Facts: what was created and where it was written. Secrets print only when asked. */

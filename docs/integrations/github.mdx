@@ -67,10 +67,11 @@ manifest pinbox supplies, so permissions, events and the webhook URL are already
 once to install it on the repo. pinbox then writes `GITHUB_APP_ID`,
 `GITHUB_INSTALLATION_ID` and `GITHUB_REPO` into the worker's `wrangler.jsonc`, sets the
 private key and webhook secret with `wrangler secret put`, and verifies the App can read
-the repo. Deploy the worker and you are done. It reads the hub's public URL from a
-`custom_domain` route in the worker's `wrangler.jsonc`; on workers.dev it asks for it (or
-pass `--hub`). Whether the App is created under an organization or a user follows the repo
-owner's profile. `--print-secrets` sets the secrets yourself instead of through wrangler.
+the repo. Deploy the worker and you are done. There is nothing to configure: the repo is
+this checkout's origin, the worker is found by its config, the hub's public URL is read from
+a `custom_domain` route in the worker's `wrangler.jsonc` (on workers.dev it asks for it),
+and whether the App is created under an organization or a user follows the repo owner's
+profile. If wrangler is not logged in, the two secrets are printed for you to set.
 
 The manual route, if you would rather click through GitHub:
 

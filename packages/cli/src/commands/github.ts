@@ -12,13 +12,7 @@ import { configIn, findWorkerDir, putSecret, writeWranglerVars } from "../github
 import { askLine } from "../init/prompt.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
 
-type GithubSetupOptions = OutputFlags & {
-  hub?: string;
-  repo?: string;
-  name?: string;
-  worker?: string;
-  printSecrets?: boolean;
-};
+type GithubSetupOptions = OutputFlags;
 
 export function registerGithub(program: Command): void {
   const github = program
@@ -35,18 +29,9 @@ export function registerGithub(program: Command): void {
       "Create the GitHub App from a manifest (one click in your browser), install it on the " +
         "repo (one more click), then write GITHUB_APP_ID / GITHUB_INSTALLATION_ID / GITHUB_REPO " +
         "into the worker's wrangler config and push the private key and webhook secret through " +
-        "wrangler. Interactive: run it yourself, not from an agent.",
-    )
-    .option(
-      "--hub <url>",
-      "the cloud hub's URL, mount included (default: the worker's custom domain, else asked)",
-    )
-    .option("--repo <owner/name>", "the repository (default: this checkout's origin remote)")
-    .option("--name <name>", "App name, unique across GitHub (default: pinbox-<owner>-<repo>)")
-    .option("--worker <dir>", "the scaffolded hub worker directory (default: detected)")
-    .option(
-      "--print-secrets",
-      "print the private key and webhook secret instead of running wrangler",
+        "wrangler. The repo is this checkout's origin; the worker is found by its config; the " +
+        "hub URL comes from the worker's custom domain or is asked for. Interactive: run it " +
+        "yourself, not from an agent.",
     )
     .option("--json", "machine output")
     .action(async (_opts: GithubSetupOptions, cmd: Command) => {
@@ -67,23 +52,23 @@ async function runGithubSetupCommand(
         "run it from a terminal; --json is fine there and prints the result envelope",
       );
     }
-    const repo = opts.repo ?? (await repoFromGit(cwd));
+    const repo = await repoFromGit(cwd);
     if (repo === null) {
       throw new CliError(
         "E_INVALID_INPUT",
-        "could not determine the repository from the origin remote",
-        "pass --repo owner/name",
+        "this checkout's origin remote is not a GitHub repository",
+        "run from the repo whose issues the pins should link to",
       );
     }
     const [owner, name] = repo.split("/") as [string, string];
-    const workerDir = await findWorkerDir(cwd, opts.worker);
+    const workerDir = await findWorkerDir(cwd);
     const seams = await realSeams(workerDir);
     const result = await runGithubSetup(
       {
-        hubUrl: await hubUrlFor(opts, workerDir),
+        hubUrl: await hubUrlFor(workerDir),
         repo,
-        appName: opts.name ?? `pinbox-${owner}-${name}`,
-        printSecrets: opts.printSecrets === true || workerDir === null,
+        // App names are unique across all of GitHub; the review page lets you change it.
+        appName: `pinbox-${owner}-${name}`,
       },
       seams,
     );
@@ -99,8 +84,7 @@ async function runGithubSetupCommand(
  * flag, else the worker's custom-domain route, else the person at the terminal — a
  * workers.dev subdomain is not in any config we can read.
  */
-async function hubUrlFor(opts: GithubSetupOptions, workerDir: string | null): Promise<string> {
-  if (opts.hub !== undefined) return opts.hub;
+async function hubUrlFor(workerDir: string | null): Promise<string> {
   const configPath = workerDir === null ? null : await configIn(workerDir);
   if (configPath !== null) {
     const derived = hubFromWranglerConfig(await Bun.file(configPath).text());
@@ -109,24 +93,15 @@ async function hubUrlFor(opts: GithubSetupOptions, workerDir: string | null): Pr
       return derived;
     }
   }
-  if (!process.stdin.isTTY) {
-    throw new CliError(
-      "E_INVALID_INPUT",
-      "the worker's public URL is not in its config",
-      "pass --hub https://<worker-host>/_pinbox",
-    );
-  }
   const answer = askLine(
     "Hub URL, mount included (e.g. https://my-hub.example.workers.dev/_pinbox): ",
-    {
-      newline: false,
-    },
+    { newline: false },
   );
   if (answer === null || answer.trim() === "") {
     throw new CliError(
       "E_INVALID_INPUT",
-      "no hub URL given",
-      "pass --hub https://<worker-host>/_pinbox",
+      "the worker's public URL is not in its config and none was given",
+      "add a custom_domain route to wrangler.jsonc, or answer the prompt with the workers.dev URL",
     );
   }
   return answer.trim();
@@ -167,7 +142,7 @@ function nextSteps(r: SetupResult): string {
   }
   if (r.secrets === "printed") {
     steps.push(
-      "wrangler secret put GITHUB_APP_PRIVATE_KEY and GITHUB_WEBHOOK_SECRET with the values above",
+      "run `wrangler secret put GITHUB_APP_PRIVATE_KEY` and `wrangler secret put GITHUB_WEBHOOK_SECRET` in the worker directory with the values above",
     );
   }
   steps.push(

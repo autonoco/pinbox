@@ -64,8 +64,8 @@ pinbox github setup
 It creates the App from a manifest (one click), installs it (one more), writes the three
 vars below into `wrangler.jsonc`, pushes the two secrets through wrangler and verifies the
 App can read the repo. Then `bun run deploy`. It reads the hub's public URL from a
-`custom_domain` route in `wrangler.jsonc`; on workers.dev it asks for it (or takes `--hub`).
-The steps it automates, for reference:
+`custom_domain` route in `wrangler.jsonc`; on workers.dev it asks for it. If wrangler is not
+logged in, the two secrets are printed for you to set. The steps it automates, for reference:
 
 1. GitHub → Settings → Developer settings → GitHub Apps → New. Permissions: **Issues:
    Read & write**, **Metadata: Read-only**. Webhook: **on**, URL

@@ -9,8 +9,10 @@
 // The signature IS the authentication: this route sits outside the hub's bearer/JWT gate
 // (GitHub cannot present our credential), and a request with a bad or missing
 // `X-Hub-Signature-256` is 401 regardless of its body. No Bun.* here — runs on workerd.
+import type { Link } from "../schema.ts";
 import type { PinStore } from "../store.ts";
 import { inboundEvents } from "./inbound.ts";
+import type { ConnectorEvents } from "./types.ts";
 
 export type GithubWebhookOptions = {
   /** The webhook secret configured on the App — HMAC-SHA256 key for the signature. */
@@ -61,8 +63,9 @@ async function apply(
   payload: unknown,
 ): Promise<Delivery> {
   if (event === "ping") return { applied: 0, ignored: "ping" };
-  if (event !== "issues" && event !== "issue_comment")
+  if (event !== "issues" && event !== "issue_comment") {
     return { applied: 0, ignored: `event ${event}` };
+  }
   const body = payload as WebhookBody;
   const fullName = body.repository?.full_name;
   if (typeof fullName !== "string" || fullName.toLowerCase() !== repo.toLowerCase()) {
@@ -75,30 +78,43 @@ async function apply(
     .find((r) => r.link.connector === "github" && r.link.ref === String(number));
   if (row === undefined) return { applied: 0, ignored: `issue #${number} is not linked` };
   const { events } = inboundEvents(store, row.pinId, "github", false);
+  return event === "issue_comment"
+    ? applyComment(body, row.link, events)
+    : applyStatus(body, row.link, events);
+}
 
-  if (event === "issue_comment") {
-    if (body.action !== "created") return { applied: 0, ignored: `issue_comment ${body.action}` };
-    const comment = body.comment;
-    const login = comment?.user?.login ?? "ghost";
-    const text = comment?.body ?? "";
-    // Our own mirrors come back to us too: the trailer marks them, and the App's bot login
-    // is the belt to that brace.
-    if (isOwnMirror(text) || comment?.user?.type === "Bot") {
-      return { applied: 0, ignored: "own mirror" };
-    }
-    await events.onRemoteComment(row.link, {
-      origin: `github:${login}`,
-      text,
-      at: comment?.created_at ?? new Date().toISOString(),
-    });
-    return { applied: 1, ignored: null };
+async function applyComment(
+  body: WebhookBody,
+  link: Link,
+  events: ConnectorEvents,
+): Promise<Delivery> {
+  if (body.action !== "created") return { applied: 0, ignored: `issue_comment ${body.action}` };
+  const comment = body.comment;
+  const text = comment?.body ?? "";
+  // Our own mirrors come back to us too: the trailer marks them, and the App's bot login
+  // is the belt to that brace.
+  if (isOwnMirror(text) || comment?.user?.type === "Bot") {
+    return { applied: 0, ignored: "own mirror" };
   }
+  await events.onRemoteComment(link, {
+    origin: `github:${comment?.user?.login ?? "ghost"}`,
+    text,
+    at: comment?.created_at ?? new Date().toISOString(),
+  });
+  return { applied: 1, ignored: null };
+}
+
+async function applyStatus(
+  body: WebhookBody,
+  link: Link,
+  events: ConnectorEvents,
+): Promise<Delivery> {
   if (body.action === "closed") {
-    await events.onRemoteStatus(row.link, "closed");
+    await events.onRemoteStatus(link, "closed");
     return { applied: 1, ignored: null };
   }
   if (body.action === "reopened") {
-    await events.onRemoteStatus(row.link, "open");
+    await events.onRemoteStatus(link, "open");
     return { applied: 1, ignored: null };
   }
   return { applied: 0, ignored: `issues ${body.action}` };

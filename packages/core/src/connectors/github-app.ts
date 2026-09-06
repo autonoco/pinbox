@@ -42,6 +42,8 @@ const REFRESH_MARGIN_MS = 60_000;
 const APP_JWT_TTL_S = 540;
 const COMMENTS_PER_PAGE = 100;
 const MAX_COMMENT_PAGES = 10;
+/** Ops that address an existing issue by number. */
+const NUMBERED_OPS = new Set(["issue.comment", "issue.view", "issue.close", "issue.reopen"]);
 
 /** A transport failure carrying the hint the link route surfaces as E_CONNECTOR. */
 export class GithubAppError extends Error {
@@ -149,7 +151,7 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
       const number = Number(params["number"]);
       // link.ref is any string; a non-numeric one would become /issues/NaN and a 404
       // wearing the misleading "check the App is installed" hint.
-      if (op !== "issue.create" && (!Number.isInteger(number) || number <= 0)) {
+      if (NUMBERED_OPS.has(op) && (!Number.isInteger(number) || number <= 0)) {
         throw new GithubAppError(`github ${op} needs a positive issue number`, 0);
       }
       switch (op) {

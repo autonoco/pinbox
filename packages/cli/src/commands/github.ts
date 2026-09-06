@@ -20,7 +20,8 @@ export function registerGithub(program: Command): void {
     .summary("connect a cloud hub to GitHub")
     .description(
       "Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub " +
-        "authenticates as a GitHub App that these commands create and wire up.",
+        "authenticates as a GitHub App that these commands create and wire up. Interactive, " +
+        "browser-driven: a person runs these at a terminal, never an agent.",
     );
   github
     .command("setup")

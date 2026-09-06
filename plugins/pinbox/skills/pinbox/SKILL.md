@@ -140,7 +140,7 @@ Options:
 
 ### pinbox github
 
-Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub authenticates as a GitHub App that these commands create and wire up.
+Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub authenticates as a GitHub App that these commands create and wire up. Interactive, browser-driven: a person runs these at a terminal, never an agent.
 
 Usage: `pinbox github [options] [command]`
 

@@ -55,6 +55,58 @@ export class GithubAppError extends Error {
   }
 }
 
+/** The App's own credential: a short-lived RS256 JWT with `iss` = app id. */
+export async function signAppJwt(
+  appId: string,
+  privateKeyPem: string,
+  now: () => number = () => Date.now(),
+): Promise<string> {
+  const key = await importPKCS8(toPkcs8Pem(privateKeyPem), "RS256");
+  const iat = Math.floor(now() / 1000) - 60; // a minute back: GitHub rejects iat in its future
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setIssuer(appId)
+    .setIssuedAt(iat)
+    .setExpirationTime(iat + 60 + APP_JWT_TTL_S)
+    .sign(key);
+}
+
+/** GitHub's standard request headers for the REST API. */
+export function githubHeaders(bearer: string, json = false): Record<string, string> {
+  return headers(bearer, json);
+}
+
+export type InstallationToken = { token: string; expiresAt: number };
+
+/** Exchange an App JWT for a one-hour installation token. */
+export async function mintInstallationToken(
+  api: string,
+  installationId: string,
+  appJwt: string,
+  fetchImpl: FetchLike,
+): Promise<InstallationToken> {
+  const res = await fetchImpl(`${api}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: headers(appJwt),
+  });
+  if (!res.ok) {
+    throw new GithubAppError(
+      `GitHub App token request failed: HTTP ${res.status}`,
+      res.status,
+      res.status === 401
+        ? "check GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY belong to the same App"
+        : res.status === 404
+          ? "check GITHUB_INSTALLATION_ID — the App may not be installed on this repo's owner"
+          : undefined,
+    );
+  }
+  const body = (await res.json()) as { token?: unknown; expires_at?: unknown };
+  if (typeof body.token !== "string" || typeof body.expires_at !== "string") {
+    throw new GithubAppError("GitHub App token response was not { token, expires_at }", 502);
+  }
+  return { token: body.token, expiresAt: Date.parse(body.expires_at) };
+}
+
 export function createGithubAppTransport(opts: GithubAppTransportOptions): ConnectorTransport {
   const fetchImpl: FetchLike = opts.fetchImpl ?? ((input, init) => fetch(input, init));
   const now = opts.now ?? (() => Date.now());
@@ -63,46 +115,12 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
   if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) {
     throw new GithubAppError(`GITHUB_REPO must be "owner/name", got "${opts.repo}"`, 0);
   }
-  let keyPromise: Promise<CryptoKey> | null = null;
-  let cached: { token: string; expiresAt: number } | null = null;
-
-  function key(): Promise<CryptoKey> {
-    keyPromise ??= importPKCS8(toPkcs8Pem(opts.privateKeyPem), "RS256");
-    return keyPromise;
-  }
-
-  async function appJwt(): Promise<string> {
-    const iat = Math.floor(now() / 1000) - 60; // a minute back: GitHub rejects iat in its future
-    return new SignJWT({})
-      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-      .setIssuer(opts.appId)
-      .setIssuedAt(iat)
-      .setExpirationTime(iat + 60 + APP_JWT_TTL_S)
-      .sign(await key());
-  }
+  let cached: InstallationToken | null = null;
 
   async function installationToken(): Promise<string> {
     if (cached !== null && cached.expiresAt - now() > REFRESH_MARGIN_MS) return cached.token;
-    const res = await fetchImpl(`${api}/app/installations/${opts.installationId}/access_tokens`, {
-      method: "POST",
-      headers: headers(await appJwt()),
-    });
-    if (!res.ok) {
-      throw new GithubAppError(
-        `GitHub App token request failed: HTTP ${res.status}`,
-        res.status,
-        res.status === 401
-          ? "check GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY belong to the same App"
-          : res.status === 404
-            ? "check GITHUB_INSTALLATION_ID — the App may not be installed on this repo's owner"
-            : undefined,
-      );
-    }
-    const body = (await res.json()) as { token?: unknown; expires_at?: unknown };
-    if (typeof body.token !== "string" || typeof body.expires_at !== "string") {
-      throw new GithubAppError("GitHub App token response was not { token, expires_at }", 502);
-    }
-    cached = { token: body.token, expiresAt: Date.parse(body.expires_at) };
+    const jwt = await signAppJwt(opts.appId, opts.privateKeyPem, now);
+    cached = await mintInstallationToken(api, opts.installationId, jwt, fetchImpl);
     return cached.token;
   }
 
@@ -125,13 +143,10 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
     return (await res.json()) as T;
   }
 
-  type Issue = { number: number; html_url: string; state: string };
-  type Comment = { user: { login: string } | null; body: string | null; created_at: string };
-
-  async function allComments(number: number): Promise<Comment[]> {
-    const out: Comment[] = [];
+  async function allComments(number: number): Promise<RawComment[]> {
+    const out: RawComment[] = [];
     for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
-      const batch = await call<Comment[]>(
+      const batch = await call<RawComment[]>(
         "GET",
         `/repos/${repo}/issues/${number}/comments?per_page=${COMMENTS_PER_PAGE}&page=${page}`,
       );
@@ -142,42 +157,54 @@ export function createGithubAppTransport(opts: GithubAppTransportOptions): Conne
   }
 
   return {
-    async request(op, params) {
-      const number = Number(params["number"]);
-      switch (op) {
-        case "issue.create": {
-          const issue = await call<Issue>("POST", `/repos/${repo}/issues`, {
-            title: params["title"],
-            body: params["body"],
-          });
-          return { number: issue.number, url: issue.html_url };
-        }
-        case "issue.comment":
-          await call("POST", `/repos/${repo}/issues/${number}/comments`, { body: params["body"] });
-          return undefined;
-        case "issue.view": {
-          const issue = await call<Issue>("GET", `/repos/${repo}/issues/${number}`);
-          const comments = await allComments(number);
-          return {
-            state: issue.state === "closed" ? "closed" : "open",
-            comments: comments.map((c) => ({
-              author: c.user?.login ?? "ghost",
-              body: c.body ?? "",
-              createdAt: c.created_at,
-            })),
-          };
-        }
-        case "issue.close":
-          await call("PATCH", `/repos/${repo}/issues/${number}`, { state: "closed" });
-          return undefined;
-        case "issue.reopen":
-          await call("PATCH", `/repos/${repo}/issues/${number}`, { state: "open" });
-          return undefined;
-        default:
-          throw new GithubAppError(`unknown github op: ${op}`, 0);
-      }
-    },
+    request: (op, params) => dispatch(op, params, { repo, call, allComments }),
   };
+}
+
+type Api = {
+  repo: string;
+  call<T>(method: string, path: string, body?: unknown): Promise<T>;
+  allComments(number: number): Promise<RawComment[]>;
+};
+type Issue = { number: number; html_url: string; state: string };
+type RawComment = { user: { login: string } | null; body: string | null; created_at: string };
+
+/** The pinned op vocabulary (github.ts) over GitHub's REST paths. */
+async function dispatch(op: string, params: Record<string, unknown>, api: Api): Promise<unknown> {
+  const { repo, call } = api;
+  const number = Number(params["number"]);
+  switch (op) {
+    case "issue.create": {
+      const issue = await call<Issue>("POST", `/repos/${repo}/issues`, {
+        title: params["title"],
+        body: params["body"],
+      });
+      return { number: issue.number, url: issue.html_url };
+    }
+    case "issue.comment":
+      await call("POST", `/repos/${repo}/issues/${number}/comments`, { body: params["body"] });
+      return undefined;
+    case "issue.view": {
+      const issue = await call<Issue>("GET", `/repos/${repo}/issues/${number}`);
+      const comments = await api.allComments(number);
+      return {
+        state: issue.state === "closed" ? "closed" : "open",
+        comments: comments.map((c) => ({
+          author: c.user?.login ?? "ghost",
+          body: c.body ?? "",
+          createdAt: c.created_at,
+        })),
+      };
+    }
+    case "issue.close":
+      await call("PATCH", `/repos/${repo}/issues/${number}`, { state: "closed" });
+      return undefined;
+    case "issue.reopen":
+      await call("PATCH", `/repos/${repo}/issues/${number}`, { state: "open" });
+      return undefined;
+    default:
+      throw new GithubAppError(`unknown github op: ${op}`, 0);
+  }
 }
 
 function headers(bearer: string, json = false): Record<string, string> {

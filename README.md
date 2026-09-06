@@ -140,6 +140,7 @@ Docs live in [`docs/`](docs/index.mdx) and are built with Mintlify.
 - [CLI reference](docs/cli/commands/overview.mdx) — every command, flag, exit code, JSON shape
 - [Concepts](docs/concepts/pins.mdx) — pins, threads, sessions, the hub, where data lives
 - [Toolbar](docs/integrations/toolbar.mdx) — drop pins from the browser instead
+- [GitHub](docs/integrations/github.mdx) — link pins to issues; the App a cloud hub uses
 
 ## Layout
 

@@ -55,6 +55,14 @@ export function normalizeHubUrl(raw: string): string {
       "the Worker mounts the hub under /_pinbox; the origin root deliberately 404s",
     );
   }
+  if (url.search !== "" || url.hash !== "") {
+    // webhookUrl() appends a path; a query or fragment would end up in the middle of it.
+    throw new CliError(
+      "E_INVALID_INPUT",
+      `--hub must not carry a query string or fragment: "${raw}"`,
+      `pass ${url.origin}${url.pathname}`,
+    );
+  }
   return hub;
 }
 
@@ -64,8 +72,9 @@ export function normalizeHubUrl(raw: string): string {
  * worker is on workers.dev — that subdomain is not in the config, so the caller must ask.
  */
 export function hubFromWranglerConfig(jsonc: string): string | null {
-  // JSONC, so no parser: one route object at a time, host from its pattern.
-  const routes = /"routes"\s*:\s*\[([\s\S]*?)\]/.exec(jsonc)?.[1];
+  // JSONC, so no parser: comments blanked, then one route object at a time, host from its
+  // pattern. A commented-out routes example must not name the hub.
+  const routes = /"routes"\s*:\s*\[([\s\S]*?)\]/.exec(maskComments(jsonc))?.[1];
   if (routes === undefined) return null;
   for (const entry of routes.match(/\{[^{}]*\}/g) ?? []) {
     if (!/"custom_domain"\s*:\s*true/.test(entry)) continue;
@@ -131,9 +140,10 @@ export function pickInstallation(list: Installation[], owner: string): Installat
 }
 
 /**
- * Set the three GitHub vars in a `wrangler.jsonc` without parsing it (comments). Each var
- * present as `"NAME": "<anything>"` is replaced; missing ones are reported so the caller
- * can print them for manual insertion.
+ * Set the three GitHub vars in a `wrangler.jsonc` without parsing it, so comments survive.
+ * Each var present as a live `"NAME": "<anything>"` is replaced in place; a commented-out
+ * example is never the target. Missing ones are reported so the caller can print them for
+ * manual insertion.
  */
 export function patchWranglerVars(
   jsonc: string,
@@ -142,14 +152,49 @@ export function patchWranglerVars(
   let text = jsonc;
   const missing: string[] = [];
   for (const [name, value] of Object.entries(vars)) {
-    const re = new RegExp(`("${name}"\\s*:\\s*)"[^"]*"`);
-    if (!re.test(text)) {
+    // Match on the masked text (same offsets), splice into the real one.
+    const m = new RegExp(`("${name}"\\s*:\\s*)"[^"]*"`).exec(maskComments(text));
+    if (m === null) {
       missing.push(name);
       continue;
     }
-    text = text.replace(re, `$1${JSON.stringify(value)}`);
+    const valueAt = m.index + (m[1] as string).length;
+    text = text.slice(0, valueAt) + JSON.stringify(value) + text.slice(m.index + m[0].length);
   }
   return { text, missing };
+}
+
+/**
+ * The text with every `//` and `/* ... *\/` comment blanked to spaces — same length, same
+ * offsets, newlines kept — so a regex over the result sees only live settings and a match
+ * index addresses the original. String literals are skipped: `"https://x"` is not a comment.
+ */
+function maskComments(jsonc: string): string {
+  let out = "";
+  let i = 0;
+  while (i < jsonc.length) {
+    const ch = jsonc[i];
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < jsonc.length && jsonc[j] !== '"') j += jsonc[j] === "\\" ? 2 : 1;
+      out += jsonc.slice(i, j + 1);
+      i = j + 1;
+    } else if (ch === "/" && jsonc[i + 1] === "/") {
+      const nl = jsonc.indexOf("\n", i);
+      const end = nl === -1 ? jsonc.length : nl;
+      out += " ".repeat(end - i);
+      i = end;
+    } else if (ch === "/" && jsonc[i + 1] === "*") {
+      const close = jsonc.indexOf("*/", i + 2);
+      const end = close === -1 ? jsonc.length : close + 2;
+      out += jsonc.slice(i, end).replace(/[^\n]/g, " ");
+      i = end;
+    } else {
+      out += ch;
+      i += 1;
+    }
+  }
+  return out;
 }
 
 /** A URL-safe random state for the manifest round trip. */

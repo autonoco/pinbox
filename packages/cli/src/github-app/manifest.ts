@@ -43,15 +43,15 @@ export function normalizeHubUrl(raw: string): string {
   try {
     url = new URL(hub);
   } catch {
-    throw new CliError("E_INVALID_INPUT", `--hub is not a URL: "${raw}"`, usage());
+    throw new CliError("E_INVALID_INPUT", `hub URL is not a URL: "${raw}"`, usage());
   }
   if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-    throw new CliError("E_INVALID_INPUT", "--hub must be https", usage());
+    throw new CliError("E_INVALID_INPUT", "the hub URL must be https", usage());
   }
   if (!url.pathname.endsWith("/_pinbox")) {
     throw new CliError(
       "E_INVALID_INPUT",
-      `--hub must include the hub mount, e.g. ${url.origin}/_pinbox`,
+      `the hub URL must include the hub mount, e.g. ${url.origin}/_pinbox`,
       "the Worker mounts the hub under /_pinbox; the origin root deliberately 404s",
     );
   }
@@ -59,8 +59,8 @@ export function normalizeHubUrl(raw: string): string {
     // webhookUrl() appends a path; a query or fragment would end up in the middle of it.
     throw new CliError(
       "E_INVALID_INPUT",
-      `--hub must not carry a query string or fragment: "${raw}"`,
-      `pass ${url.origin}${url.pathname}`,
+      `the hub URL must not carry a query string or fragment: "${raw}"`,
+      `use ${url.origin}${url.pathname}`,
     );
   }
   return hub;

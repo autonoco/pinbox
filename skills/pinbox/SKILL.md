@@ -146,17 +146,12 @@ Usage: `pinbox github [options] [command]`
 
 ### pinbox github setup
 
-Create the GitHub App from a manifest (one click in your browser), install it on the repo (one more click), then write GITHUB_APP_ID / GITHUB_INSTALLATION_ID / GITHUB_REPO into the worker's wrangler config and push the private key and webhook secret through wrangler. Interactive: run it yourself, not from an agent.
+Create the GitHub App from a manifest (one click in your browser), install it on the repo (one more click), then write GITHUB_APP_ID / GITHUB_INSTALLATION_ID / GITHUB_REPO into the worker's wrangler config and push the private key and webhook secret through wrangler. The repo is this checkout's origin; the worker is found by its config; the hub URL comes from the worker's custom domain or is asked for. Interactive: run it yourself, not from an agent.
 
 Usage: `pinbox github setup [options]`
 
 Options:
 
-- `--hub <url>` - the cloud hub's URL, mount included (default: the worker's custom domain, else asked)
-- `--repo <owner/name>` - the repository (default: this checkout's origin remote)
-- `--name <name>` - App name, unique across GitHub (default: pinbox-<owner>-<repo>)
-- `--worker <dir>` - the scaffolded hub worker directory (default: detected)
-- `--print-secrets` - print the private key and webhook secret instead of running wrangler
 - `--json` - machine output
 
 ### pinbox export

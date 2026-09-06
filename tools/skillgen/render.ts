@@ -15,12 +15,9 @@ const FRONTMATTER_DESCRIPTION =
 
 /** Render the full SKILL.md from the live command tree. Pure; snapshot-testable. */
 export function renderSkill(program: Command, version: string): string {
-  const help = program.createHelp();
-  const commands = help
-    .visibleCommands(program)
-    // Commander's implicit `help` subcommand is meta, not part of the verb surface.
-    .filter((cmd) => cmd.name() !== "help");
-  const sections = commands.map((cmd) => renderCommand(program, cmd));
+  const sections = visibleSubcommands(program, program).flatMap((cmd) =>
+    renderTree(program, cmd, "pinbox"),
+  );
   return [
     "---",
     "name: pinbox",
@@ -57,9 +54,26 @@ export function renderSkill(program: Command, version: string): string {
   ].join("\n");
 }
 
-function renderCommand(program: Command, cmd: Command): string {
+/** Commander's implicit `help` subcommand is meta, not part of the verb surface. */
+function visibleSubcommands(program: Command, cmd: Command): Command[] {
+  return program
+    .createHelp()
+    .visibleCommands(cmd)
+    .filter((sub) => sub.name() !== "help");
+}
+
+/** A command's section, then its subcommands': `pinbox github`, then `pinbox github setup`. */
+function renderTree(program: Command, cmd: Command, prefix: string): string[] {
+  const name = `${prefix} ${cmd.name()}`;
+  return [
+    renderCommand(program, cmd, name),
+    ...visibleSubcommands(program, cmd).flatMap((sub) => renderTree(program, sub, name)),
+  ];
+}
+
+function renderCommand(program: Command, cmd: Command, name: string): string {
   const help = program.createHelp();
-  const lines = [`### pinbox ${cmd.name()}`, "", cmd.description(), ""];
+  const lines = [`### ${name}`, "", cmd.description(), ""];
   lines.push(`Usage: \`${help.commandUsage(cmd)}\``);
   const args = cmd.registeredArguments.filter((arg) => arg.description !== "");
   if (args.length > 0) {

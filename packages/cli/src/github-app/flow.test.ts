@@ -207,4 +207,17 @@ describe("runGithubSetup", () => {
     expect(s.opened).toEqual([]);
     expect(gh.calls).toEqual([]);
   });
+
+  test("a repo that is not owner/name fails before anything opens", async () => {
+    const gh = fakeGithub();
+    const s = seamsWith(gh, true);
+    for (const repo of ["pinbox", "autonoco/pinbox/extra", "autonoco/ pinbox", "autonoco/"]) {
+      const err = (await runGithubSetup({ ...INPUT, repo }, s.seams).catch((e) => e)) as CliError;
+      expect(err).toBeInstanceOf(CliError);
+      expect(err.code).toBe("E_INVALID_INPUT");
+    }
+    expect(s.opened).toEqual([]);
+    expect(gh.calls).toEqual([]);
+    expect(s.vars).toEqual([]);
+  });
 });

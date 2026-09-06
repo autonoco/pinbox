@@ -83,8 +83,17 @@ const DEFAULT_POLL_MS = 3_000;
 
 export async function runGithubSetup(input: SetupInput, seams: SetupSeams): Promise<SetupResult> {
   const hub = normalizeHubUrl(input.hubUrl);
+  // The same shape the connector enforces on GITHUB_REPO — reject it here, not after the
+  // App exists and a bad value sits in wrangler.jsonc.
+  if (!/^[^/\s]+\/[^/\s]+$/.test(input.repo)) {
+    throw new CliError(
+      "E_INVALID_INPUT",
+      `--repo must be "owner/name", got "${input.repo}"`,
+      "e.g. --repo autonoco/pinbox",
+    );
+  }
   const api = (input.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
-  const owner = input.repo.split("/")[0] ?? "";
+  const owner = input.repo.split("/")[0] as string;
 
   const org = await ownerOrganization(api, owner, seams);
   const app = await createApp(input, hub, api, org, seams);

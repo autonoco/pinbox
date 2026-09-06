@@ -62,6 +62,24 @@ describe("hubFromWranglerConfig", () => {
     expect(hubFromWranglerConfig(zoneRoute)).toBeNull();
     expect(hubFromWranglerConfig(`{ "name": "pinbox-hub" }`)).toBeNull();
   });
+
+  test("a commented-out routes example does not name the hub", () => {
+    const commentedOnly = `{
+  "name": "pinbox-hub",
+  // "routes": [{ "pattern": "example.com", "custom_domain": true }],
+  /* "routes": [{ "pattern": "other.example", "custom_domain": true }] */
+  "vars": {}
+}`;
+    expect(hubFromWranglerConfig(commentedOnly)).toBeNull();
+    const commentedFirst = `{
+  // "routes": [{ "pattern": "example.com", "custom_domain": true }],
+  "routes": [{ "pattern": "pinbox.sh", "custom_domain": true }]
+}`;
+    expect(hubFromWranglerConfig(commentedFirst)).toBe("https://pinbox.sh/_pinbox");
+    // A string holding "//" is a URL, not a comment.
+    const urlInString = `{ "vars": { "ORIGIN_URL": "https://app.example" }, "routes": [{ "pattern": "pinbox.sh", "custom_domain": true }] }`;
+    expect(hubFromWranglerConfig(urlInString)).toBe("https://pinbox.sh/_pinbox");
+  });
 });
 
 describe("normalizeHubUrl", () => {
@@ -71,6 +89,11 @@ describe("normalizeHubUrl", () => {
     expect(() => normalizeHubUrl("https://app.example")).toThrow(CliError);
     expect(() => normalizeHubUrl("http://app.example/_pinbox")).toThrow("https");
     expect(() => normalizeHubUrl("nope")).toThrow("not a URL");
+  });
+
+  test("rejects a query string or fragment — webhookUrl appends a path", () => {
+    expect(() => normalizeHubUrl("https://app.example/_pinbox?debug=1")).toThrow("query");
+    expect(() => normalizeHubUrl("https://app.example/_pinbox#x")).toThrow("fragment");
   });
 });
 
@@ -116,5 +139,26 @@ describe("patchWranglerVars", () => {
     expect(text).toContain("// comment");
     expect(text).toContain('"AUTH_STRATEGY": "token"');
     expect(missing).toEqual(["GITHUB_INSTALLATION_ID"]);
+  });
+
+  test("a commented-out example is left alone; the live var after it is the one patched", () => {
+    const jsonc = `{
+  "vars": {
+    // Example: "GITHUB_REPO": "owner/name"
+    /* "GITHUB_APP_ID": "000" */
+    "GITHUB_REPO": "",
+    "GITHUB_INSTALLATION_ID": ""
+  }
+}`;
+    const { text, missing } = patchWranglerVars(jsonc, {
+      GITHUB_APP_ID: "123",
+      GITHUB_INSTALLATION_ID: "9",
+      GITHUB_REPO: "autonoco/pinbox",
+    });
+    expect(text).toContain('// Example: "GITHUB_REPO": "owner/name"');
+    expect(text).toContain('/* "GITHUB_APP_ID": "000" */');
+    expect(text).toContain('"GITHUB_REPO": "autonoco/pinbox"');
+    expect(text).toContain('"GITHUB_INSTALLATION_ID": "9"');
+    expect(missing).toEqual(["GITHUB_APP_ID"]);
   });
 });

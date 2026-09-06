@@ -193,6 +193,16 @@ browser and it shows up in the agent's next turn on its own.
 Either way, the CLI is the interface. The plugins shell out to the same `pinbox`
 binary you would run yourself — there is no second API.
 
+Two things are never delivered, by design. **Comment pins** (`kind: "comment"`, the
+toolbar's *Note* option) are remarks a person left for people; the hub skips them and the
+skill tells the agent to read them as context and never act on or resolve them. And
+**`pinbox github setup`** is interactive and browser-driven — a person runs it, never an
+agent; the skill says so.
+
+When a branch ships, the agent can clear every pin linked to its PR in one call:
+`pinbox resolve --link github#58 --json`. Reviewers have the same action in the toolbar's
+inbox, grouped under the PR.
+
 ## Verify it worked
 
 ```bash

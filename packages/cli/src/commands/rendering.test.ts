@@ -204,6 +204,7 @@ describe("help text", () => {
       "show",
       "reply",
       "resolve",
+      "github",
       "export",
       "doctor",
       "update",

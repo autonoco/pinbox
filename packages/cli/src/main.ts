@@ -7,6 +7,7 @@ import { Command, CommanderError } from "commander";
 import packageJson from "../package.json" with { type: "json" };
 import { registerDoctor } from "./commands/doctor.ts";
 import { registerExport } from "./commands/export.ts";
+import { registerGithub } from "./commands/github.ts";
 import { registerInit } from "./commands/init.ts";
 import { registerLink } from "./commands/link.ts";
 import { registerList } from "./commands/list.ts";
@@ -52,6 +53,7 @@ export function buildProgram(): Command {
   registerReply(program);
   registerResolve(program);
   registerLink(program);
+  registerGithub(program);
   registerExport(program);
   registerDoctor(program);
   registerUpdate(program);

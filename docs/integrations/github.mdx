@@ -56,6 +56,22 @@ instead of `gh`. Issues and comments are authored by your App's bot account, acc
 scoped to the repositories you install it on, and every request uses a one-hour
 installation token minted from the App's private key inside the Worker.
 
+One command does the whole setup, from the repo that holds your worker directory:
+
+```bash
+pinbox github setup --hub https://<worker-host>/_pinbox
+```
+
+Your browser opens twice: once to review and create the App (GitHub builds it from a
+manifest pinbox supplies, so permissions, events and the webhook URL are already right),
+once to install it on the repo. pinbox then writes `GITHUB_APP_ID`,
+`GITHUB_INSTALLATION_ID` and `GITHUB_REPO` into the worker's `wrangler.jsonc`, sets the
+private key and webhook secret with `wrangler secret put`, and verifies the App can read
+the repo. Deploy the worker and you are done. Add `--personal` if the repo belongs to a
+user account rather than an organization, `--print-secrets` to set the secrets yourself.
+
+The manual route, if you would rather click through GitHub:
+
 1. Create the App under the organization that owns the repo: GitHub → Settings →
    Developer settings → GitHub Apps → New. Permissions: **Issues: Read & write** and
    **Metadata: Read-only**. Webhook on: URL `https://<worker-host>/_pinbox/webhooks/github`,

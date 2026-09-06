@@ -87,8 +87,8 @@ export async function runGithubSetup(input: SetupInput, seams: SetupSeams): Prom
   if (!/^[^/\s]+\/[^/\s]+$/.test(input.repo)) {
     throw new CliError(
       "E_INVALID_INPUT",
-      `--repo must be "owner/name", got "${input.repo}"`,
-      "e.g. --repo autonoco/pinbox",
+      `repository must be "owner/name", got "${input.repo}"`,
+      "the origin remote should point at github.com/<owner>/<name>",
     );
   }
   const api = (input.apiBase ?? "https://api.github.com").replace(/\/+$/, "");

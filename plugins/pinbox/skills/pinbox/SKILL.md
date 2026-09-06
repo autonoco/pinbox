@@ -138,6 +138,12 @@ Options:
 
 - `--json` - machine output
 
+### pinbox github
+
+Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub authenticates as a GitHub App that these commands create and wire up.
+
+Usage: `pinbox github [options] [command]`
+
 ### pinbox export
 
 Write pins to stdout as markdown or JSON.

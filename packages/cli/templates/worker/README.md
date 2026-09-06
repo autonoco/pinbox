@@ -53,6 +53,16 @@ uses a **GitHub App**: issues and comments are authored by `<your-app>[bot]`, ac
 per installed repo, and every request uses a one-hour installation token minted from the
 App's private key (the key never leaves the Worker).
 
+The short way, from the repo that contains this worker directory:
+
+```bash
+pinbox github setup --hub https://<your-worker-host>/_pinbox
+```
+
+It creates the App from a manifest (one click), installs it (one more), writes the three
+vars below into `wrangler.jsonc`, pushes the two secrets through wrangler and verifies the
+App can read the repo. Then `bun run deploy`. The steps it automates, for reference:
+
 1. GitHub → Settings → Developer settings → GitHub Apps → New. Permissions: **Issues:
    Read & write**, **Metadata: Read-only**. Webhook: **on**, URL
    `https://<your-worker-host>/_pinbox/webhooks/github`, content type `application/json`,

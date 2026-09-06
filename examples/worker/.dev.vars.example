@@ -16,6 +16,23 @@ PINBOX_TOKEN=dev-only-token
 # configuration unless you opt in with both lines, explicitly.
 # ALLOW_UNAUTHENTICATED=1
 
+# --- GitHub connector (pinbox link <id> github) ---------------------------------------
+# A GitHub App, installed on the repo: issues and comments are authored by the App's bot,
+# and short-lived installation tokens are minted from its private key. All four are
+# required together; the key is the PEM GitHub downloaded (PKCS#1 is fine as-is).
+# GITHUB_APP_ID=123456
+# GITHUB_INSTALLATION_ID=12345678
+# GITHUB_REPO=owner/name
+# GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+# ...
+# -----END RSA PRIVATE KEY-----"
+# GitHub Enterprise Server only:
+# GITHUB_API_BASE=https://github.example.com/api/v3
+
+# --- Slack connector (pinbox link <id> slack) -----------------------------------------
+# SLACK_BOT_TOKEN=xoxb-...
+# SLACK_CHANNEL=C0123456789
+
 # --- R2 presigned uploads (POST /attachments) ---------------------------------------
 # The MEDIA binding serves reads; presigned PUTs need R2's S3 API credentials
 # (an "R2 API token" in the dashboard). Without them, attachment uploads 500 with a hint.

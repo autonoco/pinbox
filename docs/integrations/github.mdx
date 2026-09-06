@@ -49,6 +49,26 @@ All three say `ok`, and that is deliberate: the `gh` check is informational. It
 gates `pinbox link` and nothing else, so a missing gh never fails a doctor run.
 Read the detail, not the prefix.
 
+### On a cloud hub
+
+A Worker cannot shell out, so the [cloud hub](/self-hosting/cloud) uses a **GitHub App**
+instead of `gh`. Issues and comments are authored by your App's bot account, access is
+scoped to the repositories you install it on, and every request uses a one-hour
+installation token minted from the App's private key inside the Worker.
+
+1. Create the App under the organization that owns the repo: GitHub → Settings →
+   Developer settings → GitHub Apps → New. Permissions: **Issues: Read & write** and
+   **Metadata: Read-only**. Leave the webhook off for now.
+2. Generate a private key; GitHub downloads a `.pem`. Note the **App ID**.
+3. Install the App on that organization, selecting the repo. The **installation id** is
+   the number at the end of the page you land on, `…/settings/installations/12345678`.
+4. In the Worker: `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and `GITHUB_REPO`
+   (`owner/name`) as vars, and the PEM as the `GITHUB_APP_PRIVATE_KEY` secret. The key is
+   accepted as downloaded; no conversion step.
+
+From then on `pinbox link <id> github` against that hub works exactly as it does locally,
+and linked pins reconcile on the hub's alarm.
+
 ## Link a pin
 
 ```bash

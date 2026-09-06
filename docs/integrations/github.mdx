@@ -58,16 +58,20 @@ installation token minted from the App's private key inside the Worker.
 
 1. Create the App under the organization that owns the repo: GitHub → Settings →
    Developer settings → GitHub Apps → New. Permissions: **Issues: Read & write** and
-   **Metadata: Read-only**. Leave the webhook off for now.
+   **Metadata: Read-only**. Webhook on: URL `https://<worker-host>/_pinbox/webhooks/github`,
+   content type `application/json`, a secret you generate; subscribe to **Issues** and
+   **Issue comment**.
 2. Generate a private key; GitHub downloads a `.pem`. Note the **App ID**.
 3. Install the App on that organization, selecting the repo. The **installation id** is
    the number at the end of the page you land on, `…/settings/installations/12345678`.
 4. In the Worker: `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and `GITHUB_REPO`
-   (`owner/name`) as vars, and the PEM as the `GITHUB_APP_PRIVATE_KEY` secret. The key is
-   accepted as downloaded; no conversion step.
+   (`owner/name`) as vars; the PEM as the `GITHUB_APP_PRIVATE_KEY` secret (accepted as
+   downloaded, no conversion step) and the webhook secret as `GITHUB_WEBHOOK_SECRET`.
 
-From then on `pinbox link <id> github` against that hub works exactly as it does locally,
-and linked pins reconcile on the hub's alarm.
+From then on `pinbox link <id> github` against that hub works exactly as it does locally.
+Inbound is immediate: a new issue comment or a close/reopen reaches the pin the moment
+GitHub delivers the webhook, and the hub's alarm poll still replays the issue as a safety
+net, recognising anything the webhook already mirrored.
 
 ## Link a pin
 
@@ -178,8 +182,10 @@ issue resolves the pin, and that resolution does not then re-close the issue.
 
 ## When sync happens
 
-Mirroring reconciles on a poll, not a webhook. Nothing needs to be exposed to the
-internet.
+On a **local hub**, mirroring reconciles on a poll, not a webhook. Nothing needs to be
+exposed to the internet. A [cloud hub](#on-a-cloud-hub) receives the App's webhook
+instead, so inbound is immediate there; its alarm poll runs on the same cadence below
+as a safety net, and recognises anything the webhook already mirrored.
 
 - Every **60 seconds** while the pin is open.
 - Every **10 minutes** once it is resolved.

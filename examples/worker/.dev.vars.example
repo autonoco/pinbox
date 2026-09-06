@@ -26,6 +26,8 @@ PINBOX_TOKEN=dev-only-token
 # GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
 # ...
 # -----END RSA PRIVATE KEY-----"
+# Webhook secret (set on the App; events POST to https://<worker>/_pinbox/webhooks/github):
+# GITHUB_WEBHOOK_SECRET=...
 # GitHub Enterprise Server only:
 # GITHUB_API_BASE=https://github.example.com/api/v3
 

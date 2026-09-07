@@ -138,6 +138,22 @@ Options:
 
 - `--json` - machine output
 
+### pinbox github
+
+Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub authenticates as a GitHub App that these commands create and wire up. Interactive, browser-driven: a person runs these at a terminal, never an agent.
+
+Usage: `pinbox github [options] [command]`
+
+### pinbox github setup
+
+Create the GitHub App from a manifest (one click in your browser), install it on the repo (one more click), then write GITHUB_APP_ID / GITHUB_INSTALLATION_ID / GITHUB_REPO into the worker's wrangler config and push the private key and webhook secret through wrangler. The repo is this checkout's origin; the worker is found by its config; the hub URL comes from the worker's custom domain or is asked for. Interactive: run it yourself, not from an agent.
+
+Usage: `pinbox github setup [options]`
+
+Options:
+
+- `--json` - machine output
+
 ### pinbox export
 
 Write pins to stdout as markdown or JSON.

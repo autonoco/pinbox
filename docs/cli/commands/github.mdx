@@ -1,0 +1,138 @@
+---
+title: "pinbox github"
+description: "Create and install the GitHub App a cloud hub links issues through."
+---
+
+`pinbox github setup` connects a [cloud hub](/self-hosting/cloud) to GitHub. The local hub
+never needs it — `pinbox link` there rides your own `gh` login. A Worker cannot shell out,
+so a cloud hub authenticates as a **GitHub App**, and this command creates, installs and
+wires that App in one sitting.
+
+It is interactive and browser-driven. A person runs it at a terminal; the agent skill says
+so, and agents do not.
+
+## Usage
+
+```console
+$ pinbox github --help
+Usage: pinbox github [options] [command]
+
+Connect a cloud hub to GitHub. The local hub uses your own gh login; a cloud hub authenticates as a
+GitHub App that these commands create and wire up. Interactive, browser-driven: a person runs these
+at a terminal, never an agent.
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  setup           create and install the GitHub App, then configure the worker
+  help [command]  display help for command
+```
+
+```console
+$ pinbox github setup --help
+Usage: pinbox github setup [options]
+
+Create the GitHub App from a manifest (one click in your browser), install it on the repo (one more
+click), then write GITHUB_APP_ID / GITHUB_INSTALLATION_ID / GITHUB_REPO into the worker's wrangler
+config and push the private key and webhook secret through wrangler. The repo is this checkout's
+origin; the worker is found by its config; the hub URL comes from the worker's custom domain or is
+asked for. Interactive: run it yourself, not from an agent.
+
+Options:
+  --json      machine output
+  -h, --help  display help for command
+```
+
+## What it does
+
+Run it from the repository whose issues the pins should link to, with the scaffolded hub
+worker somewhere under it. There is nothing to configure:
+
+| It needs | Where it gets it |
+| --- | --- |
+| The repository | This checkout's `origin` remote (`owner/name` on github.com) |
+| The worker directory | The nearest `wrangler.jsonc` under the current directory that names `PinboxHubDO` |
+| The hub's public URL | A `custom_domain` route in that `wrangler.jsonc`; on workers.dev, it asks you |
+| Organization or personal App | The repo owner's public profile |
+| The App name | `pinbox-<owner>-<repo>`; GitHub's review page lets you change it before you click Create |
+
+Then, in order:
+
+1. **Create.** Your browser opens GitHub's App review page, pre-filled from a manifest
+   pinbox supplies: permissions **Issues: Read & write** and **Metadata: Read-only**,
+   events **Issues** and **Issue comment**, webhook URL
+   `https://<hub>/_pinbox/webhooks/github`. You click *Create GitHub App*. GitHub sends the
+   new App's id, private key and webhook secret straight back to pinbox — nothing to
+   download or paste.
+2. **Install.** Your browser opens the App's install page; you pick the repo. pinbox waits
+   for the installation to appear.
+3. **Wire.** `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and `GITHUB_REPO` are written into
+   the worker's `wrangler.jsonc` vars, and the private key and webhook secret are set with
+   `wrangler secret put`. If wrangler is not logged in, the two values are printed for you
+   to set instead, and setup still completes.
+4. **Verify.** pinbox mints an installation token and reads the repo with it.
+
+Deploy the worker afterwards — vars take effect on deploy; secrets are live at once.
+
+## Example
+
+```console
+$ pinbox github setup
+hub: https://pinbox.sh/_pinbox (from ./apps/web/wrangler.jsonc)
+Creating GitHub App "pinbox-autonoco-pinbox" — your browser will open GitHub.
+  open: http://127.0.0.1:52133
+App created: https://github.com/apps/pinbox-autonoco-pinbox (id 1183342)
+Install the App on autonoco and select autonoco/pinbox — opening GitHub.
+  open: https://github.com/apps/pinbox-autonoco-pinbox/installations/new
+Installed: installation 71209455 on autonoco.
+Verified: the App can read autonoco/pinbox.
+app 1183342 pinbox-autonoco-pinbox https://github.com/apps/pinbox-autonoco-pinbox
+installation 71209455 autonoco/pinbox
+webhook https://pinbox.sh/_pinbox/webhooks/github
+vars written ./apps/web
+secrets written
+verified yes
+next:
+  - deploy the worker (vars take effect on deploy): cd ./apps/web && bun run deploy
+```
+
+### JSON
+
+Run from a terminal, `--json` prints the same result as an envelope. Secrets appear in it
+only when they could not be written through wrangler.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "appId": "1183342",
+    "slug": "pinbox-autonoco-pinbox",
+    "appUrl": "https://github.com/apps/pinbox-autonoco-pinbox",
+    "installationId": "71209455",
+    "repo": "autonoco/pinbox",
+    "hubUrl": "https://pinbox.sh/_pinbox",
+    "webhookUrl": "https://pinbox.sh/_pinbox/webhooks/github",
+    "workerDir": "./apps/web",
+    "vars": { "written": true, "missing": [] },
+    "secrets": "written",
+    "verified": true
+  }
+}
+```
+
+## Errors
+
+| Exit | Code | When |
+| --- | --- | --- |
+| 2 | `E_INVALID_INPUT` | the origin remote is not a GitHub repository; no hub URL could be found or was given; `--json` with stdin not a terminal |
+| 10 | `E_CONNECTOR` | GitHub rejected the manifest code (it is single-use — re-run); the installation never appeared within ten minutes |
+
+If the App exists but the installation step timed out, install it from the URL in the
+hint and re-run: GitHub offers to reuse the existing App.
+
+---
+
+After this, [`pinbox link`](/cli/commands/link) against the cloud hub works exactly as it
+does locally. Inbound comments and closes arrive by webhook the moment GitHub sends them;
+see [GitHub](/integrations/github#on-a-cloud-hub).

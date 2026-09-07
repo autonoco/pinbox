@@ -21,8 +21,9 @@ Commands:
   list [options]               list pins, newest first
   show <id>                    one pin with its full thread
   reply [options] <id> <text>  add a thread message to a pin
-  resolve [options] <id>       mark a pin resolved
+  resolve [options] [id]       mark a pin resolved
   link <id> [connector]        link a pin to an external tracker
+  github                       connect a cloud hub to GitHub
   export [options]             write pins to stdout as markdown or JSON
   doctor                       probe this machine's capabilities
   update [options]             install the latest pinbox CLI
@@ -69,6 +70,15 @@ exit codes. The pages below do not repeat it.
   </Card>
   <Card title="pinbox link" icon="link" href="/cli/commands/link">
     Mirror a pin into an external tracker.
+  </Card>
+</CardGroup>
+
+## Connect
+
+<CardGroup cols={1}>
+  <Card title="pinbox github" icon="github" href="/cli/commands/github">
+    Create and install the GitHub App a cloud hub links issues through. Interactive; a
+    person runs it.
   </Card>
 </CardGroup>
 

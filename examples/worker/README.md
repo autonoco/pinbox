@@ -55,8 +55,22 @@ uses a **GitHub App**: issues and comments are authored by `<your-app>[bot]`, ac
 per installed repo, and every request uses a one-hour installation token minted from the
 App's private key (the key never leaves the Worker).
 
+The short way, from the repo that contains this worker directory:
+
+```bash
+pinbox github setup
+```
+
+It creates the App from a manifest (one click), installs it (one more), writes the three
+vars below into `wrangler.jsonc`, pushes the two secrets through wrangler and verifies the
+App can read the repo. Then `bun run deploy`. It reads the hub's public URL from a
+`custom_domain` route in `wrangler.jsonc`; on workers.dev it asks for it. If wrangler is not
+logged in, the two secrets are printed for you to set. The steps it automates, for reference:
+
 1. GitHub → Settings → Developer settings → GitHub Apps → New. Permissions: **Issues:
-   Read & write**, **Metadata: Read-only**. Webhook: off for now. Where can it be
+   Read & write**, **Metadata: Read-only**. Webhook: **on**, URL
+   `https://<your-worker-host>/_pinbox/webhooks/github`, content type `application/json`,
+   a secret you generate; subscribe to **Issues** and **Issue comment**. Where can it be
    installed: only this account.
 2. Generate a private key (downloads a `.pem`). Note the **App ID** on the same page.
 3. Install the App on the organization or user that owns the repo, choosing that repo.
@@ -64,11 +78,15 @@ App's private key (the key never leaves the Worker).
    (`…/settings/installations/12345678`).
 4. `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_REPO` (`owner/name`) in
    `wrangler.jsonc` vars; `wrangler secret put GITHUB_APP_PRIVATE_KEY` with the PEM as
-   downloaded. GitHub Enterprise Server: also `GITHUB_API_BASE=https://<host>/api/v3`.
+   downloaded and `wrangler secret put GITHUB_WEBHOOK_SECRET` with the webhook secret.
+   GitHub Enterprise Server: also `GITHUB_API_BASE=https://<host>/api/v3`.
 
-All four together enable the connector; any missing and `pinbox link <id> github` answers
-`E_CONNECTOR`. Linked pins reconcile on the Durable Object's alarm: outbound comments and
-status flush, inbound comments and closes mirror back, on the same cadence as the local hub.
+The App quartet enables the connector; any missing and `pinbox link <id> github` answers
+`E_CONNECTOR`. Outbound comments and status flush on the Durable Object's alarm. Inbound
+arrives two ways: the webhook mirrors a new issue comment or a close/reopen the moment
+GitHub sends it (signature-verified; anything else is 401), and the alarm poll replays the
+issue on the local cadence as the safety net — a comment the webhook already mirrored is
+recognised and not mirrored twice.
 
 ## Zero-touch staging injection
 

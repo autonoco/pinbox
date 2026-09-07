@@ -127,7 +127,7 @@ Options:
 
 ### pinbox verify
 
-
+Record the outcome of a resolved pin: accepted keeps it resolved, reopened sets it open.
 
 Usage: `pinbox verify [options] <id>`
 

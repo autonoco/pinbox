@@ -23,3 +23,10 @@ test("changed revision and missing parts never get silently reattached", () => {
       .status,
   ).toBe("missing");
 });
+test("a transformed coordinate that overflows to Infinity is missing, not visible", () => {
+  const huge = { ...anchor, position: [Number.MAX_VALUE, 0, 0] as [number, number, number] };
+  const scale = [2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  expect(
+    resolveModelAnchor(huge, { modelId: "box", revision: "r1", partMatrix: () => scale }).status,
+  ).toBe("missing");
+});

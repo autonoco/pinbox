@@ -3,10 +3,13 @@ export type ModelProjection = (anchor: ModelAnchor) => { x: number; y: number } 
 const projectors = new WeakMap<Document, Set<ModelProjection>>();
 export function registerModelProjection(doc: Document, project: ModelProjection): () => void {
   const set = projectors.get(doc) ?? new Set<ModelProjection>();
-  set.add(project);
+  // A fresh wrapper per registration: two viewers sharing one projector function stay
+  // independently registered, so destroying either leaves the other's projections intact.
+  const entry: ModelProjection = (anchor) => project(anchor);
+  set.add(entry);
   projectors.set(doc, set);
   return () => {
-    set.delete(project);
+    set.delete(entry);
     if (!set.size) projectors.delete(doc);
   };
 }

@@ -5,6 +5,7 @@ import {
   PinInputSchema,
 } from "@autono/pinbox-core/schema";
 import { CliError } from "../errors.ts";
+import { usageHint } from "./flags.ts";
 export function modelFromJson(raw: string): ModelAnchor {
   try {
     return ModelAnchorSchema.parse(JSON.parse(raw));
@@ -12,6 +13,7 @@ export function modelFromJson(raw: string): ModelAnchor {
     throw new CliError(
       "E_INVALID_INPUT",
       "--model-anchor needs valid modelId, revision, partId, position [x,y,z] and units JSON",
+      usageHint("pin"),
     );
   }
 }
@@ -25,6 +27,7 @@ export function authorFromJson(raw: string): PinInput["author"] {
     throw new CliError(
       "E_INVALID_INPUT",
       "--author-json needs a userId and optional name/email JSON",
+      usageHint("pin"),
     );
   }
 }

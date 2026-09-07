@@ -125,7 +125,7 @@ only when they could not be written through wrangler.
 
 | Exit | Code | When |
 | --- | --- | --- |
-| 2 | `E_INVALID_INPUT` | the origin remote is not a GitHub repository; no hub URL could be found or was given; stdout is not a terminal |
+| 2 | `E_INVALID_INPUT` | the origin remote is not a GitHub repository; no hub URL could be found or was given; `--json` with stdin not a terminal |
 | 10 | `E_CONNECTOR` | GitHub rejected the manifest code (it is single-use — re-run); the installation never appeared within ten minutes |
 
 If the App exists but the installation step timed out, install it from the URL in the

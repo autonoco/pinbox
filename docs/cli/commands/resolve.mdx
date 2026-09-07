@@ -4,8 +4,9 @@ description: "Mark a pin resolved."
 ---
 
 `pinbox resolve` closes a pin — one by id, or every open pin linked to a tracker item with
-`--link`. Run it once the change is made and verified. Resolving is once-only: a second
-resolve of the same pin is a conflict, not a no-op.
+`--link`. Run it once the change is made and verified. Resolving by id is once-only: a
+second `pinbox resolve <id>` of the same pin is a conflict, not a no-op. `--link` only
+selects open pins, so a repeated run resolves nothing and exits clean.
 
 There is no separate "won't fix" state. A pin you decided not to change is resolved with
 a note saying so.

@@ -814,9 +814,10 @@ var Pinbox = (function(exports) {
 	//#region src/model-capture.ts
 	const handlers = /* @__PURE__ */ new WeakMap();
 	function runModelCapture(owner) {
-		const entry = handlers.get(owner)?.[0];
-		if (!entry) return false;
-		if (entry.busy) return true;
+		const entries = handlers.get(owner);
+		const entry = entries?.[0];
+		if (!entries || !entry) return false;
+		if (entries.some((candidate) => candidate.busy)) return true;
 		entry.busy = true;
 		try {
 			Promise.resolve(entry.run()).catch(entry.error).finally(() => {

@@ -19,11 +19,14 @@ import { connectClient } from "../client.ts";
 import { CliError } from "../errors.ts";
 import { emit, fail, isJsonMode, type OutputFlags } from "../output.ts";
 import { usageHint } from "./flags.ts";
+import { authorFromJson, modelFromJson } from "./pin-json.ts";
 
 export type PinOptions = OutputFlags & {
   file?: string;
   url?: string;
   selector?: string;
+  modelAnchor?: string;
+  authorJson?: string;
   /** A remark for people: the hub never routes it to an agent. */
   comment?: boolean;
 };
@@ -41,6 +44,14 @@ export function registerPin(program: Command): void {
     .option("--file <path[:line]>", "anchor to a source location (recorded repo-relative)")
     .option("--url <url>", "the web surface this pin is about")
     .option("--selector <sel>", "CSS selector on that surface (needs --url)")
+    .option(
+      "--model-anchor <json>",
+      "3D part-local anchor: modelId, revision, partId, position [x,y,z], units, optional normal/camera",
+    )
+    .option(
+      "--author-json <json>",
+      "asserted upstream author {userId,name?,email?}; trusted integrations only, not authentication",
+    )
     .option("--comment", "a note for people, not a task: no agent is woken for it")
     .option("--json", "machine output")
     .action(async (text: string, _opts: PinOptions, cmd: Command) => {
@@ -88,7 +99,7 @@ export async function buildPinInput(
     text: body,
     kind: opts.comment === true ? "comment" : "note",
     ...(target === undefined ? {} : { target }),
-    author: terminalAuthor(cwd),
+    author: opts.authorJson === undefined ? terminalAuthor(cwd) : authorFromJson(opts.authorJson),
     // No `env` key at all: the hub stamps branch/commit, and a terminal knows
     // nothing else that belongs there.
   };
@@ -105,6 +116,7 @@ async function buildTarget(opts: PinOptions, cwd: string): Promise<Target | unde
     );
   }
   const target: Target = {};
+  if (opts.modelAnchor !== undefined) target.model = modelFromJson(opts.modelAnchor);
   if (opts.url !== undefined) target.url = parseUrl(opts.url);
   if (opts.selector !== undefined) target.selector = opts.selector;
   if (opts.file !== undefined) target.source = await resolveSource(opts.file, cwd);

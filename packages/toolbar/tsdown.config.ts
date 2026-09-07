@@ -22,6 +22,7 @@ import { defineConfig } from "tsdown";
 const esm = defineConfig({
   entry: [
     "src/index.ts",
+    "src/model.ts",
     "src/react.ts",
     "src/vue.ts",
     "src/svelte.ts",

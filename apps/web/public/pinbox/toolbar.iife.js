@@ -210,10 +210,11 @@ var Pinbox = (function(exports) {
 		];
 	}
 	function block(pin, thread) {
-		const { selector, url, source } = pin.target ?? {};
+		const { selector, url, source, model } = pin.target ?? {};
 		return [
 			`## Pin ${pin.n === void 0 ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
+			...model ? [`- model: ${line(model.modelId)} / ${line(model.partId)} @ ${line(model.revision)}`, `- position: ${model.position.join(", ")} ${model.units}`] : [],
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
 			...(pin.target?.targets ?? []).map((t) => t.selector ?? t.anchor ?? t.tag).filter((locus) => locus !== void 0).map((locus) => `- also: \`${line(locus)}\``),
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
@@ -2644,6 +2645,21 @@ var Pinbox = (function(exports) {
 		return `${isDraft ? `<div class="pb-seg" role="radiogroup" aria-label="Pin kind"><button type="button" role="radio" aria-checked="${kind === "note"}" class="${kind === "note" ? "on" : ""}" data-kind="note" title="An agent picks this up">Ask agent</button><button type="button" role="radio" aria-checked="${kind === "comment"}" class="${kind === "comment" ? "on" : ""}" data-kind="comment" title="A remark for people; no agent acts on it">Note</button></div>` : ""}<div class="pb-kbd">⌘ ↵</div><button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : kind === "comment" ? "Leave note" : "Comment"}</button>`;
 	}
 	//#endregion
+	//#region src/model-target.ts
+	const projectors = /* @__PURE__ */ new WeakMap();
+	function projectModelTarget(doc, anchor) {
+		for (const project of projectors.get(doc) ?? []) {
+			const p = project(anchor);
+			if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return {
+				x: p.x,
+				y: p.y,
+				width: 0,
+				height: 0
+			};
+		}
+		return null;
+	}
+	//#endregion
 	//#region src/ui/pins.ts
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const chipMemo = /* @__PURE__ */ new WeakMap();
@@ -2689,6 +2705,7 @@ var Pinbox = (function(exports) {
 	}
 	/** The same resolution for any captured target — a pin's, or the draft's before it commits. */
 	function targetRect(doc, target) {
+		if (target?.model) return projectModelTarget(doc, target.model);
 		const stored = target?.rect;
 		if (stored === void 0) return null;
 		const win = doc.defaultView;
@@ -3018,6 +3035,7 @@ var Pinbox = (function(exports) {
 	* labels the card without claiming an element that was never captured.
 	*/
 	function labelOf(target) {
+		if (target?.model) return `3D · ${target.model.partId}`;
 		return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 	}
 	function viewOf(root, state) {

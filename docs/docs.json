@@ -82,7 +82,7 @@
       },
       {
         "group": "Concepts",
-        "pages": ["concepts/pins", "concepts/architecture", "concepts/agents"]
+        "pages": ["concepts/pins", "concepts/3d-pins", "concepts/architecture", "concepts/agents"]
       },
       {
         "group": "Integrations",

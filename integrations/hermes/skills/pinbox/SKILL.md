@@ -51,6 +51,8 @@ Options:
 - `--file <path[:line]>` - anchor to a source location (recorded repo-relative)
 - `--url <url>` - the web surface this pin is about
 - `--selector <sel>` - CSS selector on that surface (needs --url)
+- `--model-anchor <json>` - 3D part-local anchor: modelId, revision, partId, position [x,y,z], units, optional normal/camera
+- `--author-json <json>` - asserted upstream author {userId,name?,email?}; trusted integrations only, not authentication
 - `--comment` - a note for people, not a task: no agent is woken for it
 - `--json` - machine output
 
@@ -121,6 +123,21 @@ Options:
 - `--link <connector#ref>` - resolve every open pin linked to this item, e.g. github#58
 - `--note <text>` - resolution note (e.g. what changed, or why it won't)
 - `--as <role>` - resolver: human or agent (default: "human")
+- `--json` - machine output
+
+### pinbox verify
+
+
+
+Usage: `pinbox verify [options] <id>`
+
+Arguments:
+
+- `id` - pin id
+
+Options:
+
+- `--outcome <outcome>` - accepted or reopened
 - `--json` - machine output
 
 ### pinbox link

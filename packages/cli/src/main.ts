@@ -1,3 +1,4 @@
+import { registerVerify } from "./commands/verify.ts";
 // pinbox CLI entry — commander program, global --json flag, subcommand registration.
 // Subcommands land in Tasks 7–8; `serve` registers hidden. The built entry gets its
 // `#!/usr/bin/env bun` shebang from the tsdown banner (Task 9).
@@ -52,6 +53,7 @@ export function buildProgram(): Command {
   registerShow(program);
   registerReply(program);
   registerResolve(program);
+  registerVerify(program);
   registerLink(program);
   registerGithub(program);
   registerExport(program);

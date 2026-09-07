@@ -1,6 +1,9 @@
 // @autono/pinbox-core/schema — Zod v4 single-source schemas: Pin, ThreadMessage, SessionRef.
 // Produces the exported TS types, trust-boundary validation, and dist/schema.json via z.toJSONSchema().
 import { z } from "zod";
+import { ModelAnchorSchema } from "./model-anchor.ts";
+
+export { type ModelAnchor, ModelAnchorSchema } from "./model-anchor.ts";
 
 export const SCHEMA_VERSION = 1;
 
@@ -108,6 +111,7 @@ const ContextSchema = z.object({
 // must be a complete Rect, a `source` that is present must have `file` and `via`.
 // Readers therefore branch on presence (`pin.target?.rect`), never on a sentinel.
 const TargetBaseSchema = z.object({
+  model: ModelAnchorSchema.optional(),
   url: z.string().optional(),
   selector: z.string().optional(),
   tag: z.string().optional(),

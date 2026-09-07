@@ -45,6 +45,14 @@ const modelUi = attachModelViewer(toolbar, {
   surface: renderer.domElement,
   pick: (clientX, clientY) => raycastToPartLocalAnchor(clientX, clientY),
   project: anchor => projectToViewportOrNull(anchor),
+  onHover: anchor => highlightPart(anchor?.partId ?? null),
+  acceptsAnchor: anchor => anchor.modelId === 'enclosure',
+  onActivate: async (anchor, pin, { signal }) => {
+    await loadRevision(anchor.revision, { signal });
+    if (!signal.aborted) animateCameraTo(anchor.camera);
+  },
+  onCapture: () => openModelScreenshotPreview(),
+  onError: error => showError(error),
 });
 // After each viewer render, including while animating an exploded view:
 modelUi.update();
@@ -63,6 +71,30 @@ For a host-owned backend that calls the CLI, mount the exported `PinboxToolbarEl
 without hub attributes and wire its public `store` and `actions` to the backend.
 The backend must authenticate requests and stamp their authors. Standard hub users
 should prefer `Pinbox.init` above.
+
+## Optional interaction hooks
+
+- `onHover(anchor | null)` runs on each `update()` while pointing at the surface in
+  pin mode. Use it to color the picked part; restore its material on `null`. Leaving
+  the surface, exiting pin mode, window blur, and disposal clear the hover.
+- `onActivate(anchor, pin, { signal })` handles marker/inbox selection. Use
+  `await modelUi.openPin(pinId)` for host sidebar links, including reopening the same
+  pin. The previous signal is aborted on another selection, dismissal or disposal;
+  honor it when loading geometry or moving the camera. `acceptsAnchor` routes pins
+  to the right viewer on pages with multiple models. Omit it for a single viewer.
+- `onCapture()` replaces the camera action for this toolbar, including its button,
+  puck and S shortcut. It does not request screen-sharing permission or switch the
+  saved DOM/tab preference. With multiple viewers the first registered capture hook
+  is the default; entering or pressing another surface makes it the capture owner.
+  Destroying that viewer restores another registered owner, or the normal 2D toggle.
+  Repeated capture actions are ignored until its returned promise settles.
+- `onError(error)` receives activation/capture failures and hover picking failures.
+  Without it failures are logged to the console.
+
+Hooks are optional and renderer-independent. The host supplies the actual image
+capture, preview, download and chat/storage behavior; Pinbox does not upload an image
+or launch an agent merely because the camera was pressed. They do not change automatic
+pin attachment capture configured through `Pinbox.init`.
 
 ## Implement picking and projection
 

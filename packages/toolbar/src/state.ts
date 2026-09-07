@@ -61,6 +61,8 @@ export interface ToolbarState {
    * Persisted per endpoint; the bar's camera button flips it.
    */
   captureMode: "dom" | "tab";
+  /** Optional model camera action label; absent preserves the 2D capture toggle. */
+  captureLabel?: string | undefined;
 }
 
 export type CaptureMode = ToolbarState["captureMode"];

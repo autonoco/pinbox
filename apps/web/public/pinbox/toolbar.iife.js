@@ -811,6 +811,33 @@ var Pinbox = (function(exports) {
 		};
 	}
 	//#endregion
+	//#region src/model-capture.ts
+	const handlers = /* @__PURE__ */ new WeakMap();
+	function runModelCapture(owner) {
+		const entry = handlers.get(owner)?.[0];
+		if (!entry) return false;
+		if (entry.busy) return true;
+		entry.busy = true;
+		try {
+			Promise.resolve(entry.run()).catch(entry.error).finally(() => {
+				entry.busy = false;
+			});
+		} catch (error) {
+			entry.busy = false;
+			entry.error(error);
+		}
+		return true;
+	}
+	/** Shared by the camera button, puck and S shortcut; preserve the 2D fallback. */
+	function toggleToolbarCapture(owner, endpoint, release) {
+		if (runModelCapture(owner)) return true;
+		const next = owner.store.get().captureMode === "tab" ? "dom" : "tab";
+		owner.store.update({ captureMode: next });
+		if (next === "dom") release();
+		saveCaptureMode(globalThis.localStorage, captureKey(`pinbox:${endpoint}`), next);
+		return true;
+	}
+	//#endregion
 	//#region src/targeting/dom.ts
 	/**
 	* Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
@@ -2371,8 +2398,8 @@ var Pinbox = (function(exports) {
 				inboxBtn.classList.toggle("lit", state.inboxOpen);
 				const open = String(openTaskCount(state.pins));
 				if (count.textContent !== open) count.textContent = open;
-				captureBtn.classList.toggle("lit", state.captureMode === "tab");
-				captureBtn.title = state.captureMode === "tab" ? "Tab capture on — real pixels, Chrome asks once per page load (S)" : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)";
+				captureBtn.classList.toggle("lit", !state.captureLabel && state.captureMode === "tab");
+				captureBtn.title = state.captureLabel ?? (state.captureMode === "tab" ? "Tab capture on — real pixels, Chrome asks once per page load (S)" : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)");
 				if (hideShown !== state.pinsHidden) {
 					hideShown = state.pinsHidden;
 					hideBtn.innerHTML = icon(state.pinsHidden ? EYE_GLYPH : EYE_OFF_GLYPH, 14);
@@ -3773,11 +3800,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			return loadCaptureMode(globalThis.localStorage, key, this.config?.capture ?? "dom");
 		}
 		#toggleCapture() {
-			const next = this.store.get().captureMode === "tab" ? "dom" : "tab";
-			this.store.update({ captureMode: next });
-			if (next === "dom") releaseCapture();
-			saveCaptureMode(globalThis.localStorage, captureKey(`pinbox:${this.config?.endpoint ?? ""}`), next);
-			return true;
+			return toggleToolbarCapture(this, this.config?.endpoint ?? "", releaseCapture);
 		}
 		/** Theme from the OS when the host set none; the page-level CSS (placing cursor) into <head>. */
 		#applyPageDefaults() {

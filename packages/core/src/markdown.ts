@@ -50,6 +50,11 @@ function standardFacts(pin: Pin): string[] {
   const target = pin.target;
   const lines: string[] = [];
   if (target?.url !== undefined) lines.push(`  - url: ${target.url}`);
+  const model = target?.model;
+  if (model)
+    lines.push(
+      `  - model: ${model.modelId} @ ${model.revision}; part: ${model.partId}; local point: ${model.position.join(", ")} ${model.units}`,
+    );
   const source = sourceRef(pin);
   if (source !== undefined) lines.push(`  - source: ${source}`);
   const rect = target?.rect;
@@ -66,6 +71,7 @@ function standardFacts(pin: Pin): string[] {
  */
 function forensicBlock(pin: Pin): string[] {
   const forensic: Record<string, unknown> = {};
+  if (pin.target?.model) forensic["model"] = pin.target.model;
   if (pin.target?.context) forensic["context"] = pin.target.context;
   if (pin.env && Object.keys(pin.env).length > 0) forensic["env"] = pin.env;
   if (Object.keys(forensic).length === 0) return [];
@@ -81,6 +87,8 @@ function forensicBlock(pin: Pin): string[] {
  * a pin the same way.
  */
 export function pinLocus(pin: Pin): string | undefined {
+  const model = pin.target?.model;
+  if (model) return `${model.modelId}/${model.partId} @ ${model.revision}`;
   return pin.target?.selector ?? sourceRef(pin) ?? pin.target?.url;
 }
 

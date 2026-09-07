@@ -81,6 +81,10 @@ test("a pin created through the CLI notifies a subscribed MCP client", async () 
   await proc.stdin.flush();
 
   await until(() => frames.some((f) => f.method === "notifications/subscriptions/acknowledged"));
+  // Subscription acknowledgement can precede the hub-starting tool call. Wait for
+  // that startup before an independent CLI process attempts to discover the hub.
+  await until(() => frames.some((f) => f.id === 1), "initial hub startup did not finish");
+  expect(frames.find((f) => f.id === 1)?.error).toBeUndefined();
   const listen = frames.find((f) => f.id === 2);
   expect(listen?.error, JSON.stringify(listen?.error)).toBeUndefined();
 

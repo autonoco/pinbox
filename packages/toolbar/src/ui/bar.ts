@@ -101,11 +101,12 @@ export function createBar(doc: Document, on: BarHandlers): Bar {
       inboxBtn.classList.toggle("lit", state.inboxOpen);
       const open = String(openTaskCount(state.pins));
       if (count.textContent !== open) count.textContent = open;
-      captureBtn.classList.toggle("lit", state.captureMode === "tab");
+      captureBtn.classList.toggle("lit", !state.captureLabel && state.captureMode === "tab");
       captureBtn.title =
-        state.captureMode === "tab"
+        state.captureLabel ??
+        (state.captureMode === "tab"
           ? "Tab capture on — real pixels, Chrome asks once per page load (S)"
-          : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)";
+          : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)");
       if (hideShown !== state.pinsHidden) {
         hideShown = state.pinsHidden;
         hideBtn.innerHTML = icon(state.pinsHidden ? EYE_GLYPH : EYE_OFF_GLYPH, 14);

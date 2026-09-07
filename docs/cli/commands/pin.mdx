@@ -27,6 +27,8 @@ Options:
   --file <path[:line]>  anchor to a source location (recorded repo-relative)
   --url <url>           the web surface this pin is about
   --selector <sel>      CSS selector on that surface (needs --url)
+  --model-anchor <json> a revision-qualified 3D model/part anchor
+  --author-json <json>  asserted identity supplied by a trusted backend
   --comment             a note for people, not a task: no agent is woken for it
   --json                machine output
   -h, --help            display help for command
@@ -65,6 +67,12 @@ Options:
 <ParamField path="--json" type="boolean">
   Machine output: the `{"ok":true,"data":…}` envelope.
 </ParamField>
+
+## 3D targets
+
+Use `--model-anchor <json>` to attach the pin to a part-local 3D point. A trusted
+backend can supply its verified user with `--author-json <json>`. See
+[3D model pins](/concepts/3d-pins) for the schema, security boundary, and viewer integration.
 
 ## Examples
 

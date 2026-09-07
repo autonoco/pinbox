@@ -1,0 +1,173 @@
+---
+title: "3D model pins"
+description: "Attach feedback to a part in 3D space, including exploded and animated views."
+---
+
+A 3D pin has a `target.model` anchor. It uses the same Pinbox store, events, CLI,
+MCP tools, replies, resolution, and agent delivery as other pins. `kind` still
+expresses intent (`note`, `comment`, or `move`); the target expresses *where*.
+Existing DOM and source pins keep their current format.
+
+## Create a 3D pin with the CLI
+
+```bash
+pinbox pin "Make this knob easier to grip" \
+  --url https://preview.example.com \
+  --model-anchor '{"modelId":"enclosure","revision":"rev-12","partId":"volume-knob","position":[3.2,0,6.5],"normal":[0,0,1],"units":"mm"}' \
+  --json
+```
+
+`data.target.model` contains the anchor. Read it back with `pinbox show <id> --json`.
+Use `--comment` for an annotation that should not wake an agent.
+
+| Field | Meaning |
+| --- | --- |
+| `modelId` | Stable ID for the model or assembly. |
+| `revision` | Immutable geometry revision, not a mutable label such as `latest`. |
+| `partId` | Stable ID of the picked part within that revision. |
+| `position` | `[x,y,z]` in that part's **local** coordinates. |
+| `units` | `mm`, `cm`, `m`, or `in`; the host scene must use the same units. |
+| `normal` | Optional nonzero surface normal in part-local coordinates. |
+| `faceIndex` | Optional triangle index, valid only for this geometry revision. |
+| `camera` | Optional `{position,target,up}` vectors for restoring the inspection view. |
+
+Coordinates must be finite. The CLI and core schema reject malformed anchors.
+Pinbox stores anchor data; it does not load or validate CAD/mesh files.
+
+## Use Pinbox’s toolbar and cards in a 3D viewer
+
+```ts
+import { Pinbox } from '@autono/pinbox-toolbar';
+import { attachModelViewer } from '@autono/pinbox-toolbar/model';
+
+const toolbar = Pinbox.init({ endpoint: hubUrl, getToken, screenshots: false });
+const modelUi = attachModelViewer(toolbar, {
+  surface: renderer.domElement,
+  pick: (clientX, clientY) => raycastToPartLocalAnchor(clientX, clientY),
+  project: anchor => projectToViewportOrNull(anchor),
+  onHover: anchor => highlightPart(anchor?.partId ?? null),
+  acceptsAnchor: anchor => anchor.modelId === 'enclosure',
+  onActivate: async (anchor, pin, { signal }) => {
+    await loadRevision(anchor.revision, { signal });
+    if (!signal.aborted) animateCameraTo(anchor.camera);
+  },
+  onCapture: () => openModelScreenshotPreview(),
+  onError: error => showError(error),
+});
+// After each viewer render, including while animating an exploded view:
+modelUi.update();
+// When disposing the viewer:
+modelUi.destroy();
+```
+
+The ordinary **PIN** button and keyboard shortcut now place a 3D draft when clicked
+on this surface. The original Pinbox draft card, conversation card, inbox, and needle
+markers are reused. The card identifies the 3D part. Empty-space clicks do not create
+canvas pins, and orbit drags do not place pins. DOM pinning outside the model surface
+continues to work. `pick` returns a `ModelAnchor` or `null`; `project` returns viewport
+CSS pixels `{x,y}` or `null` for hidden, stale, or occluded points.
+
+For a host-owned backend that calls the CLI, mount the exported `PinboxToolbarElement`
+without hub attributes and wire its public `store` and `actions` to the backend.
+The backend must authenticate requests and stamp their authors. Standard hub users
+should prefer `Pinbox.init` above.
+
+## Optional interaction hooks
+
+- `onHover(anchor | null)` runs on each `update()` while pointing at the surface in
+  pin mode. Use it to color the picked part; restore its material on `null`. Leaving
+  the surface, exiting pin mode, window blur, and disposal clear the hover.
+- `onActivate(anchor, pin, { signal })` handles marker/inbox selection. Use
+  `await modelUi.openPin(pinId)` for host sidebar links, including reopening the same
+  pin. The previous signal is aborted on another selection, dismissal or disposal;
+  honor it when loading geometry or moving the camera. `acceptsAnchor` routes pins
+  to the right viewer on pages with multiple models. Omit it for a single viewer.
+- `onCapture()` replaces the camera action for this toolbar, including its button,
+  puck and S shortcut. It does not request screen-sharing permission or switch the
+  saved DOM/tab preference. With multiple viewers the first registered capture hook
+  is the default; entering or pressing another surface makes it the capture owner.
+  Destroying that viewer restores another registered owner, or the normal 2D toggle.
+  Repeated capture actions are ignored until its returned promise settles.
+- `onError(error)` receives activation/capture failures and hover picking failures.
+  Without it failures are logged to the console.
+
+Hooks are optional and renderer-independent. The host supplies the actual image
+capture, preview, download and chat/storage behavior; Pinbox does not upload an image
+or launch an agent merely because the camera was pressed. They do not change automatic
+pin attachment capture configured through `Pinbox.init`.
+
+## Implement picking and projection
+
+The `@autono/pinbox-toolbar/model` export works with Three.js, Babylon.js, CAD
+viewers, or a custom renderer. It has no renderer runtime dependency.
+
+1. Raycast a pointer click against the model.
+2. Convert the hit from world coordinates to the picked part's local coordinates.
+3. Create a Pinbox pin with `target.model`, through your authenticated backend.
+4. Resolve the anchor against the part's current transform each animation frame.
+5. Project the resulting world point to screen coordinates and apply your viewer's
+   visibility/occlusion checks.
+
+For example, with Three.js:
+
+```ts
+import { resolveModelAnchor, type ModelAnchor } from '@autono/pinbox-toolbar/model';
+
+// `hit` is a Three.js intersection. Use a stable application part ID, not a
+// randomly generated object UUID that changes each time the model is loaded.
+const anchor: ModelAnchor = {
+  modelId: 'enclosure',
+  revision: loadedRevision,
+  partId: hit.object.userData.partId,
+  position: hit.object.worldToLocal(hit.point.clone()).toArray(),
+  units: 'mm',
+};
+
+// Send anchor and feedback to your backend; do not put CLI credentials in a page.
+// Backend: pinbox pin <feedback> --model-anchor <JSON> --json
+
+scene.updateMatrixWorld(true);
+const resolved = resolveModelAnchor(anchor, {
+  modelId: 'enclosure',
+  revision: loadedRevision,
+  partMatrix: id => parts.get(id)?.matrixWorld.elements,
+});
+if (resolved.status === 'visible') {
+  const projected = new THREE.Vector3(...resolved.worldPosition).project(camera);
+  // Position your annotation marker and check occlusion here.
+}
+```
+
+The sample raycast and projection callbacks are supplied by your renderer.
+
+The matrix is column-major, object-to-world, using the anchor's units. Updating
+that matrix during an exploded-view animation makes the pin follow its part.
+`visible` means the anchor resolved; the host must still check camera clipping,
+hidden parts, and occlusion before drawing a marker. Pinbox's default DOM toolbar
+does not raycast a canvas automatically; the host supplies the 3D interaction.
+
+A different model or revision returns `stale`; a missing part or unusable matrix
+returns `missing`. Show the original revision or explicitly migrate the pin after
+checking the new geometry. Do not silently reuse triangle indices across revisions.
+
+## Attribute requests from a signed-in app
+
+A trusted local backend may use `--author-json`:
+
+```bash
+pinbox pin "Make this knob easier to grip" \
+  --model-anchor '{"modelId":"enclosure","revision":"rev-12","partId":"volume-knob","position":[3.2,0,6.5],"units":"mm"}' \
+  --author-json '{"userId":"verified-user-id","name":"Ada","email":"ada@example.com"}' \
+  --json
+```
+
+The flag is an **identity assertion, not authentication**. Your backend must verify
+the login and construct this value itself, never forward a browser-supplied author.
+An authenticated remote hub can override the asserted identity. Omit this flag
+for normal CLI use, which continues to use git identity.
+
+
+The toolbar’s accept/reopen actions also have CLI equivalents for backend bridges:
+`pinbox verify <id> --outcome accepted --json` and
+`pinbox verify <id> --outcome reopened --json`. Replies and resolutions continue
+through `pinbox reply` and `pinbox resolve`.

@@ -42,7 +42,11 @@
       "types": "./dist/plugins/next.d.ts",
       "default": "./dist/plugins/next.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./model": {
+      "types": "./dist/model.d.ts",
+      "default": "./dist/model.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

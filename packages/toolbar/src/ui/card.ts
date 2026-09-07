@@ -261,6 +261,7 @@ function anchorOf(
  * labels the card without claiming an element that was never captured.
  */
 function labelOf(target: Pin["target"]): string {
+  if (target?.model) return `3D · ${target.model.partId}`;
   return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 }
 

@@ -210,10 +210,11 @@ var Pinbox = (function(exports) {
 		];
 	}
 	function block(pin, thread) {
-		const { selector, url, source } = pin.target ?? {};
+		const { selector, url, source, model } = pin.target ?? {};
 		return [
 			`## Pin ${pin.n === void 0 ? pin.id : `#${pin.n} (${pin.id})`} — ${pin.status.toUpperCase()}`,
 			`- label: ${line(label(pin))}`,
+			...model ? [`- model: ${line(model.modelId)} / ${line(model.partId)} @ ${line(model.revision)}`, `- position: ${model.position.join(", ")} ${model.units}`] : [],
 			...selector === void 0 ? [] : [`- selector: \`${line(selector)}\``],
 			...(pin.target?.targets ?? []).map((t) => t.selector ?? t.anchor ?? t.tag).filter((locus) => locus !== void 0).map((locus) => `- also: \`${line(locus)}\``),
 			...source === void 0 ? [] : [`- source: ${line(source.line === void 0 ? source.file : `${source.file}:${source.line}`)}`],
@@ -808,6 +809,34 @@ var Pinbox = (function(exports) {
 				fanOpen = false;
 			}
 		};
+	}
+	//#endregion
+	//#region src/model-capture.ts
+	const handlers = /* @__PURE__ */ new WeakMap();
+	function runModelCapture(owner) {
+		const entries = handlers.get(owner);
+		const entry = entries?.[0];
+		if (!entries || !entry) return false;
+		if (entries.some((candidate) => candidate.busy)) return true;
+		entry.busy = true;
+		try {
+			Promise.resolve(entry.run()).catch(entry.error).finally(() => {
+				entry.busy = false;
+			});
+		} catch (error) {
+			entry.busy = false;
+			entry.error(error);
+		}
+		return true;
+	}
+	/** Shared by the camera button, puck and S shortcut; preserve the 2D fallback. */
+	function toggleToolbarCapture(owner, endpoint, release) {
+		if (runModelCapture(owner)) return true;
+		const next = owner.store.get().captureMode === "tab" ? "dom" : "tab";
+		owner.store.update({ captureMode: next });
+		if (next === "dom") release();
+		saveCaptureMode(globalThis.localStorage, captureKey(`pinbox:${endpoint}`), next);
+		return true;
 	}
 	//#endregion
 	//#region src/targeting/dom.ts
@@ -2370,8 +2399,8 @@ var Pinbox = (function(exports) {
 				inboxBtn.classList.toggle("lit", state.inboxOpen);
 				const open = String(openTaskCount(state.pins));
 				if (count.textContent !== open) count.textContent = open;
-				captureBtn.classList.toggle("lit", state.captureMode === "tab");
-				captureBtn.title = state.captureMode === "tab" ? "Tab capture on — real pixels, Chrome asks once per page load (S)" : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)";
+				captureBtn.classList.toggle("lit", !state.captureLabel && state.captureMode === "tab");
+				captureBtn.title = state.captureLabel ?? (state.captureMode === "tab" ? "Tab capture on — real pixels, Chrome asks once per page load (S)" : "Screenshots: DOM snapshot, no prompt — press for tab capture (S)");
 				if (hideShown !== state.pinsHidden) {
 					hideShown = state.pinsHidden;
 					hideBtn.innerHTML = icon(state.pinsHidden ? EYE_GLYPH : EYE_OFF_GLYPH, 14);
@@ -2644,6 +2673,21 @@ var Pinbox = (function(exports) {
 		return `${isDraft ? `<div class="pb-seg" role="radiogroup" aria-label="Pin kind"><button type="button" role="radio" aria-checked="${kind === "note"}" class="${kind === "note" ? "on" : ""}" data-kind="note" title="An agent picks this up">Ask agent</button><button type="button" role="radio" aria-checked="${kind === "comment"}" class="${kind === "comment" ? "on" : ""}" data-kind="comment" title="A remark for people; no agent acts on it">Note</button></div>` : ""}<div class="pb-kbd">⌘ ↵</div><button type="button" class="pb-bt-solid" data-action="send">${hasThread ? "Reply" : kind === "comment" ? "Leave note" : "Comment"}</button>`;
 	}
 	//#endregion
+	//#region src/model-target.ts
+	const projectors = /* @__PURE__ */ new WeakMap();
+	function projectModelTarget(doc, anchor) {
+		for (const project of projectors.get(doc) ?? []) {
+			const p = project(anchor);
+			if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return {
+				x: p.x,
+				y: p.y,
+				width: 0,
+				height: 0
+			};
+		}
+		return null;
+	}
+	//#endregion
 	//#region src/ui/pins.ts
 	/** The prototype's `_h` innerHTML memo, kept off the DOM node. */
 	const chipMemo = /* @__PURE__ */ new WeakMap();
@@ -2689,6 +2733,7 @@ var Pinbox = (function(exports) {
 	}
 	/** The same resolution for any captured target — a pin's, or the draft's before it commits. */
 	function targetRect(doc, target) {
+		if (target?.model) return projectModelTarget(doc, target.model);
 		const stored = target?.rect;
 		if (stored === void 0) return null;
 		const win = doc.defaultView;
@@ -3018,6 +3063,7 @@ var Pinbox = (function(exports) {
 	* labels the card without claiming an element that was never captured.
 	*/
 	function labelOf(target) {
+		if (target?.model) return `3D · ${target.model.partId}`;
 		return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 	}
 	function viewOf(root, state) {
@@ -3755,11 +3801,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			return loadCaptureMode(globalThis.localStorage, key, this.config?.capture ?? "dom");
 		}
 		#toggleCapture() {
-			const next = this.store.get().captureMode === "tab" ? "dom" : "tab";
-			this.store.update({ captureMode: next });
-			if (next === "dom") releaseCapture();
-			saveCaptureMode(globalThis.localStorage, captureKey(`pinbox:${this.config?.endpoint ?? ""}`), next);
-			return true;
+			return toggleToolbarCapture(this, this.config?.endpoint ?? "", releaseCapture);
 		}
 		/** Theme from the OS when the host set none; the page-level CSS (placing cursor) into <head>. */
 		#applyPageDefaults() {

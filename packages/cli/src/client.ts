@@ -50,6 +50,10 @@ export class HubClient {
     });
   }
 
+  verify(id: string, outcome: "accepted" | "reopened"): Promise<Pin> {
+    return this.request("POST", `/pins/${id}/verify`, { outcome });
+  }
+
   summary(): Promise<HubSummary> {
     return this.request("GET", "/summary");
   }

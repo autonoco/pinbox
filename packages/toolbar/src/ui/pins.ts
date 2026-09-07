@@ -4,6 +4,7 @@
 // data-pin and patched in place — the layer is never rebuilt — and each chip's
 // innerHTML is memoized (the prototype's `_h`) so unchanged chips are untouched.
 import type { Pin, Rect } from "@autono/pinbox-core/schema";
+import { projectModelTarget } from "../model-target.ts";
 import { deriveUiStatus, type ToolbarState } from "../state.ts";
 import { esc, pinNumber } from "./html.ts";
 
@@ -52,6 +53,7 @@ export function anchorRect(doc: Document, pin: Pin): Rect | null {
 
 /** The same resolution for any captured target — a pin's, or the draft's before it commits. */
 export function targetRect(doc: Document, target: Pin["target"]): Rect | null {
+  if (target?.model) return projectModelTarget(doc, target.model);
   const stored = target?.rect;
   if (stored === undefined) return null;
   const win = doc.defaultView;

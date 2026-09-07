@@ -10,11 +10,12 @@
 // scroll containers and on sticky anchors alike (dogfood: "pins drift").
 import type { Attachment, PinInput } from "@autono/pinbox-core/schema";
 import { type AnchorWatch, watchAnchors } from "./anchor-watch.ts";
-import { captureKey, loadCaptureMode, saveCaptureMode } from "./capture-mode.ts";
+import { captureKey, loadCaptureMode } from "./capture-mode.ts";
 import type { PinboxConfig } from "./index.ts";
 import { shortcutFor } from "./keys.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
+import { toggleToolbarCapture } from "./model-capture.ts";
 import { createPlacement, type Placement } from "./placement.ts";
 import {
   type CapturedImage,
@@ -151,16 +152,7 @@ export class PinboxToolbarElement extends BaseElement {
     return loadCaptureMode(globalThis.localStorage, key, this.config?.capture ?? "dom");
   }
   #toggleCapture(): true {
-    const next: CaptureMode = this.store.get().captureMode === "tab" ? "dom" : "tab";
-    this.store.update({ captureMode: next });
-    // Leaving tab mode ends the share (and Chrome's "sharing this tab" indicator) at once.
-    if (next === "dom") releaseCapture();
-    saveCaptureMode(
-      globalThis.localStorage,
-      captureKey(`pinbox:${this.config?.endpoint ?? ""}`),
-      next,
-    );
-    return true;
+    return toggleToolbarCapture(this, this.config?.endpoint ?? "", releaseCapture);
   }
 
   /** Theme from the OS when the host set none; the page-level CSS (placing cursor) into <head>. */

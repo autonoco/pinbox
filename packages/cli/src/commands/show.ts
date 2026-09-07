@@ -62,6 +62,13 @@ function factLines(pin: Pin): string[] {
 function targetFacts(target: Pin["target"]): string[] {
   if (target === undefined) return [];
   const lines: string[] = [];
+  if (target.model) {
+    const m = target.model;
+    lines.push(
+      row("model", `${m.modelId}/${m.partId} @ ${m.revision}`),
+      row("point", `${m.position.join(", ")} ${m.units}`),
+    );
+  }
   if (target.selector !== undefined) {
     const tag = target.tag === undefined ? "" : `  <${target.tag}>`;
     lines.push(row("target", `${target.selector}${tag}`));

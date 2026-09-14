@@ -66,6 +66,37 @@ Options:
 
 - `--json` - machine output
 
+### pinbox preview
+
+Register and discover local worktree previews. Never switches branches or starts a backend.
+
+Usage: `pinbox preview [options] [command]`
+
+### pinbox preview register
+
+Register this worktree's running frontend preview. State is local to .pinbox/.
+
+Usage: `pinbox preview register [options]`
+
+Options:
+
+- `--url <origin>` - browser-facing HTTP(S) origin
+- `--local-url <origin>` - loopback origin for readiness checks
+- `--label <text>` - display label, for example PR #104 — Inbox
+- `--backend <text>` - backend sharing label (default: "")
+- `--pr <url>` - pull request URL
+- `--json` - machine output
+
+### pinbox preview list
+
+List this repository's worktrees and preview readiness. Missing or stopped previews remain visible.
+
+Usage: `pinbox preview list [options]`
+
+Options:
+
+- `--json` - machine output
+
 ### pinbox list
 
 List pins, newest first.

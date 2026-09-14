@@ -34,7 +34,7 @@
  * this import was dropped for real. `src/build.test.ts` bundles this exact import with Vite and
  * asserts `customElements.define` survives, because statting dist/ cannot see that class of break.
  */
-export function buildBootstrap(hubUrl: string, token?: string): string {
+export function buildBootstrap(hubUrl: string, token?: string, previews?: string): string {
   const hub = JSON.stringify(hubUrl);
   const tag = JSON.stringify("pinbox-toolbar");
   // JSON.stringify is the escape hatch that keeps hub/token values from breaking out of the
@@ -43,6 +43,7 @@ export function buildBootstrap(hubUrl: string, token?: string): string {
 
   return `// pinbox dev toolbar — injected by @autono/pinbox-toolbar (dev only)
 import "@autono/pinbox-toolbar";
+${previews ? 'import { mountPreviewSwitcher } from "@autono/pinbox-toolbar";' : ""}
 
 const TAG = ${tag};
 const HUB = ${hub};
@@ -59,6 +60,7 @@ function mount() {
   if (TOKEN === null) el.removeAttribute("token");
   else el.setAttribute("token", TOKEN);
   if (created) document.body.appendChild(el);
+  ${previews ? `mountPreviewSwitcher(el, ${JSON.stringify(previews)});` : ""}
 }
 
 if (document.readyState === "loading") {

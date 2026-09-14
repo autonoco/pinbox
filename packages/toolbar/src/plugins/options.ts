@@ -12,6 +12,10 @@ export const RESOLVED_VIRTUAL_ID = "\0virtual:pinbox-toolbar";
 export interface PinboxPluginOptions {
   /** Explicit hub base URL. When set, `.pinbox/server.json` discovery is skipped entirely. */
   hub?: string;
+  /** Vite only: show registered local worktree previews. Opt-in, dev-only. */
+  previews?: boolean;
+  /** Local CLI executable used for preview discovery. Defaults to pinbox on PATH. */
+  previewExecutable?: string;
   /** Directory containing `.pinbox/server.json`. Defaults to `process.cwd()`. */
   projectRoot?: string;
   /** Spawn `pinbox serve` when no healthy hub is found. Defaults to true. */

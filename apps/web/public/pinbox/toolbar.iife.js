@@ -839,6 +839,125 @@ var Pinbox = (function(exports) {
 		return true;
 	}
 	//#endregion
+	//#region src/reveal-settle.ts
+	const pending = /* @__PURE__ */ new WeakMap();
+	function cancelRevealSettle(doc) {
+		pending.get(doc)?.();
+	}
+	function settlePinReveal(doc, reveal) {
+		cancelRevealSettle(doc);
+		const win = doc.defaultView;
+		if (!win) return;
+		let attempts = 0;
+		let timer = 0;
+		const events = [
+			"wheel",
+			"touchstart",
+			"pointerdown",
+			"keydown"
+		];
+		const stop = () => {
+			win.clearTimeout(timer);
+			for (const event of events) doc.removeEventListener(event, stop, true);
+			pending.delete(doc);
+		};
+		for (const event of events) doc.addEventListener(event, stop, {
+			capture: true,
+			passive: true
+		});
+		const tick = () => {
+			reveal();
+			if (++attempts >= 10) stop();
+			else timer = win.setTimeout(tick, 150);
+		};
+		pending.set(doc, stop);
+		timer = win.setTimeout(tick, 150);
+	}
+	//#endregion
+	//#region src/pin-reveal.ts
+	/** Query ordering is not a view change; repeated parameter ordering remains intact. */
+	function samePinView(win, value) {
+		if (!value) return true;
+		try {
+			const target = new URL(value, win.location.href);
+			const current = new URL(win.location.href);
+			target.searchParams.sort();
+			current.searchParams.sort();
+			return target.pathname === current.pathname && target.search === current.search;
+		} catch {
+			return true;
+		}
+	}
+	function pagePin(pin) {
+		return pin.target?.selector === "html" || pin.target?.selector === "body";
+	}
+	/** Resolve before clipping: an offscreen row is precisely the target we need to scroll. */
+	function scrollToPin(doc, pin) {
+		if (pin.target?.model || pagePin(pin)) return false;
+		const win = doc.defaultView;
+		if (!win || !samePinView(win, pin.target?.url) || !pin.target?.selector) return false;
+		try {
+			const element = doc.querySelector(pin.target.selector);
+			if (!element?.getClientRects().length) return false;
+			element.scrollIntoView({
+				behavior: "instant",
+				block: "center",
+				inline: "center"
+			});
+			return true;
+		} catch {
+			return false;
+		}
+	}
+	const key = (endpoint) => `pinbox:${endpoint}:reveal`;
+	/** Returns true when leaving this document. Never navigates to a different origin. */
+	function revealPin(doc, pin, endpoint) {
+		cancelRevealSettle(doc);
+		const win = doc.defaultView;
+		if (!win) return false;
+		try {
+			win.sessionStorage.removeItem(key(endpoint));
+		} catch {}
+		if (pagePin(pin) || pin.target?.model) return false;
+		if (pin.target?.url && !samePinView(win, pin.target.url)) try {
+			const target = new URL(pin.target.url, win.location.href);
+			if (target.origin !== win.location.origin || !["http:", "https:"].includes(target.protocol)) return false;
+			win.sessionStorage.setItem(key(endpoint), JSON.stringify({
+				id: pin.id,
+				expires: Date.now() + 3e4
+			}));
+			win.location.assign(target.href);
+			return true;
+		} catch {
+			return false;
+		}
+		scrollToPin(doc, pin);
+		return false;
+	}
+	/** Called on pin updates and DOM changes: SPA content may arrive after the toolbar. */
+	function pendingPinReveal(doc, pins, endpoint) {
+		const win = doc.defaultView;
+		if (!win) return null;
+		try {
+			const raw = win.sessionStorage.getItem(key(endpoint));
+			if (!raw) return null;
+			const pending = JSON.parse(raw);
+			if (typeof pending.id !== "string" || !Number.isFinite(pending.expires) || pending.expires < Date.now()) {
+				win.sessionStorage.removeItem(key(endpoint));
+				return null;
+			}
+			const pin = pins.find((p) => p.id === pending.id);
+			if (!pin || !scrollToPin(doc, pin)) return null;
+			win.sessionStorage.removeItem(key(endpoint));
+			settlePinReveal(doc, () => {
+				scrollToPin(doc, pin);
+			});
+			return pin.id;
+		} catch {
+			return null;
+		}
+	}
+	//#endregion
 	//#region src/targeting/dom.ts
 	/**
 	* Deepest element under (clientX, clientY) that the caller does not ignore, or null when there is
@@ -2695,20 +2814,6 @@ var Pinbox = (function(exports) {
 	function nextOrdinal(pins) {
 		return Math.max(pins.length, ...pins.map((p) => p.n ?? 0)) + 1;
 	}
-	/**
-	* Does the pin's captured URL still describe the view on screen? Path + search
-	* only — hashes are anchors, not views. An absent or unparseable URL never
-	* gates: old pins (and CLI pins) keep rendering exactly as before.
-	*/
-	function sameView(win, url) {
-		if (url === void 0) return true;
-		try {
-			const target = new URL(url, win.location.href);
-			return target.pathname === win.location.pathname && target.search === win.location.search;
-		} catch {
-			return true;
-		}
-	}
 	/** A stored (document-space) rect or point, in today's viewport. */
 	function toViewport(win, p) {
 		return {
@@ -2735,21 +2840,21 @@ var Pinbox = (function(exports) {
 	function targetRect(doc, target) {
 		if (target?.model) return projectModelTarget(doc, target.model);
 		const stored = target?.rect;
-		if (stored === void 0) return null;
 		const win = doc.defaultView;
-		if (win === null) return stored;
-		if (!sameView(win, target?.url)) return null;
+		if (win === null) return stored ?? null;
+		if (!samePinView(win, target?.url)) return null;
 		const selector = target?.selector;
-		if (selector === void 0) return toViewport(win, stored);
+		if (selector === void 0) return stored ? toViewport(win, stored) : null;
+		if (!stored && (selector === "html" || selector === "body")) return null;
 		let el;
 		try {
 			el = doc.querySelector(selector);
 		} catch {
-			return toViewport(win, stored);
+			return stored ? toViewport(win, stored) : null;
 		}
 		if (el === null) return null;
 		const r = el.getBoundingClientRect();
-		if (r.width <= 0 && r.height <= 0) return toViewport(win, stored);
+		if (r.width <= 0 && r.height <= 0) return stored ? toViewport(win, stored) : null;
 		return clipToScrollAncestors(win, el, {
 			x: r.left,
 			y: r.top,
@@ -3063,6 +3168,7 @@ var Pinbox = (function(exports) {
 	* labels the card without claiming an element that was never captured.
 	*/
 	function labelOf(target) {
+		if (target?.selector === "html" || target?.selector === "body") return "PAGE";
 		if (target?.model) return `3D · ${target.model.partId}`;
 		return target?.anchor ?? target?.tag?.toUpperCase() ?? "PIN";
 	}
@@ -4072,16 +4178,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 		/** Inbox item click: activate the pin and scroll it into view (prototype line 700). */
 		#activateFromInbox(pinId) {
 			const pin = this.store.get().pins.find((p) => p.id === pinId);
+			if (!pin) return;
+			this.store.update({
+				inboxOpen: false,
+				activePinId: null,
+				pinsHidden: false
+			});
+			if (revealPin(document, pin, this.config?.endpoint ?? "")) return;
 			this.#ensureThread(pinId);
 			this.store.update({ activePinId: pinId });
-			const rect = pin === void 0 ? null : anchorRect(document, pin);
-			if (rect) {
-				const y = window.scrollY + rect.y + rect.height / 2;
-				window.scrollTo({
-					top: Math.max(0, y - window.innerHeight / 2),
-					behavior: "smooth"
-				});
-			}
 		}
 		/**
 		* Nudge a stale pin: re-post the last human message as a new thread message. A watcher that
@@ -4230,6 +4335,16 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 			});
 		};
 		#render(state) {
+			const restored = pendingPinReveal(document, state.pins, this.config?.endpoint ?? "");
+			if (restored) {
+				this.#ensureThread(restored);
+				this.store.update({
+					activePinId: restored,
+					inboxOpen: false,
+					pinsHidden: false
+				});
+				return;
+			}
 			const placing = state.mode === "placing";
 			this.toggleAttribute("data-placing", placing);
 			document.body.classList.toggle(PAGE_PLACING_CLASS, placing);

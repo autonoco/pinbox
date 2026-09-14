@@ -16,6 +16,7 @@ import { shortcutFor } from "./keys.ts";
 import { pinsToMarkdown, pinToMarkdown } from "./markdown.ts";
 import { createMinimize, type MinimizeController } from "./minimize.ts";
 import { toggleToolbarCapture } from "./model-capture.ts";
+import { pendingPinReveal, revealPin } from "./pin-reveal.ts";
 import { createPlacement, type Placement } from "./placement.ts";
 import {
   type CapturedImage,
@@ -41,7 +42,7 @@ import { type BarDrag, createBarDrag } from "./ui/bar-drag.ts";
 import { type CardActions, renderCard } from "./ui/card.ts";
 import type { DraftKind } from "./ui/card-parts.ts";
 import { createDrawer, type Drawer } from "./ui/drawer.ts";
-import { anchorRect, renderPins } from "./ui/pins.ts";
+import { renderPins } from "./ui/pins.ts";
 import { createMinimizeUi, type MinimizeUi } from "./ui/puck.ts";
 import { createShortcutsModal, type ShortcutsModal } from "./ui/shortcuts.ts";
 import { PAGE_CSS, PAGE_PLACING_CLASS, TOOLBAR_CSS } from "./ui/styles.ts";
@@ -488,16 +489,11 @@ export class PinboxToolbarElement extends BaseElement {
   /** Inbox item click: activate the pin and scroll it into view (prototype line 700). */
   #activateFromInbox(pinId: string): void {
     const pin = this.store.get().pins.find((p) => p.id === pinId);
+    if (!pin) return;
+    this.store.update({ inboxOpen: false, activePinId: null, pinsHidden: false });
+    if (revealPin(document, pin, this.config?.endpoint ?? "")) return;
     this.#ensureThread(pinId);
     this.store.update({ activePinId: pinId });
-    // Scroll to where the anchor is NOW (a viewport rect). A terminal `pinbox pin` has no rect,
-    // and a pin whose element is not on this view has no honest place either — activating still
-    // opens the card (docked mid-viewport, card.ts); scrolling to a stale y would be worse.
-    const rect = pin === undefined ? null : anchorRect(document, pin);
-    if (rect) {
-      const y = window.scrollY + rect.y + rect.height / 2;
-      window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: "smooth" });
-    }
   }
 
   /**
@@ -671,6 +667,12 @@ export class PinboxToolbarElement extends BaseElement {
   };
 
   #render(state: ToolbarState): void {
+    const restored = pendingPinReveal(document, state.pins, this.config?.endpoint ?? "");
+    if (restored) {
+      this.#ensureThread(restored);
+      this.store.update({ activePinId: restored, inboxOpen: false, pinsHidden: false });
+      return;
+    }
     const placing = state.mode === "placing";
     this.toggleAttribute("data-placing", placing);
     document.body.classList.toggle(PAGE_PLACING_CLASS, placing);

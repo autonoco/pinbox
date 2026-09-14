@@ -1,5 +1,12 @@
 import type { PreviewChoice } from "../previews.ts";
+import { icon } from "./actions.ts";
 import { PREVIEW_STYLES } from "./preview-styles.ts";
+
+const CHEVRON = icon('<path d="m4 6 4 4 4-4"/>', 14);
+const REFRESH = icon(
+  '<path d="M2 8a6 6 0 0 1 10.5-4L14 6M14 2v4h-4M14 8a6 6 0 0 1-10.5 4L2 10M2 14v-4h4"/>',
+  14,
+);
 
 const BRANCH =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="4" r="1.5"/><path d="M4 4.5v7M12 5.5v1a3 3 0 0 1-3 3H7a3 3 0 0 0-3 3"/></svg>';
@@ -11,9 +18,9 @@ export function createPreviewView(doc: Document, root: ShadowRoot, bar: Element)
   const wrap = doc.createElement("div");
   wrap.dataset["previewSwitcher"] = "";
   wrap.className = "pb-preview-wrap";
-  wrap.innerHTML = `<button type="button" class="pb-tb pb-preview-trigger" aria-label="Switch preview" aria-haspopup="menu" aria-controls="pb-preview-menu" aria-expanded="false">${BRANCH}<span class="name">PREVIEW</span><span aria-hidden="true">⌄</span></button>
+  wrap.innerHTML = `<button type="button" class="pb-tb pb-preview-trigger" aria-label="Switch preview" aria-haspopup="menu" aria-controls="pb-preview-menu" aria-expanded="false">${BRANCH}<span class="name">PREVIEW</span>${CHEVRON}</button>
     <div id="pb-preview-menu" class="pb-preview-menu" popover="auto" aria-label="Local previews">
-      <div class="pb-preview-head"><span>LOCAL PREVIEWS</span><button type="button" class="pb-tb sq" aria-label="Refresh previews">↻</button></div>
+      <div class="pb-preview-head"><span>LOCAL PREVIEWS</span><button type="button" class="pb-tb sq" aria-label="Refresh previews">${REFRESH}</button></div>
       <div class="pb-preview-list" role="menu" aria-label="Preview branch or worktree"></div>
       <div class="pb-preview-foot"><span class="pb-preview-status" role="status">Loading previews…</span><a target="_blank" rel="noopener noreferrer" hidden>OPEN PR ↗</a></div>
     </div>`;

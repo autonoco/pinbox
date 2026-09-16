@@ -66,6 +66,7 @@ defineToolbarElement();
 
 export type { CaptureResult } from "./capture.ts";
 export { PinboxToolbarElement } from "./element.ts";
+export { mountPreviewSwitcher } from "./previews.ts";
 export type { Draft, Store, ToolbarState, UiStatus } from "./state.ts";
 export {
   appendThreadMessage,

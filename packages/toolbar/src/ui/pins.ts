@@ -5,6 +5,7 @@
 // innerHTML is memoized (the prototype's `_h`) so unchanged chips are untouched.
 import type { Pin, Rect } from "@autono/pinbox-core/schema";
 import { projectModelTarget } from "../model-target.ts";
+import { samePinView } from "../pin-reveal.ts";
 import { deriveUiStatus, type ToolbarState } from "../state.ts";
 import { esc, pinNumber } from "./html.ts";
 
@@ -14,21 +15,6 @@ const chipMemo = new WeakMap<Element, string>();
 /** What the hub will number the next pin: max known `n`, else the pin count. */
 export function nextOrdinal(pins: Pin[]): number {
   return Math.max(pins.length, ...pins.map((p) => p.n ?? 0)) + 1;
-}
-
-/**
- * Does the pin's captured URL still describe the view on screen? Path + search
- * only — hashes are anchors, not views. An absent or unparseable URL never
- * gates: old pins (and CLI pins) keep rendering exactly as before.
- */
-function sameView(win: Window, url: string | undefined): boolean {
-  if (url === undefined) return true;
-  try {
-    const target = new URL(url, win.location.href);
-    return target.pathname === win.location.pathname && target.search === win.location.search;
-  } catch {
-    return true;
-  }
 }
 
 /** A stored (document-space) rect or point, in today's viewport. */
@@ -55,21 +41,22 @@ export function anchorRect(doc: Document, pin: Pin): Rect | null {
 export function targetRect(doc: Document, target: Pin["target"]): Rect | null {
   if (target?.model) return projectModelTarget(doc, target.model);
   const stored = target?.rect;
-  if (stored === undefined) return null;
+
   const win = doc.defaultView;
-  if (win === null) return stored;
-  if (!sameView(win, target?.url)) return null;
+  if (win === null) return stored ?? null;
+  if (!samePinView(win, target?.url)) return null;
   const selector = target?.selector;
-  if (selector === undefined) return toViewport(win, stored);
+  if (selector === undefined) return stored ? toViewport(win, stored) : null;
+  if (!stored && (selector === "html" || selector === "body")) return null;
   let el: Element | null;
   try {
     el = doc.querySelector(selector);
   } catch {
-    return toViewport(win, stored); // a selector we cannot evaluate must not hide the pin forever
+    return stored ? toViewport(win, stored) : null; // a selector we cannot evaluate must not hide the pin forever
   }
   if (el === null) return null;
   const r = el.getBoundingClientRect();
-  if (r.width <= 0 && r.height <= 0) return toViewport(win, stored);
+  if (r.width <= 0 && r.height <= 0) return stored ? toViewport(win, stored) : null;
   return clipToScrollAncestors(win, el, { x: r.left, y: r.top, width: r.width, height: r.height });
 }
 

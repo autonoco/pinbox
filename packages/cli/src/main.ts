@@ -13,6 +13,7 @@ import { registerInit } from "./commands/init.ts";
 import { registerLink } from "./commands/link.ts";
 import { registerList } from "./commands/list.ts";
 import { registerPin } from "./commands/pin.ts";
+import { registerPreviewCommand } from "./commands/preview.ts";
 import { registerReply } from "./commands/reply.ts";
 import { registerResolve } from "./commands/resolve.ts";
 import { registerServe } from "./commands/serve.ts";
@@ -49,6 +50,7 @@ export function buildProgram(): Command {
   // Slotted after init so no existing verb's position changes.
   registerPin(program);
   registerSummary(program);
+  registerPreviewCommand(program);
   registerList(program);
   registerShow(program);
   registerReply(program);

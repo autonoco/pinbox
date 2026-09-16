@@ -20,6 +20,7 @@ import {
   resolveOptions,
   VIRTUAL_ID,
 } from "./options";
+import { PREVIEWS_PATH, servePreviews } from "./previews";
 import { buildBootstrap } from "./snippet";
 
 const PLUGIN_NAME = "pinbox";
@@ -31,6 +32,9 @@ const PLUGIN_NAME = "pinbox";
  */
 export function pinbox(options?: PinboxPluginOptions): Plugin {
   const resolved = resolveOptions(options);
+  const previews = options?.previews ?? process.env["PINBOX_PREVIEWS"] === "1";
+  const previewExecutable =
+    options?.previewExecutable ?? process.env["PINBOX_PREVIEW_EXECUTABLE"] ?? "pinbox";
 
   // Hard off switch: an inert plugin with a name and no hooks. Vite accepts this happily and it
   // keeps `plugins: [pinbox({ disabled: !dev })]` legal without array-hole juggling.
@@ -56,7 +60,8 @@ export function pinbox(options?: PinboxPluginOptions): Plugin {
     // a `command === "serve"` check or a NODE_ENV guard — they are redundant, not defence in depth.
     apply: "serve",
 
-    async configureServer() {
+    async configureServer(server) {
+      if (previews) servePreviews(server, resolved.projectRoot, previewExecutable);
       // Adopt a running hub or start one. Awaiting here means the hub is usually already up by
       // the time `load` runs; if it is not, `load` awaits the same promise.
       await hub();
@@ -88,7 +93,11 @@ export function pinbox(options?: PinboxPluginOptions): Plugin {
       // Token read PER LOAD, not memoized: the daemon may have restarted (new token) since the
       // page was last served; a stale token would 401 every toolbar request until a config edit.
       // Bounded exposure — see the security note in ./snippet.ts.
-      return buildBootstrap(status.url, readHubToken(resolved.projectRoot));
+      return buildBootstrap(
+        status.url,
+        readHubToken(resolved.projectRoot),
+        previews ? PREVIEWS_PATH : undefined,
+      );
     },
 
     transformIndexHtml: {
